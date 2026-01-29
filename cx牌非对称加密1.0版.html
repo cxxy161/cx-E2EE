@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>加密终端 V1.5</title>
+<style>
+:root{--p:#00f2ff;--s:#0078ff;--b:#0f172a;--g:rgba(30,41,59,0.7);--t:#e2e8f0;--f:-apple-system,sans-serif}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;padding:15px;background:radial-gradient(circle at top right,#1e293b,#0f172a);color:var(--t);font-family:var(--f);min-height:100vh;display:flex;flex-direction:column;align-items:center}
+.box{width:100%;max-width:550px}
+h1{text-align:center;font-size:1.4rem;margin:0 0 20px;background:linear-gradient(90deg,var(--p),var(--s));-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:800;letter-spacing:2px}
+.card{background:var(--g);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:15px;margin-bottom:15px;box-shadow:0 4px 20px rgba(0,0,0,0.2)}
+.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:8px;color:var(--p);font-weight:600;font-size:0.9rem}
+.dot{width:8px;height:8px;border-radius:50%;background:#475569;transition:0.3s}
+.dot.on{background:#00ff88;box-shadow:0 0 8px #00ff88}
+label{display:block;font-size:0.75rem;color:#94a3b8;margin:8px 0 4px}
+input,textarea{width:100%;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:10px;color:#fff;font-family:'Courier New',monospace;font-size:0.9rem;outline:none;transition:0.3s}
+input:focus,textarea:focus{border-color:var(--s)}
+textarea{min-height:70px;resize:vertical}
+.btn{width:100%;border:none;border-radius:6px;padding:12px;font-weight:600;cursor:pointer;background:linear-gradient(135deg,var(--s),#0056b3);color:#fff;margin-top:12px}
+.btn:active{transform:scale(0.98)}
+.btn:disabled{opacity:0.5;filter:grayscale(1)}
+.res{background:rgba(0,0,0,0.4);border-radius:6px;padding:10px;margin-top:10px;word-break:break-all;font-family:'Courier New',monospace;font-size:0.8rem;display:none;border:1px dashed #444}
+.res.show{display:block;animation:F 0.3s}
+.copy{background:rgba(255,255,255,0.05);color:var(--p);padding:6px;font-size:0.75rem;width:100%;margin-top:5px;border:none;cursor:pointer}
+.row{display:flex;align-items:center;gap:8px;font-size:0.8rem;color:#94a3b8;margin:5px 0}
+#toast{position:fixed;bottom:30px;left:50%;transform:translate(-50%,100px);background:#fff;color:#000;padding:8px 20px;border-radius:20px;font-size:0.85rem;opacity:0;transition:0.3s;pointer-events:none;font-weight:600}
+#toast.show{transform:translate(-50%,0);opacity:1}
+@keyframes F{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div class="box">
+    <h1>E2E 加密终端 V5</h1>
+
+    <div class="card">
+        <div class="head"><span>身份凭证 (IDENTITY)</span><div id="led" class="dot"></div></div>
+        <label>助记句 (脑钱包种子)</label>
+        <input type="text" id="pass" placeholder="在此输入唯一中文/字符口令" oninput="resetState()">
+        <button class="btn" onclick="initID()" id="b1">初始化身份</button>
+        <div id="box-pk" class="res">
+            <div style="color:var(--p);margin-bottom:5px">本端公钥:</div>
+            <div id="pk"></div>
+            <button class="copy" onclick="cp('pk')">复制公钥</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="head">加密载荷 (ENCRYPT)</div>
+        <label>接收方公钥</label>
+        <input type="text" id="rpk" placeholder="粘贴对方公钥">
+        <div class="row"><input type="checkbox" id="self" onchange="tSelf()" style="width:auto">回路测试 (发给自己)</div>
+        <label>明文信息</label>
+        <textarea id="pt" placeholder="输入机密信息..."></textarea>
+        <button class="btn" onclick="doEnc()">执行加密</button>
+        <div id="box-ct" class="res">
+            <div id="ct"></div>
+            <button class="copy" onclick="cp('ct')">复制密文数据包</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="head">解密工件 (DECRYPT)</div>
+        <label>密文数据包</label>
+        <textarea id="ci" placeholder="粘贴 Base64 密文..."></textarea>
+        <button class="btn" onclick="doDec()">执行解密</button>
+        <div id="box-res" class="res">
+            <div style="color:#00ff88;margin-bottom:5px">原始内容:</div>
+            <div id="dt" style="color:#fff"></div>
+        </div>
+    </div>
+</div>
+<div id="toast">已复制</div>
+
+<script>
+// 极简纯JS数学库 (Curve25519)
+const M={P:2n**255n-19n,inv(n){return this.p(n,this.P-2n)},p(b,e){let r=1n;b%=this.P;while(e>0n){if(e%2n===1n)r=(r*b)%this.P;b=(b*b)%this.P;e/=2n}return r},mul(s,p){const k=new Uint8Array(s);k[0]&=248;k[31]&=127;k[31]|=64;let n=0n;for(let i=31;i>=0;i--)n=(n<<8n)+BigInt(k[i]);let u=0n;if(p)for(let i=31;i>=0;i--)u=(u<<8n)+BigInt(p[i]);else u=9n;let x1=u,x2=1n,z2=0n,x3=u,z3=1n,sw=0n;for(let t=254;t>=0;t--){const kt=(n>>BigInt(t))&1n;sw^=kt;if(sw){[x2,x3]=[x3,x2];[z2,z3]=[z3,z2]}sw=kt;const A=x2+z2,AA=A*A,B=x2-z2,BB=B*B,E=AA-BB,C=x3+z3,D=x3-z3,DA=D*A,CB=C*B,ad=DA+CB,su=DA-CB;x3=ad*ad;z3=x1*(su*su);x2=AA*BB;z2=E*(AA+486662n*E/4n);x2%=this.P;z2%=this.P;x3%=this.P;z3%=this.P}if(sw){[x2,x3]=[x3,x2];[z2,z3]=[z3,z2]}const r=(x2*this.inv(z2))%this.P;const b=new Uint8Array(32);let tp=r;for(let i=0;i<32;i++){b[i]=Number(tp&0xFFn);tp>>=8n}return b}};
+// 核心逻辑
+const A={
+    te:new TextEncoder,td:new TextDecoder,pr:null,pk:null,
+    b64(b){return btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')},
+    ub64(s){let b=s.replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';return Uint8Array.from(atob(b),c=>c.charCodeAt(0)).buffer},
+    async init(tx){
+        if(!tx)throw"请输入助记句";
+        const km=await crypto.subtle.importKey("raw",this.te.encode(tx),{name:"PBKDF2"},0,["deriveBits"]);
+        const sd=await crypto.subtle.deriveBits({name:"PBKDF2",salt:this.te.encode("S_V5"),iterations:200000,hash:"SHA-256"},km,256);
+        this.pr=new Uint8Array(sd);this.pk=this.b64(M.mul(this.pr,null));return this.pk;
+    },
+    async run(k,txt,dec){
+        if(!this.pr)throw"请先初始化身份";
+        const op="AES-GCM";
+        if(dec){
+            const j=JSON.parse(this.td.decode(this.ub64(txt)));
+            const sh=M.mul(this.pr,new Uint8Array(this.ub64(j.k)));
+            const ky=await crypto.subtle.importKey("raw",sh,op,0,["decrypt"]);
+            return this.td.decode(await crypto.subtle.decrypt({name:op,iv:this.ub64(j.i)},ky,this.ub64(j.c)));
+        }else{
+            const ep=crypto.getRandomValues(new Uint8Array(32));
+            const sh=M.mul(ep,new Uint8Array(this.ub64(k)));
+            const ky=await crypto.subtle.importKey("raw",sh,op,0,["encrypt"]);
+            const iv=crypto.getRandomValues(new Uint8Array(12));
+            const ct=await crypto.subtle.encrypt({name:op,iv},ky,this.te.encode(txt));
+            return this.b64(this.te.encode(JSON.stringify({k:this.b64(M.mul(ep,null)),i:this.b64(iv),c:this.b64(ct)})));
+        }
+    }
+};
+// 交互
+const $=(i)=>document.getElementById(i);
+const S=(i,v)=>$(i).classList.toggle('show',v);
+const T=(m)=>{let t=$('toast');t.innerText=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000)};
+async function initID(){
+    let b=$('b1');b.disabled=1;b.innerText="计算中...";
+    setTimeout(async()=>{
+        try{
+            $('pk').innerText=await A.init($('pass').value);
+            S('box-pk',1);$('led').classList.add('on');b.innerText="身份已激活";
+        }catch(e){alert(e);b.disabled=0;b.innerText="初始化身份"}
+    },50);
+}
+async function doEnc(){try{$('ct').innerText=await A.run($('rpk').value,$('pt').value,0);S('box-ct',1)}catch(e){T("错误:"+e)}}
+async function doDec(){try{$('dt').innerText=await A.run(0,$('ci').value,1);S('box-res',1)}catch(e){$('dt').innerText="解密失败: 密钥错误或数据损坏";S('box-res',1)}}
+function tSelf(){let c=$('self');if(c.checked){if(A.pk){$('rpk').value=A.pk}else{T("请先生成身份");c.checked=0}}}
+function resetState(){$('led').classList.remove('on');$('b1').disabled=0;$('b1').innerText="初始化身份";S('box-pk',0)}
+function cp(i){let t=$(i).innerText;if(t){navigator.clipboard.writeText(t).then(()=>T("已复制"))}}
+</script>
+</body>
+</html>
