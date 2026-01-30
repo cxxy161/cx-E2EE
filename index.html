@@ -1,1 +1,211 @@
-<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>CX 加密终端</title><style>:root{--p:#00f2ff;--s:#0078ff;--bg:#0f172a;--c:rgba(30,41,59,0.7);--b:rgba(255,255,255,0.1);--t:#e2e8f0;--ts:#94a3b8;--f:-apple-system,sans-serif;--m:'Courier New',monospace}*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;padding:15px;background:var(--bg) radial-gradient(circle at 15% 50%,rgba(0,242,255,0.08),transparent 25%);color:var(--t);font-family:var(--f);min-height:100vh;display:flex;flex-direction:column;align-items:center}body::before{content:"";position:fixed;top:0;left:0;width:100%;height:100%;background:linear-gradient(var(--b) 1px,transparent 1px),linear-gradient(90deg,var(--b) 1px,transparent 1px);background-size:40px 40px;opacity:.15;z-index:-1;pointer-events:none}.box{width:100%;max-width:600px;padding-bottom:80px}h1{text-align:center;font-size:1.2rem;margin:10px 0 20px;background:linear-gradient(90deg,var(--p),var(--s));-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:800;letter-spacing:3px;border-bottom:1px solid var(--b);padding-bottom:15px}.nav{display:flex;gap:10px;margin-bottom:20px;background:rgba(0,0,0,.3);padding:5px;border-radius:8px;border:1px solid var(--b)}.nb{flex:1;border:none;background:0 0;color:var(--ts);padding:10px;font-size:.85rem;font-weight:600;cursor:pointer;border-radius:5px;transition:.3s;font-family:var(--m)}.nb.on{background:rgba(0,242,255,.15);color:var(--p);box-shadow:0 0 10px rgba(0,242,255,.1);border:1px solid rgba(0,242,255,.3)}.mod{display:none;animation:F .4s ease}.mod.on{display:block}.card{background:var(--c);backdrop-filter:blur(16px);border:1px solid var(--b);border-radius:12px;padding:15px;margin-bottom:15px;box-shadow:0 4px 20px rgba(0,0,0,.3)}.hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid var(--b);padding-bottom:8px;color:var(--p);font-weight:600;font-size:.9rem}.dot{width:8px;height:8px;border-radius:50%;background:#475569;transition:.3s}.dot.on{background:#00ff88;box-shadow:0 0 8px #00ff88}label{display:block;font-size:.75rem;color:var(--ts);margin:10px 0 6px;font-family:var(--m)}input,textarea,select{width:100%;background:rgba(0,0,0,.4);border:1px solid var(--b);border-radius:6px;padding:12px;color:#fff;font-family:var(--m);font-size:.9rem;outline:0;transition:.3s}input:focus,textarea:focus,select:focus{border-color:var(--s);box-shadow:0 0 10px rgba(0,120,255,.2)}textarea{min-height:80px;resize:vertical}.btn{width:100%;border:none;border-radius:6px;padding:14px;font-weight:600;cursor:pointer;margin-top:15px;background:linear-gradient(135deg,var(--s),#0056b3);color:#fff;transition:.2s}.btn:active{transform:scale(.98)}.btn:disabled{opacity:.5;filter:grayscale(1)}.res{background:rgba(0,0,0,.6);border:1px dashed #444;border-radius:6px;padding:10px;margin-top:12px;word-break:break-all;font-family:var(--m);font-size:.8rem;display:none}.res.on{display:block;animation:S .3s}.cpy{background:rgba(0,242,255,.1);color:var(--p);padding:8px;font-size:.75rem;width:100%;margin-top:8px;border:1px solid rgba(0,242,255,.2);cursor:pointer;transition:.3s}.cpy:hover{background:rgba(0,242,255,.2)}.row{display:flex;align-items:center;gap:8px;font-size:.8rem;color:var(--ts);margin:5px 0}.tabs{display:flex;border-bottom:1px solid var(--b);margin-bottom:15px}.tab{flex:1;text-align:center;padding:10px;font-size:.85rem;color:var(--ts);cursor:pointer;border-bottom:2px solid transparent;transition:.3s}.tab.on{color:var(--p);border-bottom-color:var(--p);background:linear-gradient(to top,rgba(0,242,255,.05),transparent)}.pan{display:none}.pan.on{display:block}input[type=file]{background:rgba(255,255,255,.05);padding:10px;width:100%;border-radius:6px;color:var(--ts);font-size:.8rem}.p-img{width:100%;max-height:200px;object-fit:contain;background:#000;border:1px solid var(--b);margin-top:10px;display:none}.est{font-size:.75rem;color:var(--p);text-align:right;min-height:18px;margin-top:4px}.bg{display:flex;gap:10px;margin-top:10px}.ba{flex:1;background:rgba(255,255,255,.1);color:var(--p);border:1px solid var(--b);padding:10px;border-radius:6px;cursor:pointer;font-weight:600;font-size:.8rem}#toast{position:fixed;bottom:30px;left:50%;transform:translate(-50%,100px);background:rgba(255,255,255,.95);color:#000;padding:10px 24px;border-radius:30px;font-size:.85rem;opacity:0;transition:.4s;pointer-events:none;font-weight:700;z-index:99;box-shadow:0 5px 15px rgba(0,0,0,.5)}#toast.on{transform:translate(-50%,0);opacity:1}@keyframes F{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}@keyframes S{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}</style></head><body><div class="box"><h1>CX牌加密终端 V1</h1><div class="nav"><button class="nb on" onclick="SM('txt')">文本信道</button><button class="nb" onclick="SM('img')">图像加密</button></div><div id="m-txt" class="mod on"><div class="card"><div class="hd"><span>身份凭证</span><div id="led" class="dot"></div></div><label>助记句</label><input type="text" id="tp" placeholder="在此输入唯一中文/字符口令" oninput="TR()"><button class="btn" onclick="TI()" id="tb">初始化身份</button><div id="bx-pk" class="res"><div style="color:var(--p);margin-bottom:5px">本端公钥:</div><div id="tpk" style="color:#fff"></div><button class="cpy" onclick="C('tpk')">复制公钥</button></div></div><div class="card"><div class="hd">加密发送</div><label>接收方公钥</label><input type="text" id="trpk" placeholder="粘贴对方公钥"><div class="row"><input type="checkbox" id="tslf" onchange="TS()" style="width:auto"><span>回路测试 (发给自己)</span></div><label>明文信息</label><textarea id="tpt" placeholder="输入机密信息..."></textarea><button class="btn" onclick="TE()">执行加密</button><div id="bx-ct" class="res"><div id="tct" style="color:var(--ts)"></div><button class="cpy" onclick="C('tct')">复制密文数据包</button></div></div><div class="card"><div class="hd">解密接收</div><label>密文数据包</label><textarea id="tci" placeholder="粘贴 Base64 密文..."></textarea><button class="btn" onclick="TD()">执行解密</button><div id="bx-dt" class="res"><div style="color:#00ff88;margin-bottom:5px">原始内容:</div><div id="tdt" style="color:#fff"></div></div></div></div><div id="m-img" class="mod"><div class="card" style="padding:0;overflow:hidden"><div class="tabs"><div class="tab on" onclick="IS('enc')">加密 (发送)</div><div class="tab" onclick="IS('dec')">解密 (接收)</div></div><div style="padding:15px"><div id="p-enc" class="pan on"><label>1. 选择原图</label><input type="file" id="if-enc" accept="image/*" onchange="IP(this,1)"><img id="ip-enc" class="p-img"><label>2. 设定密钥</label><input type="text" id="ik-enc" placeholder="输入加密密码（支持中英文和数字）"><label>3. 压缩设置</label><select id="iq" onchange="IU()"><option value="0.75">标准 (推荐)</option><option value="0.92">高质量</option><option value="0.6">高压缩 (噪点多)</option><option value="png">无损 (PNG)</option></select><div id="ie" class="est"></div><button class="btn" onclick="IR(1)">生成视觉乱码</button><div id="ir-enc" class="res"><label>✅ 处理完成</label><img id="io-enc" class="p-img" style="display:block;border-color:#00ff88"><div class="bg"><button class="ba" onclick="DL('io-enc')">📥 下载</button><button class="ba" onclick="CI('io-enc')">📋 复制</button></div></div></div><div id="p-dec" class="pan"><label>1. 上传密文图像</label><input type="file" id="if-dec" accept="image/*" onchange="IP(this,0)"><img id="ip-dec" class="p-img"><label>2. 解密密钥</label><input type="text" id="ik-dec" placeholder="输入对应密码"><button class="btn" onclick="IR(0)">开始还原</button><div id="ir-dec" class="res"><label style="color:#00ff88">✅ 还原结果</label><img id="io-dec" class="p-img" style="display:block;border-color:#00ff88"><div class="bg"><button class="ba" onclick="DL('io-dec')">📥 下载</button><button class="ba" onclick="CI('io-dec')">📋 复制</button></div></div></div></div></div><div id="ild" style="display:none;text-align:center;color:var(--p);margin-top:10px;font-family:var(--m)">>>> 数据流处理中...</div></div></div><div id="toast">系统提示</div><canvas id="cvs" style="display:none"></canvas><script>const d=document,$=i=>d.getElementById(i),T=m=>{let t=$('toast');t.innerText=m;t.className='on';clearTimeout(t.tm);t.tm=setTimeout(()=>t.className='',2500)};function C(i){let t=$(i).innerText;if(t)navigator.clipboard.writeText(t).then(()=>T("已复制文本"))}function SM(m){d.querySelectorAll('.mod').forEach(e=>e.classList.remove('on'));d.querySelectorAll('.nb').forEach(e=>e.classList.remove('on'));$('m-'+m).classList.add('on');d.querySelectorAll('.nb')[m==='txt'?0:1].classList.add('on')}const M={P:2n**255n-19n,i(n){return this.p(n,this.P-2n)},p(b,e){let r=1n;b%=this.P;while(e>0n){if(e%2n===1n)r=(r*b)%this.P;b=(b*b)%this.P;e/=2n}return r},m(s,p){const k=new Uint8Array(s);k[0]&=248;k[31]&=127;k[31]|=64;let n=0n;for(let i=31;i>=0;i--)n=(n<<8n)+BigInt(k[i]);let u=0n;if(p)for(let i=31;i>=0;i--)u=(u<<8n)+BigInt(p[i]);else u=9n;let x1=u,x2=1n,z2=0n,x3=u,z3=1n,sw=0n;for(let t=254;t>=0;t--){const kt=(n>>BigInt(t))&1n;sw^=kt;if(sw){[x2,x3]=[x3,x2];[z2,z3]=[z3,z2]}sw=kt;const A=x2+z2,AA=A*A,B=x2-z2,BB=B*B,E=AA-BB,C=x3+z3,D=x3-z3,DA=D*A,CB=C*B,ad=DA+CB,su=DA-CB;x3=ad*ad;z3=x1*(su*su);x2=AA*BB;z2=E*(AA+486662n*E/4n);x2%=this.P;z2%=this.P;x3%=this.P;z3%=this.P}if(sw){[x2,x3]=[x3,x2];[z2,z3]=[z3,z2]}const r=(x2*this.i(z2))%this.P;const b=new Uint8Array(32);let tp=r;for(let i=0;i<32;i++){b[i]=Number(tp&0xFFn);tp>>=8n}return b}};const A={e:new TextEncoder,d:new TextDecoder,pr:null,pk:null,b(b){return btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')},u(s){let b=s.replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';return Uint8Array.from(atob(b),c=>c.charCodeAt(0)).buffer},async i(t){if(!t)throw"请输入口令";const k=await crypto.subtle.importKey("raw",this.e.encode(t),{name:"PBKDF2"},0,["deriveBits"]),s=await crypto.subtle.deriveBits({name:"PBKDF2",salt:this.e.encode("SV2"),iterations:2e5,hash:"SHA-256"},k,256);this.pr=new Uint8Array(s);this.pk=this.b(M.m(this.pr,null));return this.pk},async r(k,t,d){if(!this.pr)throw"请初始化身份";const o="AES-GCM";if(d){const j=JSON.parse(this.d.decode(this.u(t))),s=M.m(this.pr,new Uint8Array(this.u(j.k))),y=await crypto.subtle.importKey("raw",s,o,0,["decrypt"]);return this.d.decode(await crypto.subtle.decrypt({name:o,iv:this.u(j.i)},y,this.u(j.c)))}else{const e=crypto.getRandomValues(new Uint8Array(32)),s=M.m(e,new Uint8Array(this.u(k))),y=await crypto.subtle.importKey("raw",s,o,0,["encrypt"]),v=crypto.getRandomValues(new Uint8Array(12)),c=await crypto.subtle.encrypt({name:o,iv:v},y,this.e.encode(t));return this.b(this.e.encode(JSON.stringify({k:this.b(M.m(e,null)),i:this.b(v),c:this.b(c)})))}}};async function TI(){let b=$('tb');b.disabled=1;b.innerText="计算中...";setTimeout(async()=>{try{$('tpk').innerText=await A.i($('tp').value);$('bx-pk').classList.add('on');$('led').classList.add('on');b.innerText="身份已激活"}catch(e){alert(e);b.disabled=0;b.innerText="初始化身份"}},50)}async function TE(){try{$('tct').innerText=await A.r($('trpk').value,$('tpt').value,0);$('bx-ct').classList.add('on')}catch(e){T("错误:"+e)}}async function TD(){try{$('tdt').innerText=await A.r(0,$('tci').value,1);$('bx-dt').classList.add('on')}catch(e){$('tdt').innerText="解密失败";$('bx-dt').classList.add('on')}}function TS(){let c=$('tslf');if(c.checked){if(A.pk)$('trpk').value=A.pk;else{T("请先生成身份");c.checked=0}}}function TR(){$('led').className='dot';$('tb').disabled=0;$('tb').innerText="初始化身份";$('bx-pk').classList.remove('on')}let iw=0,ih=0;const R=a=>()=>{var t=a+=0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296},H=s=>{let a=1779033703,b=3144134277,c=1013904242,d=2773480762;for(let i=0,k;i<s.length;i++){k=s.charCodeAt(i);a=b^Math.imul(a^k,597399067);b=c^Math.imul(b^k,2869860233);c=d^Math.imul(c^k,951274213);d=a^Math.imul(d^k,2716044179)}return a+b+c+d},GP=(l,s)=>{const r=R(s),p=new Uint32Array(l);for(let i=0;i<l;i++)p[i]=i;for(let i=l-1;i>0;i--){const j=Math.floor(r()*(i+1)),t=p[i];p[i]=p[j];p[j]=t}return p};function IS(m){d.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));d.querySelectorAll('.pan').forEach(p=>p.classList.remove('on'));const i=m==='enc'?0:1;d.querySelectorAll('.tab')[i].classList.add('on');$('p-'+m).classList.add('on')}function IP(i,e){const f=i.files[0];if(!f)return;const r=new FileReader;r.onload=v=>{const g=$(e?'ip-enc':'ip-dec');g.onload=()=>{if(e){iw=g.naturalWidth;ih=g.naturalHeight;IU()}};g.src=v.target.result;g.style.display='block'};r.readAsDataURL(f)}function IU(){const v=$('ie'),q=$('iq').value;if(!iw){v.innerText="";return}const t=iw*ih;let b=0;if(q==='png')b=t*4*.75;else{const n=parseFloat(q);b=t*4*(n>.9?.45:n>.7?.25:.12)}v.innerText="预计: "+(b>1048576?(b/1048576).toFixed(2)+" MB":(b/1024).toFixed(0)+" KB")}async function IR(e){const s=e?'enc':'dec',f=$('if-'+s).files[0],k=$('ik-'+s).value;if(!f)return T("请选择图片");if(!k)return T("请输入密钥");$('ir-'+s).classList.remove('on');$('ild').style.display='block';setTimeout(()=>{const r=new FileReader;r.onload=v=>{const g=new Image;g.onload=()=>{IX(g,k,e,u=>{const o=$('io-'+s);o.src=u;$('ild').style.display='none';$('ir-'+s).classList.add('on');o.scrollIntoView({behavior:'smooth'})})};g.src=v.target.result};r.readAsDataURL(f)},50)}function IX(g,k,e,c){const v=$('cvs'),w=g.width,h=g.height;v.width=w;v.height=h;const x=v.getContext('2d');x.drawImage(g,0,0);const d=x.getImageData(0,0,w,h),b=d.data,l=w*h,p=GP(l,H(k)),n=new Uint8ClampedArray(b.length);if(e)for(let i=0;i<l;i++){let s=p[i]*4,t=i*4;n[t]=b[s];n[t+1]=b[s+1];n[t+2]=b[s+2];n[t+3]=255}else for(let i=0;i<l;i++){let s=i*4,t=p[i]*4;n[t]=b[s];n[t+1]=b[s+1];n[t+2]=b[s+2];n[t+3]=255}x.putImageData(new ImageData(n,w,h),0,0);const q=$('iq').value;c(v.toDataURL('image/'+(e&&(q!=='png')?'jpeg':'png'),e&&q!=='png'?parseFloat(q):void 0))}function DL(i){const l=d.createElement('a');l.download=`CX_${Date.now()}.png`;l.href=$(i).src;l.click()}async function CI(i){try{const b=await(await fetch($(i).src)).blob();await navigator.clipboard.write([new ClipboardItem({'image/png':b})]);T("✅ 图片已复制")}catch(e){T("无法复制，请长按保存")}}</script></body></html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CX 加密工具箱2.0版</title>
+<style>
+:root{--p:#00f2ff;--s:#0078ff;--a:#00ff88;--bg:#0f172a;--c:rgba(30,41,59,0.75);--b:rgba(255,255,255,0.15);--t:#e2e8f0;--ts:#94a3b8;--fm:'Courier New',monospace;--fu:-apple-system,sans-serif}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;padding:15px;background:var(--bg);background-image:radial-gradient(circle at 15% 50%,rgba(0,242,255,0.08),transparent 25%),radial-gradient(circle at 85% 30%,rgba(0,120,255,0.08),transparent 25%);color:var(--t);font-family:var(--fu);min-height:100vh;display:flex;flex-direction:column;align-items:center}
+body::before{content:"";position:fixed;top:0;left:0;width:100%;height:100%;background:linear-gradient(var(--b) 1px,transparent 1px),linear-gradient(90deg,var(--b) 1px,transparent 1px);background-size:40px 40px;opacity:.1;z-index:-1;pointer-events:none}
+.box{width:100%;max-width:1200px;padding-bottom:60px}
+h1{text-align:center;font-size:1.5rem;margin:10px 0 20px;background:linear-gradient(90deg,var(--p),var(--s));-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:800;letter-spacing:2px;border-bottom:1px solid var(--b);padding-bottom:15px}
+.nav{display:flex;gap:10px;margin-bottom:20px;justify-content:center}
+.nb{background:rgba(0,0,0,.3);color:var(--ts);border:1px solid var(--b);padding:12px 25px;font-size:1rem;font-weight:600;cursor:pointer;border-radius:8px;transition:.3s;min-width:120px}
+.nb.on{background:rgba(0,242,255,.15);color:var(--p);border-color:var(--p);box-shadow:0 0 15px rgba(0,242,255,.15)}
+.mod{display:none;animation:F .4s ease}.mod.on{display:block}
+.card{background:var(--c);backdrop-filter:blur(12px);border:1px solid var(--b);border-radius:12px;padding:20px;margin-bottom:15px;box-shadow:0 4px 20px rgba(0,0,0,.3)}
+.ht{color:var(--p);font-weight:700;font-size:1rem;margin-bottom:15px;border-bottom:1px solid var(--b);padding-bottom:8px;display:flex;justify-content:space-between}
+details{background:rgba(0,0,0,.2);border-radius:8px;border:1px dashed var(--ts);margin-bottom:20px;overflow:hidden}
+summary{padding:10px 15px;cursor:pointer;color:var(--a);font-weight:700;font-size:.9rem;user-select:none;transition:.2s}
+summary:hover{background:rgba(255,255,255,.05)}
+.mc{padding:15px;font-size:.85rem;color:var(--ts);line-height:1.6;border-top:1px solid var(--b)}
+.mc p{margin:5px 0}.tag{display:inline-block;padding:2px 6px;border-radius:4px;font-size:.75rem;font-weight:700;margin-right:5px}.t1{background:#ef4444;color:#fff}.t2{background:#3b82f6;color:#fff}
+label{display:block;font-size:.85rem;color:var(--ts);margin:12px 0 6px}
+input[type=text],input[type=password],textarea,select{width:100%;background:rgba(0,0,0,.3);border:1px solid var(--b);border-radius:6px;padding:12px;color:#fff;font-family:var(--fm);font-size:.9rem;outline:0;transition:.3s}
+input:focus,textarea:focus,select:focus{border-color:var(--s);box-shadow:0 0 8px rgba(0,120,255,.3)}
+textarea{min-height:80px;resize:vertical}
+.btn{width:100%;border:none;border-radius:6px;padding:14px;font-weight:600;cursor:pointer;margin-top:15px;background:linear-gradient(135deg,var(--s),#0047ab);color:#fff;text-transform:uppercase;letter-spacing:1px;transition:.2s}
+.btn:active{transform:scale(.98)}
+.cp{background:rgba(0,242,255,.1);color:var(--p);padding:8px;font-size:.8rem;width:100%;margin-top:8px;border:1px solid rgba(0,242,255,.2);cursor:pointer;border-radius:4px}
+.spl{display:flex;flex-direction:column;gap:20px}
+.mtb{display:flex;gap:10px;margin-bottom:10px}
+.mt{flex:1;padding:10px;text-align:center;background:rgba(0,0,0,.3);border-radius:6px;color:var(--ts);cursor:pointer;border:1px solid transparent}
+.mt.on{background:rgba(255,255,255,.1);color:#fff;border-color:var(--b)}
+.sp{display:none}.sp.on{display:block}
+@media(min-width:900px){.mtb{display:none}.spl{display:grid;grid-template-columns:1fr 1fr;align-items:start}.sp{display:block!important}.card{height:100%}.box{max-width:95%}}
+.drop{border:2px dashed var(--b);border-radius:8px;padding:20px;text-align:center;cursor:pointer;transition:.3s;position:relative;background:rgba(0,0,0,.2);min-height:160px;display:flex;flex-direction:column;justify-content:center;align-items:center}
+.drop:hover{border-color:var(--p);background:rgba(0,242,255,.05)}
+.drop input{position:absolute;width:100%;height:100%;opacity:0;cursor:pointer;top:0;left:0}
+.p-img{width:100%;height:auto;max-height:300px;object-fit:contain;margin-top:10px;border-radius:6px;display:none;border:1px solid var(--b);background:#000}
+.p-img.on{display:block}
+.as{display:flex;background:rgba(0,0,0,.4);padding:5px;border-radius:8px;margin-bottom:20px}
+.ao{flex:1;text-align:center;padding:10px;font-size:.9rem;cursor:pointer;color:var(--ts);border-radius:6px;transition:.3s}
+.ao.on{background:var(--s);color:#fff;font-weight:700}
+
+/* --- 美化后的滑块 CSS --- */
+.sr{display:flex;align-items:center;gap:12px;margin-top:8px;background:rgba(0,0,0,0.2);padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.05)}
+input[type=range]{-webkit-appearance:none;width:100%;background:transparent;padding:0;margin:0;border:none}
+input[type=range]:focus{box-shadow:none}
+/* 轨道 */
+input[type=range]::-webkit-slider-runnable-track{width:100%;height:6px;cursor:pointer;background:linear-gradient(90deg, #1e293b, #334155);border-radius:3px;box-shadow:inset 0 1px 2px rgba(0,0,0,0.5)}
+/* 滑块 */
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;height:18px;width:18px;border-radius:50%;background:var(--p);cursor:pointer;margin-top:-6px;box-shadow:0 0 10px rgba(0,242,255,0.5), inset 0 0 0 2px #fff;transition:transform 0.1s}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.2);background:var(--a);box-shadow:0 0 15px var(--a)}
+.vt{background:rgba(0,0,0,0.4);color:var(--p);padding:2px 8px;border-radius:4px;font-size:.8rem;min-width:52px;text-align:center;font-weight:bold;font-family:var(--fm);border:1px solid var(--b)}
+
+#tst{position:fixed;bottom:30px;left:50%;transform:translate(-50%,100px);background:rgba(255,255,255,.95);color:#000;padding:10px 24px;border-radius:30px;font-size:.9rem;opacity:0;transition:.4s;pointer-events:none;font-weight:700;z-index:99}
+#tst.on{transform:translate(-50%,0);opacity:1}
+.res{background:rgba(0,0,0,.5);border:1px dashed #555;border-radius:6px;padding:10px;margin-top:15px;word-break:break-all;font-family:var(--fm);font-size:.8rem;display:none}
+.res.on{display:block;animation:F .3s}
+@keyframes F{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div class="box">
+    <h1>CX 加密矩阵</h1>
+    <div class="nav"><button class="nb on" onclick="SM('txt')">文本信道</button><button class="nb" onclick="SM('img')">图片加密</button></div>
+
+    <div id="m-txt" class="mod on">
+        <details>
+            <summary>📖 点击查看：文本加密说明书</summary>
+            <div class="mc">
+                <p><strong>第一步 (身份)：</strong>输入一个只有你知道的“口令”来生成你的公钥。把公钥发给对方。</p>
+                <p><strong>(加密)：</strong>填入对方的公钥，输入明文，点击加密。将生成的乱码发给对方。</p>
+                <p><strong>(解密)：</strong>复制对方发来的乱码，点击解密即可看到内容。</p>
+            </div>
+        </details>
+        <div class="card">
+            <div class="ht"><span>身份凭证 (本端)</span><span id="led" style="color:#555">●</span></div>
+            <label>助记句 (输入唯一口令生成身份)</label>
+            <input type="text" id="tp" placeholder="例如：my_secret_2026" oninput="TA.rst()">
+            <button class="btn" onclick="TA.init()" id="tb">初始化身份</button>
+            <div id="trp" class="res"><div style="color:var(--p);margin-bottom:5px">我的公钥:</div><div id="tpk" style="color:#fff"></div><button class="cp" onclick="CP('tpk')">复制公钥</button></div>
+        </div>
+        <div class="mtb"><div class="mt on" onclick="TS('txt','e')" id="mt-txt-e">加密模式</div><div class="mt" onclick="TS('txt','d')" id="mt-txt-d">解密模式</div></div>
+        <div class="spl">
+            <div class="card sp on" id="sp-txt-e">
+                <div class="ht">🔒 加密发送</div>
+                <label>对方公钥</label><input type="text" id="trk" placeholder="粘贴接收者的公钥">
+                <label>明文内容</label><textarea id="tpt" placeholder="输入要加密的消息..."></textarea>
+                <button class="btn" onclick="TA.enc()">执行加密</button>
+                <div id="trc" class="res"><div id="tct" style="color:var(--ts)"></div><button class="cp" onclick="CP('tct')">复制密文</button></div>
+            </div>
+            <div class="card sp" id="sp-txt-d">
+                <div class="ht">🔓 解密接收</div>
+                <label>密文数据</label><textarea id="tci" placeholder="粘贴收到的密文..."></textarea>
+                <button class="btn" onclick="TA.dec()" style="background:linear-gradient(135deg,#059669,#047857)">执行解密</button>
+                <div id="trd" class="res"><div style="color:var(--a);margin-bottom:5px">解密结果:</div><div id="tdt" style="color:#fff;font-weight:700"></div></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="m-img" class="mod">
+        <details>
+            <summary>📖 点击查看：图片加密说明书</summary>
+            <div class="mc">
+                <p><span class="tag t1">V1 强加密</span> 全像素打乱，安全性极高。<strong>注意：</strong>不抗压缩，若被压缩会造成严重的色彩丢失</p>
+                <hr style="border-color:var(--b);margin:10px 0">
+                <p><span class="tag t2">V2 抗干扰</span> 色块混淆，保留部分颜色。<strong>优点：</strong>抗压缩能力强，高压缩比仍然能保持一定质量</p>
+                <p style="color:var(--p)">* 支持电脑端 Ctrl+V 直接粘贴图片。</p>
+            </div>
+        </details>
+        <div class="card" style="padding:15px">
+            <div class="ht" style="margin-bottom:10px;border:none">选择算法模式</div>
+            <div class="as"><div class="ao on" onclick="IA.set('v1')" id="b-v1">V1 强加密 (高隐蔽)</div><div class="ao" onclick="IA.set('v2')" id="b-v2">V2 抗干扰 (防压缩)</div></div>
+        </div>
+        <div class="mtb"><div class="mt on" onclick="TS('img','e')" id="mt-img-e">加密图片</div><div class="mt" onclick="TS('img','d')" id="mt-img-d">解密图片</div></div>
+        <div class="spl">
+            <div class="card sp on" id="sp-img-e">
+                <div class="ht">🔒 加密图片 (发送)</div>
+                <div class="drop" id="dr-e"><input type="file" accept="image/*" onchange="IA.ld(this,'e')"><div style="font-size:2rem">📷</div><div id="lb-e">点击或拖拽原图<br><span style="font-size:.8rem;color:#888">(支持 Ctrl+V)</span></div><img id="pv-e" class="p-img"></div>
+                <label>设置密码</label><input type="text" id="ke" placeholder="输入加密密码（支持中英文数字）">
+                <div id="pa-v1" style="margin-top:15px">
+                    <label>输出质量 (V1)</label>
+                    <div class="sr"><input type="range" id="qv1" min="10" max="100" value="80" oninput="IA.ui()"><span class="vt" id="vq1">80%</span></div>
+                </div>
+                <div id="pa-v2" style="margin-top:15px;display:none">
+                    <label>前置缩放 (不建议过小)</label><div class="sr"><input type="range" id="sv2" min="20" max="100" value="100" oninput="IA.ui()"><span class="vt" id="vs2">100%</span></div>
+                    <label>后置压缩 (有效降低输出大小)</label><div class="sr"><input type="range" id="qv2" min="10" max="100" value="90" oninput="IA.ui()"><span class="vt" id="vq2">90%</span></div>
+                </div>
+                <button class="btn" onclick="IA.run('e')">生成加密图</button>
+                <div id="rx-e" class="res"><img id="oe" class="p-img on" style="border-color:var(--a)"><div style="text-align:right;font-size:.75rem;margin-top:5px;color:#aaa" id="me"></div><button class="cp" onclick="IA.dl('e')">📥 保存图片</button></div>
+            </div>
+            <div class="card sp" id="sp-img-d">
+                <div class="ht">🔓 解密图片 (接收)</div>
+                <div class="drop" id="dr-d"><input type="file" accept="image/*" onchange="IA.ld(this,'d')"><div style="font-size:2rem">🔓</div><div id="lb-d">点击或拖拽乱码图<br><span style="font-size:.8rem;color:#888">(支持 Ctrl+V)</span></div><img id="pv-d" class="p-img"></div>
+                <label>解密密码</label><input type="text" id="kd" placeholder="输入对应密码">
+                <button class="btn" onclick="IA.run('d')" style="background:linear-gradient(135deg,#059669,#047857)">开始还原</button>
+                <div id="rx-d" class="res"><label style="color:var(--a)">还原结果:</label><img id="od" class="p-img on" style="border-color:var(--a)"><button class="cp" onclick="IA.dl('d')">📥 保存原图</button></div>
+            </div>
+        </div>
+    </div>
+</div>
+<div id="tst">提示</div><canvas id="cvs" style="display:none"></canvas>
+<script>
+const $=(i)=>document.getElementById(i);
+const T=(m)=>{let t=$('tst');t.innerText=m;t.className='on';clearTimeout(t.tm);t.tm=setTimeout(()=>t.className='',2000)};
+const CP=(i)=>{let t=$(i).innerText;if(t)navigator.clipboard.writeText(t).then(()=>T("已复制"))};
+function SM(m){document.querySelectorAll('.mod').forEach(e=>e.classList.remove('on'));$('m-'+m).classList.add('on');document.querySelectorAll('.nb').forEach(e=>e.classList.remove('on'));event.target.classList.add('on')}
+function TS(m,t){document.querySelectorAll(`#m-${m} .mt`).forEach(e=>e.classList.remove('on'));$(`mt-${m}-${t}`).classList.add('on');document.querySelectorAll(`#m-${m} .sp`).forEach(e=>e.classList.remove('on'));$(`sp-${m}-${t}`).classList.add('on')}
+const TA={
+    M:{P:2n**255n-19n,i(n){return this.p(n,this.P-2n)},p(b,e){let r=1n;b%=this.P;while(e>0n){if(e%2n===1n)r=(r*b)%this.P;b=(b*b)%this.P;e/=2n}return r},m(s,p){const k=new Uint8Array(s);k[0]&=248;k[31]&=127;k[31]|=64;let n=0n;for(let i=31;i>=0;i--)n=(n<<8n)+BigInt(k[i]);let u=0n;if(p)for(let i=31;i>=0;i--)u=(u<<8n)+BigInt(p[i]);else u=9n;let x1=u,x2=1n,z2=0n,x3=u,z3=1n,sw=0n;for(let t=254;t>=0;t--){const kt=(n>>BigInt(t))&1n;sw^=kt;if(sw){[x2,x3]=[x3,x2];[z2,z3]=[z3,z2]}sw=kt;const A=x2+z2,AA=A*A,B=x2-z2,BB=B*B,E=AA-BB,C=x3+z3,D=x3-z3,DA=D*A,CB=C*B,ad=DA+CB,su=DA-CB;x3=ad*ad;z3=x1*(su*su);x2=AA*BB;z2=E*(AA+486662n*E/4n);x2%=this.P;z2%=this.P;x3%=this.P;z3%=this.P}if(sw){[x2,x3]=[x3,x2];[z2,z3]=[z3,z2]}const r=(x2*this.i(z2))%this.P;const b=new Uint8Array(32);let tp=r;for(let i=0;i<32;i++){b[i]=Number(tp&0xFFn);tp>>=8n}return b}},
+    c:{e:new TextEncoder,d:new TextDecoder,pr:null,pk:null,b64(b){return btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')},ub64(s){let b=s.replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';return Uint8Array.from(atob(b),c=>c.charCodeAt(0)).buffer},async init(tx){if(!tx)throw"请输入口令";const km=await crypto.subtle.importKey("raw",this.e.encode(tx),{name:"PBKDF2"},0,["deriveBits"]);const sd=await crypto.subtle.deriveBits({name:"PBKDF2",salt:this.e.encode("CX3"),iterations:1e5,hash:"SHA-256"},km,256);this.pr=new Uint8Array(sd);this.pk=this.b64(TA.M.m(this.pr,null));return this.pk},async run(k,t,d){if(!this.pr)throw"请先初始化";const op="AES-GCM";if(d){const j=JSON.parse(this.d.decode(this.ub64(t)));const s=TA.M.m(this.pr,new Uint8Array(this.ub64(j.k)));const ky=await crypto.subtle.importKey("raw",s,op,0,["decrypt"]);return this.d.decode(await crypto.subtle.decrypt({name:op,iv:this.ub64(j.i)},ky,this.ub64(j.c)))}else{const e=crypto.getRandomValues(new Uint8Array(32));const s=TA.M.m(e,new Uint8Array(this.ub64(k)));const ky=await crypto.subtle.importKey("raw",s,op,0,["encrypt"]);const v=crypto.getRandomValues(new Uint8Array(12));const c=await crypto.subtle.encrypt({name:op,iv:v},ky,this.e.encode(t));return this.b64(this.e.encode(JSON.stringify({k:this.b64(TA.M.m(e,null)),i:this.b64(v),c:this.b64(c)})))}}},
+    rst(){$('led').style.color='#555';$('tb').disabled=0;$('tb').innerText="初始化身份";$('trp').classList.remove('on')},
+    async init(){let b=$('tb');b.disabled=1;b.innerText="计算中...";setTimeout(async()=>{try{$('tpk').innerText=await this.c.init($('tp').value);$('trp').classList.add('on');$('led').style.color='#00ff88';b.innerText="身份已激活"}catch(e){alert(e);b.disabled=0;b.innerText="初始化身份"}},50)},
+    async enc(){try{$('tct').innerText=await this.c.run($('trk').value,$('tpt').value,0);$('trc').classList.add('on')}catch(e){T("错误:"+e)}},
+    async dec(){try{$('tdt').innerText=await this.c.run(0,$('tci').value,1);$('trd').classList.add('on')}catch(e){$('tdt').innerText="解密失败";$('trd').classList.add('on')}}
+};
+const IA={
+    algo:'v1',fs:{e:null,d:null},
+    hash(s){let h1=1779033703,h2=3144134277,h3=1013904242,h4=2773480762;for(let i=0,k;i<s.length;i++){k=s.charCodeAt(i);h1=h2^Math.imul(h1^k,597399067);h2=h3^Math.imul(h2^k,2869860233);h3=h4^Math.imul(h3^k,951274213);h4=h1^Math.imul(h4^k,2716044179)}return h1+h2+h3+h4},
+    rng(a){return function(){var t=a+=0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}},
+    perm(len,seed){const r=this.rng(seed),p=new Uint32Array(len);for(let i=0;i<len;i++)p[i]=i;for(let i=len-1;i>0;i--){const j=Math.floor(r()*(i+1));[p[i],p[j]]=[p[j],p[i]]}return p},
+    set(v){this.algo=v;$('b-v1').className=v==='v1'?'ao on':'ao';$('b-v2').className=v==='v2'?'ao on':'ao';$('pa-v1').style.display=v==='v1'?'block':'none';$('pa-v2').style.display=v==='v2'?'block':'none'},
+    ui(){$('vq1').innerText=$('qv1').value==100?"PNG":$('qv1').value+"%";$('vs2').innerText=$('sv2').value+"%";$('vq2').innerText=$('qv2').value==100?"PNG":$('qv2').value+"%"},
+    ld(i,t){const f=i.files[0];if(!f)return;this.fs[t]=f;const r=new FileReader;r.onload=e=>{$('pv-'+t).src=e.target.result;$('pv-'+t).classList.add('on');$('lb-'+t).style.display='none'};r.readAsDataURL(f)},
+    run(t){const f=this.fs[t];if(!f&&!$('pv-'+t).src)return T("请先载入图片");const k=$('k'+t).value;if(!k)return T("请输入密码");const img=new Image;img.onload=()=>{if(this.algo==='v1')this.pV1(img,k,t);else this.pV2(img,k,t)};img.src=$('pv-'+t).src},
+    pV1(img,k,t){
+        const c=$('cvs'),x=c.getContext('2d'),w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;c.width=w;c.height=h;x.drawImage(img,0,0);
+        const d=x.getImageData(0,0,w,h).data,len=w*h,p=this.perm(len,this.hash(k)),b=new Uint8ClampedArray(d.length),E=t==='e';
+        if(E)for(let i=0;i<len;i++){const s=p[i]*4,dst=i*4;b[dst]=d[s];b[dst+1]=d[s+1];b[dst+2]=d[s+2];b[dst+3]=255}
+        else for(let i=0;i<len;i++){const s=i*4,dst=p[i]*4;b[dst]=d[s];b[dst+1]=d[s+1];b[dst+2]=d[s+2];b[dst+3]=255}
+        x.putImageData(new ImageData(b,w,h),0,0);
+        let q=1.0,m='image/png';if(E){const v=parseInt($('qv1').value);if(v<100){m='image/jpeg';q=v/100}}
+        this.fin(c,t,m,q);
+    },
+    pV2(img,k,t){
+        const c=$('cvs'),x=c.getContext('2d'),E=t==='e';
+        let w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;
+        if(E){const s=parseInt($('sv2').value)/100;if(s<1){w=Math.floor(w*s);h=Math.floor(h*s)}}
+        w=Math.floor(w/8)*8;h=Math.floor(h/8)*8;if(w<8)w=8;if(h<8)h=8;
+        c.width=w;c.height=h;x.drawImage(img,0,0,w,h);
+        const d=x.getImageData(0,0,w,h).data,sd=this.hash(k),r=this.rng(sd),bl=w*h/64,p=this.perm(bl,sd),cm=new Int32Array(bl),nr=this.rng(sd+999);
+        for(let i=0;i<bl;i++)cm[i]=Math.floor(nr()*1e6);
+        const b=new Uint8ClampedArray(d.length),bx=w/8,CM=v=>50+(v/255)*155,EX=v=>{let n=(v-50)/155;if(n<0)n=0;if(n>1)n=1;return n*255};
+        for(let i=0;i<bl;i++){
+            let si,di;if(E){si=i;di=p[i]}else{si=p[i];di=i}
+            const sx=(si%bx)*8,sy=Math.floor(si/bx)*8,dx=(di%bx)*8,dy=Math.floor(di/bx)*8;
+            const rw=cm[E?di:si],ns=(rw%81)-40,fU=rw&0x100,fV=rw&0x200,sw=rw&0x400;
+            for(let y=0;y<8;y++)for(let l=0;l<8;l++){
+                const sI=((sy+y)*w+(sx+l))*4,dI=((dy+y)*w+(dx+l))*4;
+                let R=d[sI],G=d[sI+1],B=d[sI+2],Y=.299*R+.587*G+.114*B,U=-.147*R-.289*G+.436*B,V=.615*R-.515*G-.1*B;
+                if(E){Y=CM(Y)+ns;if(sw)[U,V]=[V,U];if(fU)U=-U;if(fV)V=-V}
+                else{if(fV)V=-V;if(fU)U=-U;if(sw)[U,V]=[V,U];Y-=ns;Y=EX(Y)}
+                R=Y+1.14*V;G=Y-.395*U-.581*V;B=Y+2.032*U;
+                b[dI]=R;b[dI+1]=G;b[dI+2]=B;b[dI+3]=255;
+            }
+        }
+        x.putImageData(new ImageData(b,w,h),0,0);
+        let q=1.0,m='image/png';if(E){const v=parseInt($('qv2').value);if(v<100){m='image/jpeg';q=v/100}}
+        this.fin(c,t,m,q);
+    },
+    fin(c,t,m,q){const u=c.toDataURL(m,q),i=$('o'+t);i.src=u;$('rx-'+t).classList.add('on');i.scrollIntoView({behavior:'smooth',block:'nearest'});if(t==='e'){const s=Math.round((u.length-22)*.75);$('me').innerText=`格式:${m.split('/')[1].toUpperCase()}|大小:${s>1e6?(s/1e6).toFixed(2)+"MB":(s/1024).toFixed(0)+"KB"}`}},
+    dl(t){const s=$('o'+t).src;if(s){const a=document.createElement('a');a.href=s;a.download=`CX_${this.algo}_${Date.now()}.${s.includes('png')?'png':'jpg'}`;a.click()}}
+};
+document.addEventListener('paste',e=>{if(!$('m-img').classList.contains('on'))return;const it=e.clipboardData.items;let f=null;for(let i=0;i<it.length;i++)if(it[i].type.includes('image')){f=it[i].getAsFile();break}if(!f)return;const hd=$('sp-img-d').matches(':hover'),t=hd?'d':'e',dt=new DataTransfer;dt.items.add(f);$('dr-'+t).querySelector('input').files=dt.files;IA.ld($('dr-'+t).querySelector('input'),t);T(`已粘贴到${hd?'解密':'加密'}框`)});
+['e','d'].forEach(t=>{const d=$('dr-'+t);d.addEventListener('dragover',e=>{e.preventDefault();d.style.borderColor='var(--p)';d.style.background='rgba(0,242,255,.1)'});d.addEventListener('dragleave',e=>{e.preventDefault();d.style.borderColor='var(--b)';d.style.background='rgba(0,0,0,.2)'});d.addEventListener('drop',e=>{e.preventDefault();d.style.borderColor='var(--b)';d.style.background='rgba(0,0,0,.2)';if(e.dataTransfer.files[0]){const i=d.querySelector('input');i.files=e.dataTransfer.files;IA.ld(i,t)}})});
+</script>
+</body>
+</html>
