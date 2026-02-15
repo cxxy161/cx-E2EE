@@ -18,10 +18,14 @@ h1{text-align:center;font-size:1.4rem;margin:10px 0 20px;background:linear-gradi
 .card{background:var(--c);backdrop-filter:blur(16px);border:1px solid var(--b);border-radius:10px;padding:18px;margin-bottom:15px;box-shadow:0 4px 15px rgba(0,0,0,.4)}
 .ht{color:var(--p);font-weight:700;font-size:.95rem;margin-bottom:12px;border-bottom:1px solid var(--b);padding-bottom:8px;display:flex;justify-content:space-between;align-items:center}
 details{background:rgba(0,0,0,.25);border-radius:6px;border:1px dashed var(--b);margin-bottom:15px;overflow:hidden}
-summary{padding:8px 12px;cursor:pointer;color:var(--a);font-weight:700;font-size:.85rem;user-select:none;transition:.2s}
+summary{padding:10px 12px;cursor:pointer;color:var(--a);font-weight:700;font-size:.85rem;user-select:none;transition:.2s;display:flex;align-items:center;gap:5px}
 summary:hover{background:rgba(255,255,255,.05)}
-.mc{padding:12px;font-size:.8rem;color:var(--ts);line-height:1.6;border-top:1px solid var(--b)}
-.mc p{margin:4px 0}.tag{display:inline-block;padding:2px 5px;border-radius:3px;font-size:.7rem;font-weight:700;margin-right:5px}.t1{background:var(--e);color:#fff}.t2{background:var(--s);color:#fff}
+.mc{padding:15px;font-size:.8rem;color:var(--ts);line-height:1.7;border-top:1px solid var(--b);background:rgba(0,0,0,0.2)}
+.mc h4{margin:10px 0 5px 0;color:#fff;font-size:.9rem;border-left:3px solid var(--s);padding-left:8px}
+.mc p{margin:0 0 8px 0}
+.mc ul{margin:0;padding-left:20px;margin-bottom:10px}
+.mc li{margin-bottom:4px}
+.tag{display:inline-block;padding:2px 5px;border-radius:3px;font-size:.7rem;font-weight:700;margin-right:5px}.t1{background:var(--e);color:#fff}.t2{background:var(--s);color:#fff}
 label{display:block;font-size:.8rem;color:var(--ts);margin:10px 0 5px}
 input[type=text],input[type=password],textarea,select{width:100%;background:rgba(0,0,0,.4);border:1px solid var(--b);border-radius:5px;padding:10px;color:#fff;font-family:var(--fm);font-size:.9rem;outline:0;transition:.3s}
 input:focus,textarea:focus,select:focus{border-color:var(--s);box-shadow:0 0 8px rgba(0,120,255,.25)}
@@ -69,13 +73,29 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;height:16px;widt
 <body>
 <div class="box">
     <h1>C-X 安全终端</h1>
-    <div class="nav"><button class="nb on" onclick="SM('txt')">文本信道</button><button class="nb" onclick="SM('img')">图片加密</button></div>
+    <div class="nav"><button class="nb on" onclick="SM('txt')">文本信道 (TEXT)</button><button class="nb" onclick="SM('img')">图片加密 (IMAGE)</button></div>
 
     <div id="m-txt" class="mod on">
+        <details>
+            <summary>📚 文本信道 · 使用指引 (点击展开)</summary>
+            <div class="mc">
+                <h4>核心原理</h4>
+                <p>基于 Curve25519 非对称加密。每个人拥有“公钥”（公开给别人）和“私钥”（助记句生成，自己保留）。公钥加密，私钥解密。</p>
+                <h4>操作流程</h4>
+                <ul>
+                    <li><strong>第一步 [身份]:</strong> 输入任意“助记句”生成身份。请务必记住该句子，它是找回身份的唯一凭证。</li>
+                    <li><strong>第二步 [交换]:</strong> 将生成的“我的公钥”发送给对方。同时索要对方的公钥。</li>
+                    <li><strong>第三步 [发送]:</strong> 在加密模式下，填入“接收方公钥”，输入内容，生成密文发送。</li>
+                    <li><strong>第四步 [接收]:</strong> 在解密模式下，粘贴收到的密文，系统自动使用您的私钥解密。</li>
+                </ul>
+                <p style="color:var(--ts);font-size:.75rem">* 数据仅在本地运算，无服务器交互。</p>
+            </div>
+        </details>
+
         <div class="card">
             <div class="ht"><span>身份凭证 (IDENTITY)</span><span id="led" style="color:#555">●</span></div>
             <label>助记句 (输入唯一口令生成身份)</label>
-            <input type="text" id="tp" placeholder="在此输入您的专属口令" oninput="TA.rst()">
+            <input type="text" id="tp" placeholder="在此输入您的专属口令，用于生成私钥" oninput="TA.rst()">
             <button class="btn" onclick="TA.init()" id="tb">初始化身份</button>
             <div id="trp" class="res"><div style="color:var(--p);margin-bottom:5px">我的公钥:</div><div id="tpk" style="color:#fff"></div><button class="cp" onclick="CP('tpk',1)">复制公钥</button></div>
         </div>
@@ -84,12 +104,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;height:16px;widt
             <div class="ht" onclick="CM.tog()" style="cursor:pointer"><span>通讯录 (CONTACTS)</span><span id="car">▼</span></div>
             <div id="cpnl" style="display:none;margin-top:15px">
                 <details>
-                    <summary>📘 使用说明书</summary>
+                    <summary>📒 通讯录功能说明</summary>
                     <div class="mc">
-                        <p><strong>添加：</strong>填入备注名和公钥，点击添加。</p>
-                        <p><strong>发送：</strong>点击联系人，公钥自动填入加密框。</p>
-                        <p><strong>备份：</strong>点击“导出备份”，系统会生成一串代码，复制保存即可。</p>
-                        <p><strong>恢复：</strong>点击“导入恢复”，粘贴之前的备份代码。</p>
+                        <p><strong>功能：</strong>本地保存常用联系人的公钥，免去重复复制粘贴。</p>
+                        <p><strong>自动填充：</strong>点击列表中的联系人，其公钥会自动填入下方的加密框。</p>
+                        <p><strong>备份迁移：</strong>使用[导出]功能生成一串文本代码，在其他设备[导入]该代码即可同步。</p>
                     </div>
                 </details>
                 <div class="trow"><button class="tbtn" onclick="CM.exp()">📤 导出备份</button><button class="tbtn" onclick="CM.imp()">📥 导入恢复</button></div>
@@ -102,14 +121,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;height:16px;widt
         <div class="mtb"><div class="mt on" onclick="TS('txt','e')" id="mt-txt-e">加密模式</div><div class="mt" onclick="TS('txt','d')" id="mt-txt-d">解密模式</div></div>
         <div class="spl">
             <div class="card sp on" id="sp-txt-e">
-                <div class="ht">🔒 加密发送</div>
+                <div class="ht">🔒 加密发送 (ENCRYPT)</div>
                 <label>接收方公钥</label><input type="text" id="trk" placeholder="粘贴公钥或从通讯录选择">
                 <label>明文内容</label><textarea id="tpt" placeholder="输入机密信息..."></textarea>
                 <button class="btn" onclick="TA.enc()">执行加密</button>
                 <div id="trc" class="res"><div id="tct" style="color:var(--ts)"></div><button class="cp" onclick="CP('tct',1)">复制密文</button></div>
             </div>
             <div class="card sp" id="sp-txt-d">
-                <div class="ht">🔓 解密接收</div>
+                <div class="ht">🔓 解密接收 (DECRYPT)</div>
                 <label>密文数据</label><textarea id="tci" placeholder="粘贴收到的密文..."></textarea>
                 <button class="btn" onclick="TA.dec()" style="background:linear-gradient(135deg,#059669,#047857)">执行解密</button>
                 <div id="trd" class="res"><div style="color:var(--a);margin-bottom:5px">解密结果:</div><div id="tdt" style="color:#fff;font-weight:700"></div></div>
@@ -119,26 +138,30 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;height:16px;widt
 
     <div id="m-img" class="mod">
         <details>
-            <summary>📖 图片加密说明书</summary>
+            <summary>📚 图片加密 · 算法说明 (点击展开)</summary>
             <div class="mc">
-                <p><span class="tag t1">V1 强加密</span> 全像素置乱，极高安全性。<strong>注意：</strong>必须以“文件”形式发送原图，不可压缩。</p>
-                <hr style="border-color:var(--b);margin:8px 0">
-                <p><span class="tag t2">V2 抗干扰</span> 色块混淆技术。<strong>优点：</strong>抗压缩，可直接发微信/QQ图片。</p>
-                <p style="color:var(--p)">* 电脑端支持 Ctrl+V 直接粘贴图片。</p>
+                <h4><span class="tag t1">V1</span> 强加密模式</h4>
+                <p><strong>原理：</strong>全像素伪随机置乱。图像彻底变成彩色噪点，无任何原图特征。</p>
+                <p><strong>场景：</strong>极高安全性需求。</p>
+                <p><strong>警告：</strong><span style="color:var(--e)">必须发送原文件</span>。若通过微信/QQ直接发图会被压缩导致画质严重降低。</p>
+                <h4><span class="tag t2">V2</span> 抗干扰模式</h4>
+                <p><strong>原理：</strong>8x8 像素块混淆 + 频域色偏。保留部分色块特征，对有损压缩有容错性。</p>
+                <p><strong>场景：</strong>日常社交软件传输（微信/QQ直接发图），只要不被压缩成马赛克均可还原。</p>
+                <p style="color:var(--p)">* 密码：图片加密使用对称密码，加密和解密必须使用相同的密码。</p>
             </div>
         </details>
         <div class="card" style="padding:15px">
-            <div class="ht" style="margin-bottom:10px;border:none">算法模式</div>
-            <div class="as"><div class="ao on" onclick="IA.set('v1')" id="b-v1">V1 强加密</div><div class="ao" onclick="IA.set('v2')" id="b-v2">V2 抗干扰</div></div>
+            <div class="ht" style="margin-bottom:10px;border:none">算法选择</div>
+            <div class="as"><div class="ao on" onclick="IA.set('v1')" id="b-v1">V1 强加密 (高隐蔽)</div><div class="ao" onclick="IA.set('v2')" id="b-v2">V2 抗干扰 (防压缩)</div></div>
         </div>
         <div class="mtb"><div class="mt on" onclick="TS('img','e')" id="mt-img-e">加密图片</div><div class="mt" onclick="TS('img','d')" id="mt-img-d">解密图片</div></div>
         <div class="spl">
             <div class="card sp on" id="sp-img-e">
-                <div class="ht">🔒 加密图片</div>
+                <div class="ht">🔒 加密图片 (ENCRYPT)</div>
                 <div class="drop" id="dr-e"><input type="file" accept="image/*" onchange="IA.ld(this,'e')"><div style="font-size:2rem">🖼️</div><div id="lb-e">点击或拖拽原图<br><span style="font-size:.8rem;color:#888">(支持 Ctrl+V)</span></div><img id="pv-e" class="p-img"></div>
-                <label>设置密码</label><input type="text" id="ke" placeholder="输入加密密码">
+                <label>设置密码</label><input type="text" id="ke" placeholder="输入加密密码 (请牢记)">
                 <div id="pa-v1" style="margin-top:15px">
-                    <label>输出质量 (V1)</label><div class="sr"><input type="range" id="qv1" min="10" max="100" value="80" oninput="IA.ui()"><span class="vt" id="vq1">80%</span></div>
+                    <label>输出质量</label><div class="sr"><input type="range" id="qv1" min="10" max="100" value="80" oninput="IA.ui()"><span class="vt" id="vq1">80%</span></div>
                 </div>
                 <div id="pa-v2" style="margin-top:15px;display:none">
                     <label>前置缩放</label><div class="sr"><input type="range" id="sv2" min="20" max="100" value="100" oninput="IA.ui()"><span class="vt" id="vs2">100%</span></div>
@@ -148,7 +171,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;height:16px;widt
                 <div id="rx-e" class="res"><img id="oe" class="p-img on" style="border-color:var(--a)"><div style="text-align:right;font-size:.75rem;margin-top:5px;color:#aaa" id="me"></div><button class="cp" onclick="IA.dl('e')">📥 保存图片</button></div>
             </div>
             <div class="card sp" id="sp-img-d">
-                <div class="ht">🔓 解密图片</div>
+                <div class="ht">🔓 解密图片 (DECRYPT)</div>
                 <div class="drop" id="dr-d"><input type="file" accept="image/*" onchange="IA.ld(this,'d')"><div style="font-size:2rem">🔓</div><div id="lb-d">点击或拖拽乱码图<br><span style="font-size:.8rem;color:#888">(支持 Ctrl+V)</span></div><img id="pv-d" class="p-img"></div>
                 <label>解密密码</label><input type="text" id="kd" placeholder="输入对应密码">
                 <button class="btn" onclick="IA.run('d')" style="background:linear-gradient(135deg,#059669,#047857)">开始还原</button>
@@ -181,7 +204,7 @@ const CM={
     del(i){if(confirm("删除此联系人?")){this.l.splice(i,1);this.s();T("已删除")}},
     s(){localStorage.setItem(this.ls,JSON.stringify(this.l));this.r()},
     fill(k){$('trk').value=k;T("公钥已填入")},
-    r(){const c=$('clst');c.innerHTML='';if(!this.l.length){c.innerHTML='<div style="text-align:center;color:#666;font-size:.8rem;padding:10px">空</div>';return}this.l.forEach((m,i)=>{const d=document.createElement('div');d.className='crow';d.innerHTML=`<div class="cinf" onclick="CM.fill('${m.k}')"><div class="cnm">${m.n}</div><div class="cky">${m.k}</div></div><div class="cdel" onclick="CM.del(${i})">×</div>`;c.appendChild(d)})},
+    r(){const c=$('clst');c.innerHTML='';if(!this.l.length){c.innerHTML='<div style="text-align:center;color:#666;font-size:.8rem;padding:10px">暂无联系人</div>';return}this.l.forEach((m,i)=>{const d=document.createElement('div');d.className='crow';d.innerHTML=`<div class="cinf" onclick="CM.fill('${m.k}')"><div class="cnm">${m.n}</div><div class="cky">${m.k}</div></div><div class="cdel" onclick="CM.del(${i})">×</div>`;c.appendChild(d)})},
     exp(){if(!this.l.length)return T("列表为空");CP(JSON.stringify(this.l),0)},
     imp(){let s=prompt("粘贴备份代码:");if(!s)return;try{let d=JSON.parse(s);if(Array.isArray(d)){if(confirm("覆盖(OK) 还是 合并(Cancel)?"))this.l=d;else d.forEach(n=>{if(!this.l.find(o=>o.k===n.k))this.l.push(n)});this.s();T("导入成功")}else throw 1}catch{T("数据无效")}}
 };CM.init();
