@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>C-X 安全终端</title>
+<title>C-X 安全终端 (Pro)</title>
 <style>
-:root{--p:#00f2ff;--s:#0078ff;--a:#00ff88;--e:#ff4757;--bg:#0f172a;--c:rgba(15,23,42,0.85);--b:rgba(255,255,255,0.1);--t:#e2e8f0;--ts:#94a3b8;--fm:'Courier New',monospace;--fu:-apple-system,sans-serif}
+:root{--p:#00f2ff;--s:#0078ff;--a:#00ff88;--e:#ff4757;--bg:#0f172a;--c:rgba(15,23,42,0.9);--b:rgba(255,255,255,0.12);--t:#e2e8f0;--ts:#94a3b8;--fm:'Courier New',monospace;--fu:-apple-system,sans-serif}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;padding:15px;background:var(--bg) radial-gradient(circle at 50% 0,rgba(0,242,255,0.1),transparent 40%);color:var(--t);font-family:var(--fu);min-height:100vh;display:flex;flex-direction:column;align-items:center}
 body::before{content:"";position:fixed;top:0;left:0;width:100%;height:100%;background:linear-gradient(var(--b) 1px,transparent 1px),linear-gradient(90deg,var(--b) 1px,transparent 1px);background-size:30px 30px;opacity:.08;z-index:-1;pointer-events:none}
@@ -18,14 +18,10 @@ h1{text-align:center;font-size:1.4rem;margin:10px 0 20px;background:linear-gradi
 .card{background:var(--c);backdrop-filter:blur(16px);border:1px solid var(--b);border-radius:10px;padding:18px;margin-bottom:15px;box-shadow:0 4px 15px rgba(0,0,0,.4)}
 .ht{color:var(--p);font-weight:700;font-size:.95rem;margin-bottom:12px;border-bottom:1px solid var(--b);padding-bottom:8px;display:flex;justify-content:space-between;align-items:center}
 details{background:rgba(0,0,0,.25);border-radius:6px;border:1px dashed var(--b);margin-bottom:15px;overflow:hidden}
-summary{padding:10px 12px;cursor:pointer;color:var(--a);font-weight:700;font-size:.85rem;user-select:none;transition:.2s;display:flex;align-items:center;gap:5px}
+summary{padding:8px 12px;cursor:pointer;color:var(--a);font-weight:700;font-size:.85rem;user-select:none;transition:.2s}
 summary:hover{background:rgba(255,255,255,.05)}
-.mc{padding:15px;font-size:.8rem;color:var(--ts);line-height:1.7;border-top:1px solid var(--b);background:rgba(0,0,0,0.2)}
-.mc h4{margin:10px 0 5px 0;color:#fff;font-size:.9rem;border-left:3px solid var(--s);padding-left:8px}
-.mc p{margin:0 0 8px 0}
-.mc ul{margin:0;padding-left:20px;margin-bottom:10px}
-.mc li{margin-bottom:4px}
-.tag{display:inline-block;padding:2px 5px;border-radius:3px;font-size:.7rem;font-weight:700;margin-right:5px}.t1{background:var(--e);color:#fff}.t2{background:var(--s);color:#fff}
+.mc{padding:12px;font-size:.8rem;color:var(--ts);line-height:1.6;border-top:1px solid var(--b)}
+.mc p{margin:4px 0}.tag{display:inline-block;padding:2px 5px;border-radius:3px;font-size:.7rem;font-weight:700;margin-right:5px}.t1{background:var(--e);color:#fff}.t2{background:var(--s);color:#fff}
 label{display:block;font-size:.8rem;color:var(--ts);margin:10px 0 5px}
 input[type=text],input[type=password],textarea,select{width:100%;background:rgba(0,0,0,.4);border:1px solid var(--b);border-radius:5px;padding:10px;color:#fff;font-family:var(--fm);font-size:.9rem;outline:0;transition:.3s}
 input:focus,textarea:focus,select:focus{border-color:var(--s);box-shadow:0 0 8px rgba(0,120,255,.25)}
@@ -72,7 +68,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;height:16px;widt
 </head>
 <body>
 <div class="box">
-    <h1>C-X 安全终端</h1>
+    <h1>C-X 安全终端 (Pro)</h1>
     <div class="nav"><button class="nb on" onclick="SM('txt')">文本信道 (TEXT)</button><button class="nb" onclick="SM('img')">图片加密 (IMAGE)</button></div>
 
     <div id="m-txt" class="mod on">
@@ -103,14 +99,6 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;height:16px;widt
         <div class="card">
             <div class="ht" onclick="CM.tog()" style="cursor:pointer"><span>通讯录 (CONTACTS)</span><span id="car">▼</span></div>
             <div id="cpnl" style="display:none;margin-top:15px">
-                <details>
-                    <summary>📒 通讯录功能说明</summary>
-                    <div class="mc">
-                        <p><strong>功能：</strong>本地保存常用联系人的公钥，免去重复复制粘贴。</p>
-                        <p><strong>自动填充：</strong>点击列表中的联系人，其公钥会自动填入下方的加密框。</p>
-                        <p><strong>备份迁移：</strong>使用[导出]功能生成一串文本代码，在其他设备[导入]该代码即可同步。</p>
-                    </div>
-                </details>
                 <div class="trow"><button class="tbtn" onclick="CM.exp()">📤 导出备份</button><button class="tbtn" onclick="CM.imp()">📥 导入恢复</button></div>
                 <div class="abox"><input type="text" id="can" placeholder="备注名" class="ainp" style="flex:0.4"><input type="text" id="cak" placeholder="粘贴对方公钥" class="ainp"></div>
                 <button class="btn" style="margin:0 0 15px 0;padding:10px;font-size:.9rem" onclick="CM.add()">➕ 添加联系人</button>
@@ -147,7 +135,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;height:16px;widt
                 <h4><span class="tag t2">V2</span> 抗干扰模式</h4>
                 <p><strong>原理：</strong>8x8 像素块混淆 + 频域色偏。保留部分色块特征，对有损压缩有容错性。</p>
                 <p><strong>场景：</strong>日常社交软件传输（微信/QQ直接发图），只要不被压缩成马赛克均可还原。</p>
-                <p style="color:var(--p)">* 密码：图片加密使用对称密码，加密和解密必须使用相同的密码。</p>
+                <p style="color:var(--ts);font-size:.75rem">* 内存优化：已启用 Blob 零拷贝技术，修复部分安卓机型闪退问题。</p>
             </div>
         </details>
         <div class="card" style="padding:15px">
@@ -204,7 +192,7 @@ const CM={
     del(i){if(confirm("删除此联系人?")){this.l.splice(i,1);this.s();T("已删除")}},
     s(){localStorage.setItem(this.ls,JSON.stringify(this.l));this.r()},
     fill(k){$('trk').value=k;T("公钥已填入")},
-    r(){const c=$('clst');c.innerHTML='';if(!this.l.length){c.innerHTML='<div style="text-align:center;color:#666;font-size:.8rem;padding:10px">暂无联系人</div>';return}this.l.forEach((m,i)=>{const d=document.createElement('div');d.className='crow';d.innerHTML=`<div class="cinf" onclick="CM.fill('${m.k}')"><div class="cnm">${m.n}</div><div class="cky">${m.k}</div></div><div class="cdel" onclick="CM.del(${i})">×</div>`;c.appendChild(d)})},
+    r(){const c=$('clst');c.innerHTML='';if(!this.l.length){c.innerHTML='<div style="text-align:center;color:#666;font-size:.8rem;padding:10px">空</div>';return}this.l.forEach((m,i)=>{const d=document.createElement('div');d.className='crow';d.innerHTML=`<div class="cinf" onclick="CM.fill('${m.k}')"><div class="cnm">${m.n}</div><div class="cky">${m.k}</div></div><div class="cdel" onclick="CM.del(${i})">×</div>`;c.appendChild(d)})},
     exp(){if(!this.l.length)return T("列表为空");CP(JSON.stringify(this.l),0)},
     imp(){let s=prompt("粘贴备份代码:");if(!s)return;try{let d=JSON.parse(s);if(Array.isArray(d)){if(confirm("覆盖(OK) 还是 合并(Cancel)?"))this.l=d;else d.forEach(n=>{if(!this.l.find(o=>o.k===n.k))this.l.push(n)});this.s();T("导入成功")}else throw 1}catch{T("数据无效")}}
 };CM.init();
@@ -215,10 +203,14 @@ const IA={
     perm(len,seed){const r=this.rng(seed),p=new Uint32Array(len);for(let i=0;i<len;i++)p[i]=i;for(let i=len-1;i>0;i--){const j=Math.floor(r()*(i+1));[p[i],p[j]]=[p[j],p[i]]}return p},
     set(v){this.al=v;$('b-v1').className=v==='v1'?'ao on':'ao';$('b-v2').className=v==='v2'?'ao on':'ao';$('pa-v1').style.display=v==='v1'?'block':'none';$('pa-v2').style.display=v==='v2'?'block':'none'},
     ui(){$('vq1').innerText=$('qv1').value==100?"PNG":$('qv1').value+"%";$('vs2').innerText=$('sv2').value+"%";$('vq2').innerText=$('qv2').value==100?"PNG":$('qv2').value+"%"},
-    ld(i,t){const f=i.files[0];if(!f)return;this.fs[t]=f;const r=new FileReader;r.onload=e=>{$('pv-'+t).src=e.target.result;$('pv-'+t).classList.add('on');$('lb-'+t).style.display='none'};r.readAsDataURL(f)},
+    ld(i,t){const f=i.files[0];if(!f)return;this.fs[t]=f;
+    if(this.u){URL.revokeObjectURL(this.u)}this.u=URL.createObjectURL(f);
+    $('pv-'+t).src=this.u;$('pv-'+t).classList.add('on');$('lb-'+t).style.display='none'},
     run(t){const f=this.fs[t];if(!f&&!$('pv-'+t).src)return T("请先载入图片");const k=$('ke').value||$('kd').value;if(!k)return T("请输入密码");const img=new Image;img.onload=()=>{if(this.al==='v1')this.pV1(img,k,t);else this.pV2(img,k,t)};img.src=$('pv-'+t).src},
     pV1(img,k,t){
-        const c=$('cvs'),x=c.getContext('2d'),w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;c.width=w;c.height=h;x.drawImage(img,0,0);
+        const c=$('cvs'),x=c.getContext('2d'),w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;
+        if(w*h>16777216){T("图片过大，可能导致崩溃");return}
+        c.width=w;c.height=h;x.drawImage(img,0,0);
         const d=x.getImageData(0,0,w,h).data,len=w*h,p=this.perm(len,this.hash(k)),b=new Uint8ClampedArray(d.length),E=t==='e';
         if(E)for(let i=0;i<len;i++){const s=p[i]*4,dst=i*4;b[dst]=d[s];b[dst+1]=d[s+1];b[dst+2]=d[s+2];b[dst+3]=255}
         else for(let i=0;i<len;i++){const s=i*4,dst=p[i]*4;b[dst]=d[s];b[dst+1]=d[s+1];b[dst+2]=d[s+2];b[dst+3]=255}
@@ -229,6 +221,7 @@ const IA={
         const c=$('cvs'),x=c.getContext('2d'),E=t==='e';let w=img.naturalWidth||img.width,h=img.naturalHeight||img.height;
         if(E){const s=parseInt($('sv2').value)/100;if(s<1){w=Math.floor(w*s);h=Math.floor(h*s)}}
         w=Math.floor(w/8)*8;h=Math.floor(h/8)*8;if(w<8)w=8;if(h<8)h=8;
+        if(w*h>16777216){T("图片过大，可能导致崩溃");return}
         c.width=w;c.height=h;x.drawImage(img,0,0,w,h);
         const d=x.getImageData(0,0,w,h).data,sd=this.hash(k),r=this.rng(sd),bl=w*h/64,p=this.perm(bl,sd),cm=new Int32Array(bl),nr=this.rng(sd+999);
         for(let i=0;i<bl;i++)cm[i]=Math.floor(nr()*1e6);
