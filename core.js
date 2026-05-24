@@ -83,10 +83,10 @@ const Directory = {
     has(id) { return !!this.data[id]; },
     get(id) { return this.data[id] || null; },
 
-    add(id, signingPubkey, encryptionPubkey) {
+    add(id, signingPubkey, encryptionPubkey, nickname) {
         this.data[id] = {
             id: id,
-            nickname: this.data[id] ? this.data[id].nickname : '',
+            nickname: nickname || (this.data[id] ? this.data[id].nickname : ''),
             signing_pubkey: signingPubkey || '',
             encryption_pubkey: encryptionPubkey || '',
             timestamp: Date.now()
@@ -97,13 +97,6 @@ const Directory = {
     remove(id) {
         delete this.data[id];
         this.save();
-    },
-
-    setNickname(id, nickname) {
-        if (this.data[id]) {
-            this.data[id].nickname = nickname;
-            this.save();
-        }
     },
 
     async pullFromRemote(id) {
@@ -140,13 +133,6 @@ const Directory = {
         if (primaryType === 'enc' && this._onEncFill && e.encryption_pubkey) this._onEncFill(e.encryption_pubkey);
     },
 
-    _editNickname(id) {
-        var e = this.data[id];
-        if (!e) return;
-        var nn = prompt('为 ' + (e.nickname || id) + ' 设置昵称:', e.nickname || '');
-        if (nn !== null) this.setNickname(id, nn.trim());
-    },
-
     render(containerId, primaryType) {
         this._lastContainer = containerId;
         this._lastType = primaryType;
@@ -163,21 +149,18 @@ const Directory = {
         var html = '';
         for (var i = 0; i < all.length; i++) {
             var e = all[i];
-            var spk = e.signing_pubkey || '';
-            var epk = e.encryption_pubkey || '';
+            var key = primaryType === 'sign' ? (e.signing_pubkey || '') : (e.encryption_pubkey || '');
+            var label = primaryType === 'sign' ? 'S:' : 'E:';
             var name = e.nickname || e.id;
             var rid = e.id;
             html += '<div class="crow">' +
                 '<div class="cinf" onclick="Directory._onRowClick(\'' + esc(rid) + '\',\'' + primaryType + '\')">' +
-                '<div class="cnm" onclick="event.stopPropagation();Directory._editNickname(\'' + esc(rid) + '\')" title="点击修改昵称">' + esc(name) + '</div>' +
-                '<div class="cky"><span class="klbl">S:</span><span title="' + esc(spk) + '">' + esc(trunc(spk)) + '</span>' +
-                (spk ? '<span class="kcp" onclick="event.stopPropagation();CP(\'' + spk.replace(/'/g,'\\\'') + '\',false)">复制</span>' : '') +
-                '</div>' +
-                '<div class="cky"><span class="klbl">E:</span><span title="' + esc(epk) + '">' + esc(trunc(epk)) + '</span>' +
-                (epk ? '<span class="kcp" onclick="event.stopPropagation();CP(\'' + epk.replace(/'/g,'\\\'') + '\',false)">复制</span>' : '') +
+                '<div class="cnm">' + esc(name) + '</div>' +
+                '<div class="cky"><span class="klbl">' + label + '</span><span title="' + esc(key) + '">' + esc(trunc(key)) + '</span>' +
+                (key ? '<span class="kcp" onclick="event.stopPropagation();CP(\'' + key.replace(/'/g,'\\\'') + '\',false)">复制</span>' : '') +
                 '</div>' +
                 '</div>' +
-                '<div class="cdel" onclick="Directory.remove(\'' + esc(rid) + '\');Directory.render(\'' + containerId + '\',\'' + primaryType + '\')">×</div>' +
+                '<div class="cdel" onclick="if(confirm(\'\\u786e\\u5b9a\\u5220\\u9664\\uff1f\')){Directory.remove(\'' + esc(rid) + '\');Directory.render(\'' + containerId + '\',\'' + primaryType + '\')}">×</div>' +
                 '</div>';
         }
         c.innerHTML = html;

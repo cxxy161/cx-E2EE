@@ -23,6 +23,9 @@
             <div style="color:var(--p);margin-bottom:5px">派生签名公钥 (Ed25519):</div>
             <div id="dspk" style="color:#fff;word-break:break-all"></div>
             <button class="cp" onclick="CP('dspk',1)">复制签名公钥</button>
+            <div style="color:var(--p);margin-top:10px;margin-bottom:5px">派生加密公钥 (X25519):</div>
+            <div id="depk" style="color:#fff;word-break:break-all"></div>
+            <button class="cp" onclick="CP('depk',1)">复制加密公钥</button>
         </div>
     </div>
 
@@ -48,6 +51,26 @@ var ACC = {
     enc: new TextEncoder(),
     kp: null,
 
+    X25519: {
+        P: 2n**255n - 19n,
+        i(n) { return this.p(n, this.P - 2n); },
+        p(b, e) { let r = 1n; b %= this.P; while (e > 0n) { if (e % 2n === 1n) r = (r * b) % this.P; b = (b * b) % this.P; e /= 2n; } return r; },
+        m(s, p) {
+            const k = new Uint8Array(s); k[0] &= 248; k[31] &= 127; k[31] |= 64;
+            let n = 0n; for (let i = 31; i >= 0; i--) n = (n << 8n) + BigInt(k[i]);
+            let u = 0n; if (p) for (let i = 31; i >= 0; i--) u = (u << 8n) + BigInt(p[i]); else u = 9n;
+            let x1 = u, x2 = 1n, z2 = 0n, x3 = u, z3 = 1n, sw = 0n;
+            for (let t = 254; t >= 0; t--) {
+                const kt = (n >> BigInt(t)) & 1n; sw ^= kt; if (sw) { [x2, x3] = [x3, x2]; [z2, z3] = [z3, z2]; } sw = kt;
+                const A = x2 + z2, AA = A * A, B = x2 - z2, BB = B * B, E = AA - BB, C = x3 + z3, D = x3 - z3, DA = D * A, CB = C * B, ad = DA + CB, su = DA - CB;
+                x3 = ad * ad; z3 = x1 * (su * su); x2 = AA * BB; z2 = E * (AA + 486662n * E / 4n); x2 %= this.P; z2 %= this.P; x3 %= this.P; z3 %= this.P;
+            }
+            if (sw) { [x2, x3] = [x3, x2]; [z2, z3] = [z3, z2]; }
+            const r = (x2 * this.i(z2)) % this.P; const b = new Uint8Array(32); let tp = r;
+            for (let i = 0; i < 32; i++) { b[i] = Number(tp & 0xFFn); tp >>= 8n; } return b;
+        }
+    },
+
     async derive() {
         var m = $('mnemo').value.trim();
         if (!m) return T('请输入助记词');
@@ -56,8 +79,17 @@ var ACC = {
             this.kp = nacl.sign.keyPair.fromSeed(new Uint8Array(hash));
             var pkB64 = Util.buf2b64(this.kp.publicKey.buffer);
             $('dspk').innerText = pkB64;
-            $('dkeys').classList.add('on');
             $('spk').value = pkB64;
+
+            var km = await crypto.subtle.importKey('raw', this.enc.encode(m), { name: 'PBKDF2' }, false, ['deriveBits']);
+            var sd = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: this.enc.encode('CX3'), iterations: 1e5, hash: 'SHA-256' }, km, 256);
+            var encPriv = new Uint8Array(sd);
+            var encPub = this.X25519.m(encPriv, null);
+            var epkB64 = Util.buf2b64(encPub.buffer);
+            $('depk').innerText = epkB64;
+            $('epk').value = epkB64;
+
+            $('dkeys').classList.add('on');
             T('密钥对已派生');
         } catch(e) { T('派生失败: ' + (e.message || e)); }
     },

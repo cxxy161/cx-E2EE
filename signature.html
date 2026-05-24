@@ -86,8 +86,7 @@ var ACS = {
         var epk = $('cepk').value.trim();
         if (!id) return T('请输入联系人 ID');
         if (!spk) return T('请输入签名公钥');
-        Directory.add(id, spk, epk);
-        if (nn) Directory.setNickname(id, nn);
+        Directory.add(id, spk, epk, nn);
         $('cid').value = ''; $('cnn').value = ''; $('cspk').value = ''; $('cepk').value = '';
         Directory.render('clst', 'sign');
         T('已添加');

@@ -134,8 +134,7 @@ var ACS = {
         var spk = $('cspk').value.trim();
         if (!id) return T('请输入联系人 ID');
         if (!epk) return T('请输入加密公钥');
-        Directory.add(id, spk, epk);
-        if (nn) Directory.setNickname(id, nn);
+        Directory.add(id, spk, epk, nn);
         $('cid').value = ''; $('cnn').value = ''; $('cepk').value = ''; $('cspk').value = '';
         Directory.render('clst', 'enc');
         T('已添加');
