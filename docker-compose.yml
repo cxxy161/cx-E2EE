@@ -1,0 +1,9 @@
+services:
+  cx-e2ee:
+    build: .
+    container_name: cx-e2ee
+    ports:
+      - "1211:3000"
+    volumes:
+      - ./pubkey_store.json:/app/pubkey_store.json
+    restart: unless-stopped

@@ -110,7 +110,9 @@ app.get('/api/pubkey/:id', (req, res) => {
     res.json(entry);
 });
 
+app.use(express.static(__dirname));
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`C-X Pubkey API running on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`C-X Server running on 0.0.0.0:${PORT}`);
 });
