@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>文本信道 - C-X 安全终端</title>
+    <link rel="stylesheet" href="style.css?v=1.0">
+</head>
+
+<body>
+<div class="box">
+    <a href="index.html" class="nav-home">← 返回控制台</a>
+    <h1>文本通信协议</h1>
+
+    <div class="card">
+        <div class="ht"><span>身份凭证 (IDENTITY)</span><span id="led" style="color:#555">●</span></div>
+        <label>助记句 (输入唯一口令生成身份)</label>
+        <input type="text" id="tp" placeholder="在此输入您的专属口令，用于生成私钥" oninput="TA.rst()">
+        <button class="btn" onclick="TA.init()" id="tb">初始化身份</button>
+        <div id="trp" class="res"><div style="color:var(--p);margin-bottom:5px">我的公钥:</div><div id="tpk" style="color:#fff"></div><button class="cp" onclick="CP('tpk',1)">复制公钥</button></div>
+    </div>
+
+    <div class="card">
+        <div class="ht" onclick="ACS.tog()" style="cursor:pointer"><span>通讯录 (CONTACTS)</span><span id="car">▼</span></div>
+        <div id="cpnl" style="display:none;margin-top:15px">
+            <div class="trow"><button class="tbtn" onclick="Directory.exp()">📤 导出</button><button class="tbtn" onclick="Directory.imp()">📥 导入</button></div>
+            <div class="abox"><input type="text" id="rid" placeholder="检索 ID" class="ainp"><button class="btn" style="margin:0;padding:10px 12px;white-space:nowrap;width:auto" onclick="ACS.pull()">🔍 从服务器拉取</button></div>
+            <div class="abox"><input type="text" id="cid" placeholder="联系人 ID" class="ainp" style="flex:0.4"><input type="text" id="cnn" placeholder="昵称(可选)" class="ainp" style="flex:0.3"></div>
+            <input type="text" id="cepk" placeholder="加密公钥" style="margin-bottom:8px">
+            <input type="text" id="cspk" placeholder="签名公钥(可选)" style="margin-bottom:8px">
+            <button class="btn" style="margin:0 0 15px 0;padding:10px;font-size:.9rem" onclick="ACS.add()">➕ 添加联系人</button>
+            <div id="clst" style="max-height:200px;overflow-y:auto"></div>
+        </div>
+    </div>
+
+    <div class="mtb"><div class="mt on" onclick="TS('e')" id="mt-e">加密模式</div><div class="mt" onclick="TS('d')" id="mt-d">解密模式</div></div>
+    
+    <div class="spl">
+        <div class="card sp on" id="sp-e">
+            <div class="ht">🔒 加密发送 (ENCRYPT)</div>
+            <label>接收方公钥</label><input type="text" id="trk" placeholder="粘贴公钥或从通讯录选择">
+            <label>明文内容</label><textarea id="tpt" placeholder="输入机密信息..."></textarea>
+            <button class="btn" onclick="TA.enc()">执行加密</button>
+            <div id="trc" class="res"><div id="tct" style="color:var(--ts)"></div><button class="cp" onclick="CP('tct',1)">复制密文</button></div>
+        </div>
+        <div class="card sp" id="sp-d">
+            <div class="ht">🔓 解密接收 (DECRYPT)</div>
+            <label>密文数据</label><textarea id="tci" placeholder="粘贴收到的密文..."></textarea>
+            <button class="btn green" onclick="TA.dec()">执行解密</button>
+            <div id="trd" class="res"><div style="color:var(--a);margin-bottom:5px">解密结果:</div><div id="tdt" style="color:#fff;font-weight:700"></div></div>
+        </div>
+    </div>
+</div>
+
+    <script src="core.js?v=1.0"></script>
+<script>
+const TA = {
+    M: {
+        P: 2n**255n - 19n, i(n) { return this.p(n, this.P - 2n); },
+        p(b, e) { let r = 1n; b %= this.P; while (e > 0n) { if (e % 2n === 1n) r = (r * b) % this.P; b = (b * b) % this.P; e /= 2n; } return r; },
+        m(s, p) {
+            const k = new Uint8Array(s); k[0] &= 248; k[31] &= 127; k[31] |= 64;
+            let n = 0n; for (let i = 31; i >= 0; i--) n = (n << 8n) + BigInt(k[i]);
+            let u = 0n; if (p) for (let i = 31; i >= 0; i--) u = (u << 8n) + BigInt(p[i]); else u = 9n;
+            let x1 = u, x2 = 1n, z2 = 0n, x3 = u, z3 = 1n, sw = 0n;
+            for (let t = 254; t >= 0; t--) {
+                const kt = (n >> BigInt(t)) & 1n; sw ^= kt; if (sw) { [x2, x3] = [x3, x2]; [z2, z3] = [z3, z2]; } sw = kt;
+                const A = x2 + z2, AA = A * A, B = x2 - z2, BB = B * B, E = AA - BB, C = x3 + z3, D = x3 - z3, DA = D * A, CB = C * B, ad = DA + CB, su = DA - CB;
+                x3 = ad * ad; z3 = x1 * (su * su); x2 = AA * BB; z2 = E * (AA + 486662n * E / 4n); x2 %= this.P; z2 %= this.P; x3 %= this.P; z3 %= this.P;
+            }
+            if (sw) { [x2, x3] = [x3, x2]; [z2, z3] = [z3, z2]; }
+            const r = (x2 * this.i(z2)) % this.P; const b = new Uint8Array(32); let tp = r;
+            for (let i = 0; i < 32; i++) { b[i] = Number(tp & 0xFFn); tp >>= 8n; } return b;
+        }
+    },
+    c: {
+        e: new TextEncoder(), d: new TextDecoder(), pr: null, pk: null,
+        async init(tx) {
+            if (!tx) throw "请输入口令";
+            const km = await crypto.subtle.importKey("raw", this.e.encode(tx), { name: "PBKDF2" }, false, ["deriveBits"]);
+            const sd = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: this.e.encode("CX3"), iterations: 1e5, hash: "SHA-256" }, km, 256);
+            this.pr = new Uint8Array(sd); this.pk = Util.buf2b64(TA.M.m(this.pr, null).buffer); return this.pk;
+        },
+        async run(k, t, d) {
+            if (!this.pr) throw "请先初始化"; const op = "AES-GCM";
+            if (d) {
+                const j = JSON.parse(this.d.decode(Util.b642buf(t)));
+                const s = TA.M.m(this.pr, new Uint8Array(Util.b642buf(j.k)));
+                const ky = await crypto.subtle.importKey("raw", s, op, false, ["decrypt"]);
+                return this.d.decode(await crypto.subtle.decrypt({ name: op, iv: Util.b642buf(j.i) }, ky, Util.b642buf(j.c)));
+            } else {
+                const e = crypto.getRandomValues(new Uint8Array(32));
+                const pubBuf = Util.b642buf(k);
+                if (!pubBuf || pubBuf.byteLength !== 32) throw "接收方公钥格式损坏或长度不符";
+                const s = TA.M.m(e, new Uint8Array(pubBuf));
+                const ky = await crypto.subtle.importKey("raw", s, op, false, ["encrypt"]);
+                const v = crypto.getRandomValues(new Uint8Array(12));
+                const c = await crypto.subtle.encrypt({ name: op, iv: v }, ky, this.e.encode(t));
+                return Util.buf2b64(this.e.encode(JSON.stringify({ k: Util.buf2b64(TA.M.m(e, null).buffer), i: Util.buf2b64(v.buffer), c: Util.buf2b64(c) })));
+            }
+        }
+    },
+    rst() { $('led').style.color = '#555'; $('tb').disabled = false; $('tb').innerText = "初始化身份"; $('trp').classList.remove('on'); },
+    async init() {
+        let b = $('tb'); b.disabled = true; b.innerText = "计算中...";
+        setTimeout(async () => {
+            try { $('tpk').innerText = await this.c.init($('tp').value); $('trp').classList.add('on'); $('led').style.color = '#00ff88'; b.innerText = "身份已激活"; }
+            catch (e) { T(e); b.disabled = false; b.innerText = "初始化身份"; }
+        }, 50);
+    },
+    async enc() { try { $('tct').innerText = await this.c.run($('trk').value, $('tpt').value, false); $('trc').classList.add('on'); } catch (e) { T("错误:" + e); } },
+    async dec() { try { $('tdt').innerText = await this.c.run(null, $('tci').value, true); $('trd').classList.add('on'); } catch (e) { $('tdt').innerText = "解密失败"; $('trd').classList.add('on'); } }
+};
+
+Directory._onEncFill = function(k) { $('trk').value = k; T('加密公钥已填入'); };
+Directory.render('clst', 'enc');
+
+var ACS = {
+    tog() {
+        var p = $('cpnl'), a = $('car');
+        if (p.style.display === 'none') {
+            p.style.display = 'block';
+            a.innerText = '▲';
+            if ($('trk').value) $('cepk').value = $('trk').value;
+        } else {
+            p.style.display = 'none';
+            a.innerText = '▼';
+        }
+    },
+    add() {
+        var id = $('cid').value.trim();
+        var nn = $('cnn').value.trim();
+        var epk = $('cepk').value.trim();
+        var spk = $('cspk').value.trim();
+        if (!id) return T('请输入联系人 ID');
+        if (!epk) return T('请输入加密公钥');
+        Directory.add(id, spk, epk);
+        if (nn) Directory.setNickname(id, nn);
+        $('cid').value = ''; $('cnn').value = ''; $('cepk').value = ''; $('cspk').value = '';
+        Directory.render('clst', 'enc');
+        T('已添加');
+    },
+    async pull() {
+        var id = $('rid').value.trim();
+        if (!id) return T('请输入检索 ID');
+        try {
+            await Directory.pullFromRemote(id);
+            $('rid').value = '';
+            Directory.render('clst', 'enc');
+            T('拉取成功: ' + id);
+        } catch(e) { T(String(e)); }
+    }
+};
+</script>
+</body>
+</html>
