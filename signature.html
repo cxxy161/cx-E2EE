@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>数字签名 - C-X 安全终端</title>
+    <link rel="stylesheet" href="style.css?v=1.0">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tweetnacl/1.0.3/nacl-fast.min.js?v=1.0"></script>
+</head>
+<body>
+<div class="box">
+    <a href="index.html" class="nav-home">← 返回控制台</a>
+    <h1>EdDSA 签名隐写协议</h1>
+
+    <div class="card">
+        <div class="ht" onclick="ACS.tog()" style="cursor:pointer"><span>通讯录 (CONTACTS)</span><span id="car">▼</span></div>
+        <div id="cpnl" style="display:none;margin-top:15px">
+            <div class="trow"><button class="tbtn" onclick="Directory.exp()">📤 导出</button><button class="tbtn" onclick="Directory.imp()">📥 导入</button></div>
+            <div class="abox"><input type="text" id="rid" placeholder="检索 ID" class="ainp"><button class="btn" style="margin:0;padding:10px 12px;white-space:nowrap;width:auto" onclick="ACS.pull()">🔍 从服务器拉取</button></div>
+            <div class="abox"><input type="text" id="cid" placeholder="联系人 ID" class="ainp" style="flex:0.4"><input type="text" id="cnn" placeholder="昵称(可选)" class="ainp" style="flex:0.3"></div>
+            <input type="text" id="cspk" placeholder="签名公钥" style="margin-bottom:8px">
+            <input type="text" id="cepk" placeholder="加密公钥(可选)" style="margin-bottom:8px">
+            <button class="btn" style="margin:0 0 15px 0;padding:10px;font-size:.9rem" onclick="ACS.add()">➕ 添加联系人</button>
+            <div id="clst" style="max-height:200px;overflow-y:auto"></div>
+        </div>
+    </div>
+
+    <div class="mtb"><div class="mt on" onclick="TS('e')" id="mt-e">生成签名</div><div class="mt" onclick="TS('d')" id="mt-d">校验解析</div></div>
+
+    <div class="spl">
+        <div class="card sp on" id="sp-e">
+            <div class="ht">✍️ 签名生成 (SIGN)</div>
+            <label>助记词 / 私钥种子</label>
+            <textarea id="mnemonic" placeholder="输入随机种子"></textarea>
+            <label>签名者名称 (隐形埋入)</label>
+            <input type="text" id="signer-name">
+            <label>待签名明文</label>
+            <textarea id="message" placeholder="输入需要签名的原文内容"></textarea>
+            
+            <button class="btn" onclick="EdDSA.sign()">执行签名与封装</button>
+            <div id="rx-e" class="res">
+                <div style="color:var(--p);margin-bottom:5px">公钥 (Base64 格式):</div>
+                <input type="text" id="out-pubkey" readonly style="margin-bottom:5px">
+                <button class="cp" onclick="CP('out-pubkey',1)" style="margin-bottom:10px">复制公钥</button>
+                <div style="color:var(--p);margin-bottom:5px">组合输出 (原文+隐写签名):</div>
+                <textarea id="out-combined" readonly style="height:120px"></textarea>
+                <button class="cp" onclick="CP('out-combined',1)">复制合并文本</button>
+            </div>
+        </div>
+
+        <div class="card sp" id="sp-d">
+            <div class="ht">🔍 签名验证 (VERIFY)</div>
+            <label>签名公钥 (Base64)</label>
+            <input type="text" id="v-pubkey" placeholder="粘贴对方公钥">
+            <label>完整验证文本</label>
+            <textarea id="v-combined" placeholder="粘贴原文与隐写合并的数据..." style="height:150px"></textarea>
+            
+            <button class="btn green" onclick="EdDSA.verify()">解码与校验</button>
+            <div id="rx-d" class="res">
+                <div id="v-status" style="font-weight:700;margin-bottom:8px;"></div>
+                <div id="v-desc" style="color:var(--ts);font-size:.8rem;margin-bottom:10px;"></div>
+                <div id="v-id-box" style="display:none;background:rgba(0,0,0,.3);padding:8px;border-radius:4px;border:1px dashed var(--b);">
+                    <span style="color:var(--ts);font-size:.7rem">签名者标识:</span><br>
+                    <span id="v-id-name" style="color:#fff;font-weight:700;"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+    <script src="core.js?v=1.0"></script>
+<script>
+Directory._onSigFill = function(k) { $('v-pubkey').value = k; T('签名公钥已填入'); };
+Directory.render('clst', 'sign');
+
+var ACS = {
+    tog() {
+        var p = $('cpnl'), a = $('car');
+        if (p.style.display === 'none') { p.style.display = 'block'; a.innerText = '▲'; }
+        else { p.style.display = 'none'; a.innerText = '▼'; }
+    },
+    add() {
+        var id = $('cid').value.trim();
+        var nn = $('cnn').value.trim();
+        var spk = $('cspk').value.trim();
+        var epk = $('cepk').value.trim();
+        if (!id) return T('请输入联系人 ID');
+        if (!spk) return T('请输入签名公钥');
+        Directory.add(id, spk, epk);
+        if (nn) Directory.setNickname(id, nn);
+        $('cid').value = ''; $('cnn').value = ''; $('cspk').value = ''; $('cepk').value = '';
+        Directory.render('clst', 'sign');
+        T('已添加');
+    },
+    async pull() {
+        var id = $('rid').value.trim();
+        if (!id) return T('请输入检索 ID');
+        try {
+            await Directory.pullFromRemote(id);
+            $('rid').value = '';
+            Directory.render('clst', 'sign');
+            T('拉取成功: ' + id);
+        } catch(e) { T(String(e)); }
+    }
+};
+
+const EdDSA = {
+    enc: new TextEncoder(), dec: new TextDecoder('utf-8'),
+    async sign() {
+        try {
+            const m = $('mnemonic').value, sn = $('signer-name').value, msg = $('message').value;
+            if (!m || !sn || !msg) return T("参数不完整");
+
+            if (!window.crypto || !window.crypto.subtle) return T("当前环境不支持 Web Crypto API，请使用 HTTPS 或 localhost");
+
+            const sdBuf = await crypto.subtle.digest('SHA-256', this.enc.encode(m));
+            const kp = nacl.sign.keyPair.fromSeed(new Uint8Array(sdBuf));
+            const mBytes = this.enc.encode(msg), nBytes = this.enc.encode(sn);
+
+            const payload = new Uint8Array(mBytes.length + 1 + nBytes.length);
+            payload.set(mBytes, 0); payload.set([0], mBytes.length); payload.set(nBytes, mBytes.length + 1);
+
+            const sig = nacl.sign.detached(payload, kp.secretKey);
+            const stego = new Uint8Array(64 + nBytes.length);
+            stego.set(sig, 0); stego.set(nBytes, 64);
+
+            $('out-pubkey').value = Util.buf2b64(kp.publicKey.buffer);
+            $('out-combined').value = msg + '\n' + Util.buf2b64(stego.buffer);
+            $('rx-e').classList.add('on');
+        } catch (e) { T("签名失败: " + (e.message || e)); }
+    },
+    verify() {
+        const pkB64 = $('v-pubkey').value.trim(), text = $('v-combined').value;
+        const pkBuf = Util.b642buf(pkB64);
+        const pk = pkBuf ? new Uint8Array(pkBuf) : null;
+        const resBox = $('rx-d'), st = $('v-status'), de = $('v-desc'), idb = $('v-id-box'), idn = $('v-id-name');
+        
+        resBox.classList.add('on'); idb.style.display = 'none';
+        
+        if (!pk || pk.length !== 32) { this.UI(st, de, "error", "公钥格式异常"); return; }
+        
+        const match = text.match(/([\s\S]*?)\r?\n([A-Za-z0-9+/=]+)$/);
+        if (!match) { this.UI(st, de, "error", "未提取到 Base64 隐写载荷"); return; }
+        
+        const msg = match[1], b64 = match[2], buf = Util.b642buf(b64);
+        if (!buf || buf.byteLength < 64) { this.UI(st, de, "error", "隐写数据损毁"); return; }
+        
+        const u8 = new Uint8Array(buf), sig = u8.slice(0, 64), nBytes = u8.slice(64);
+        const exName = this.dec.decode(nBytes), mBytes = this.enc.encode(msg);
+        
+        const payload = new Uint8Array(mBytes.length + 1 + nBytes.length);
+        payload.set(mBytes, 0); payload.set([0], mBytes.length); payload.set(nBytes, mBytes.length + 1);
+        
+        try {
+            if (ncl = nacl.sign.detached.verify(payload, sig, pk)) {
+                this.UI(st, de, "success", "✓ 签名校验通过");
+                idn.innerText = exName; idb.style.display = 'block';
+            } else {
+                this.UI(st, de, "fail", "✕ 校验失败，内容或公钥不匹配");
+            }
+        } catch (e) { this.UI(st, de, "error", "引擎异常"); }
+    },
+    UI(sEl, dEl, t, m) {
+        sEl.innerText = m;
+        if (t === 'success') { sEl.style.color = 'var(--a)'; dEl.innerText = '信息完整且来源可信。'; }
+        else if (t === 'fail') { sEl.style.color = 'var(--e)'; dEl.innerText = '数据可能已被篡改。'; }
+        else { sEl.style.color = '#fbbf24'; dEl.innerText = '格式解析阻断。'; }
+    }
+};
+</script>
+</body>
+</html>
