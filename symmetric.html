@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>对称加密 - C-X 安全终端</title>
+    <link rel="stylesheet" href="style.css?v=1.0">
+</head>
+<body>
+<div class="box">
+    <a href="index.html" class="nav-home">← 返回控制台</a>
+    <h1>AES-GCM 数据封存协议</h1>
+
+    <div class="mtb"><div class="mt on" onclick="TS('e')" id="mt-e">加密模式</div><div class="mt" onclick="TS('d')" id="mt-d">解密模式</div></div>
+    
+    <div class="spl">
+        <div class="card sp on" id="sp-e">
+            <div class="ht">🔒 加密封存 (ENCRYPT)</div>
+            <label>明文内容</label>
+            <textarea id="mw-e" placeholder="输入机密明文..."></textarea>
+            <label>安全密钥 (PBKDF2 强化)</label>
+            <input type="password" id="my-e" placeholder="设置高强度密码">
+            
+            <button class="btn" onclick="AES.run(false)">执行高强度加密</button>
+            <div id="rx-e" class="res">
+                <div style="color:var(--ts);margin-bottom:5px">AES-256-GCM 密文 (Base64):</div>
+                <textarea id="out-e" readonly style="height:100px;font-size:0.8rem;border-color:transparent;"></textarea>
+                <button class="cp" onclick="CP('out-e',1)">一键提取密文</button>
+            </div>
+        </div>
+        
+        <div class="card sp" id="sp-d">
+            <div class="ht">🔓 解密释出 (DECRYPT)</div>
+            <label>密文载荷 (Base64)</label>
+            <textarea id="mw-d" placeholder="粘贴封装的密文..."></textarea>
+            <label>对应密钥</label>
+            <input type="password" id="my-d" placeholder="输入原密码">
+            
+            <button class="btn green" onclick="AES.run(true)">执行校验与释出</button>
+            <div id="rx-d" class="res">
+                <div style="color:var(--a);margin-bottom:5px">还原明文:</div>
+                <div id="out-d" style="color:#fff;white-space:pre-wrap;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+    <script src="core.js?v=1.0"></script>
+<script>
+const AES = {
+    enc: new TextEncoder(), dec: new TextDecoder(),
+    async getK(pw) { return await crypto.subtle.importKey("raw", this.enc.encode(pw), "PBKDF2", false, ["deriveKey"]); },
+    async derK(pk, salt) { return await crypto.subtle.deriveKey({ name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" }, pk, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]); },
+    
+    async run(isDec) {
+        const t = isDec ? 'd' : 'e';
+        const txt = $(`mw-${t}`).value.trim(), pw = $(`my-${t}`).value;
+        if (!txt || !pw) return T("文本与密钥为必填项");
+        
+        try {
+            if (!isDec) {
+                const s = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+                const pKey = await this.getK(pw), aKey = await this.derK(pKey, s);
+                const encCont = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, aKey, this.enc.encode(txt));
+                
+                const eBytes = new Uint8Array(encCont), pl = new Uint8Array(28 + eBytes.byteLength);
+                pl.set(s, 0); pl.set(iv, 16); pl.set(eBytes, 28);
+                
+                $('out-e').value = Util.buf2b64(pl.buffer);
+                $('rx-e').classList.add('on');
+            } else {
+                const b = Util.b642buf(txt);
+                if (!b) throw "Base64 解码异常"; const pl = new Uint8Array(b);
+                if (pl.byteLength < 44) throw "长度截断";
+                
+                const s = pl.slice(0, 16), iv = pl.slice(16, 28), eBytes = pl.slice(28);
+                const pKey = await this.getK(pw), aKey = await this.derK(pKey, s);
+                
+                const decCont = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aKey, eBytes);
+                $('out-d').innerText = this.dec.decode(decCont);
+                $('rx-d').classList.add('on');
+            }
+        } catch (err) {
+            if (isDec) { $('out-d').innerText = "❌ 解密阻断：MAC 认证失败或数据损坏。"; $('rx-d').classList.add('on'); }
+            else { T("底层密码学运算异常"); }
+        }
+    }
+};
+</script>
+</body>
+</html>
