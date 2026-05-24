@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>账户管理 - C-X 安全终端</title>
+    <link rel="stylesheet" href="style.css?v=2.0">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tweetnacl/1.0.3/nacl-fast.min.js?v=1.0"></script>
+</head>
+<body>
+<div class="box">
+    <a href="index.html" class="nav-home">← 返回控制台</a>
+    <h1>公钥库账户管理</h1>
+
+    <div class="card">
+        <div class="ht">身份凭证</div>
+        <label>用户 ID</label>
+        <input type="text" id="uid" placeholder="输入唯一用户标识">
+        <label>助记词</label>
+        <textarea id="mnemo" placeholder="输入助记词，用于派生签名密钥对"></textarea>
+        <button class="btn" onclick="ACC.derive()">派生密钥对</button>
+        <div id="dkeys" class="res">
+            <div style="color:var(--p);margin-bottom:5px">派生签名公钥 (Ed25519):</div>
+            <div id="dspk" style="color:#fff;word-break:break-all"></div>
+            <button class="cp" onclick="CP('dspk',1)">复制签名公钥</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="ht">公钥信息</div>
+        <label>签名公钥 (Ed25519, Base64)</label>
+        <input type="text" id="spk" placeholder="32字节 Ed25519 公钥 Base64">
+        <label>加密公钥 (X25519, Base64)</label>
+        <input type="text" id="epk" placeholder="32字节 X25519 公钥 Base64">
+        <div style="font-size:.75rem;color:var(--ts);margin-top:8px">新建账户时，签名公钥需与助记词匹配，否则自签名校验将失败。</div>
+    </div>
+
+    <div class="card">
+        <div class="ht">提交到公钥库</div>
+        <button class="btn green" onclick="ACC.submit()">上传 / 更新公钥</button>
+        <div id="status" class="res"></div>
+    </div>
+</div>
+
+    <script src="core.js?v=2.0"></script>
+<script>
+var ACC = {
+    enc: new TextEncoder(),
+    kp: null,
+
+    async derive() {
+        var m = $('mnemo').value.trim();
+        if (!m) return T('请输入助记词');
+        try {
+            var hash = await crypto.subtle.digest('SHA-256', this.enc.encode(m));
+            this.kp = nacl.sign.keyPair.fromSeed(new Uint8Array(hash));
+            var pkB64 = Util.buf2b64(this.kp.publicKey.buffer);
+            $('dspk').innerText = pkB64;
+            $('dkeys').classList.add('on');
+            $('spk').value = pkB64;
+            T('密钥对已派生');
+        } catch(e) { T('派生失败: ' + (e.message || e)); }
+    },
+
+    _validB64(v, len) {
+        try {
+            var s = v.replace(/\s+/g, '');
+            if (!/^[A-Za-z0-9+/=]+$/.test(s)) return false;
+            var buf = new Uint8Array(s.length);
+            var dec = atob(s);
+            if (dec.length !== len) return false;
+            for (var i = 0; i < dec.length; i++) buf[i] = dec.charCodeAt(i);
+            return true;
+        } catch(e) { return false; }
+    },
+
+    async submit() {
+        var id = $('uid').value.trim();
+        var spk = $('spk').value.trim();
+        var epk = $('epk').value.trim();
+        var m = $('mnemo').value.trim();
+
+        if (!id) return T('请输入 ID');
+        if (!m) return T('请输入助记词');
+        if (!this.kp) return T('请先派生密钥对');
+        if (!spk || !epk) return T('请填写两个公钥');
+        if (!this._validB64(spk, 32)) return T('签名公钥格式无效 (需32字节 Base64)');
+        if (!this._validB64(epk, 32)) return T('加密公钥格式无效 (需32字节 Base64)');
+
+        var ts = Date.now();
+        var payload = id + '\n' + spk + '\n' + epk + '\n' + ts;
+        var sig = nacl.sign.detached(this.enc.encode(payload), this.kp.secretKey);
+        var sigB64 = Util.buf2b64(sig.buffer);
+
+        var body = {
+            id: id,
+            signing_pubkey: spk,
+            encryption_pubkey: epk,
+            timestamp: ts,
+            signature: sigB64
+        };
+
+        var st = $('status');
+        st.classList.add('on');
+        st.innerHTML = '<div style="color:var(--ts)">提交中...</div>';
+
+        try {
+            var resp = await fetch('/api/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            var data = await resp.json();
+            if (resp.ok) {
+                st.innerHTML = '<div style="color:var(--a);font-weight:700">✓ ' +
+                    (data.status === 'created' ? '创建成功' : '更新成功') + '</div>' +
+                    '<div style="color:var(--ts);font-size:.8rem;margin-top:4px">ID: ' + id + '</div>';
+            } else {
+                st.innerHTML = '<div style="color:var(--e);font-weight:700">✕ ' + data.error + '</div>';
+            }
+        } catch(e) {
+            st.innerHTML = '<div style="color:var(--e);font-weight:700">✕ 网络错误: ' + (e.message || e) + '</div>';
+        }
+    }
+};
+</script>
+</body>
+</html>
