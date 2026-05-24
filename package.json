@@ -1,0 +1,13 @@
+{
+  "name": "cx-pubkey-server",
+  "version": "1.0.0",
+  "description": "C-X Security Terminal - Public Key Directory API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "tweetnacl": "^1.0.3"
+  }
+}
