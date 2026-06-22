@@ -58,6 +58,7 @@ const AES = {
         if (!txt || !pw) return T("文本与密钥为必填项");
         
         try {
+            if (!window.crypto?.subtle) throw "当前环境不支持 Web Crypto API，请使用 HTTPS 或 localhost 访问";
             if (!isDec) {
                 const s = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
                 const pKey = await this.getK(pw), aKey = await this.derK(pKey, s);
@@ -82,7 +83,7 @@ const AES = {
             }
         } catch (err) {
             if (isDec) { $('out-d').innerText = "❌ 解密阻断：MAC 认证失败或数据损坏。"; $('rx-d').classList.add('on'); }
-            else { T("底层密码学运算异常"); }
+            else { T("异常: " + (err?.message || err)); }
         }
     }
 };

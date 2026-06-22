@@ -66,7 +66,7 @@ const TA = {
             for (let t = 254; t >= 0; t--) {
                 const kt = (n >> BigInt(t)) & 1n; sw ^= kt; if (sw) { [x2, x3] = [x3, x2]; [z2, z3] = [z3, z2]; } sw = kt;
                 const A = x2 + z2, AA = A * A, B = x2 - z2, BB = B * B, E = AA - BB, C = x3 + z3, D = x3 - z3, DA = D * A, CB = C * B, ad = DA + CB, su = DA - CB;
-                x3 = ad * ad; z3 = x1 * (su * su); x2 = AA * BB; z2 = E * (AA + 486662n * E / 4n); x2 %= this.P; z2 %= this.P; x3 %= this.P; z3 %= this.P;
+                x3 = ad * ad; z3 = x1 * (su * su); x2 = AA * BB;         z2 = E * (AA + 121666n * E); x2 %= this.P; z2 %= this.P; x3 %= this.P; z3 %= this.P;
             }
             if (sw) { [x2, x3] = [x3, x2]; [z2, z3] = [z3, z2]; }
             const r = (x2 * this.i(z2)) % this.P; const b = new Uint8Array(32); let tp = r;
@@ -77,6 +77,7 @@ const TA = {
         e: new TextEncoder(), d: new TextDecoder(), pr: null, pk: null,
         async init(tx) {
             if (!tx) throw "请输入口令";
+            if (!window.crypto?.subtle) throw "当前环境不支持 Web Crypto API，请使用 HTTPS 或 localhost 访问";
             const km = await crypto.subtle.importKey("raw", this.e.encode(tx), { name: "PBKDF2" }, false, ["deriveBits"]);
             const sd = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: this.e.encode("CX3"), iterations: 1e5, hash: "SHA-256" }, km, 256);
             this.pr = new Uint8Array(sd); this.pk = Util.buf2b64(TA.M.m(this.pr, null).buffer); return this.pk;
