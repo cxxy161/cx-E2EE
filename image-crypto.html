@@ -50,7 +50,7 @@
     <script src="core.js?v=3.0"></script>
 <script>
 const IA = {
-    al: 'v1', fs: { e: null, d: null },
+    al: 'v1', fs: { e: null, d: null }, target: 'e',
     hash(s) {
         let h1 = 1779033703, h2 = 3144134277, h3 = 1013904242, h4 = 2773480762;
         for (let i = 0; i < s.length; i++) {
@@ -64,7 +64,7 @@ const IA = {
     set(v) { this.al = v; $('b-v1').className = v === 'v1' ? 'ao on' : 'ao'; $('b-v2').className = v === 'v2' ? 'ao on' : 'ao'; $('pa-v1').style.display = v === 'v1' ? 'block' : 'none'; $('pa-v2').style.display = v === 'v2' ? 'block' : 'none'; },
     ui() { $('vq1').innerText = $('qv1').value == 100 ? "PNG" : $('qv1').value + "%"; $('vs2').innerText = $('sv2').value + "%"; $('vq2').innerText = $('qv2').value == 100 ? "PNG" : $('qv2').value + "%"; },
     ld(i, t) {
-        const f = i.files[0]; if (!f) return; this.fs[t] = f;
+        const f = i.files[0]; if (!f) return; this.fs[t] = f; this.target = t;
         if (this.u) URL.revokeObjectURL(this.u); this.u = URL.createObjectURL(f);
         $('pv-' + t).src = this.u; $('pv-' + t).classList.add('on'); $('lb-' + t).style.display = 'none';
     },
@@ -113,10 +113,11 @@ const IA = {
 // 全局粘贴与拖拽支持
 document.addEventListener('paste', e => {
     const it = e.clipboardData.items; let f = null; for (let i = 0; i < it.length; i++) if (it[i].type.includes('image')) { f = it[i].getAsFile(); break; } if (!f) return;
-    const t = document.getElementById('sp-d').classList.contains('on') ? 'd' : 'e'; const dt = new DataTransfer(); dt.items.add(f); $('dr-' + t).querySelector('input').files = dt.files; IA.ld($('dr-' + t).querySelector('input'), t); T(`已粘贴到${t === 'd' ? '解密' : '加密'}框`);
+    const t = IA.target || 'e'; const dt = new DataTransfer(); dt.items.add(f); $('dr-' + t).querySelector('input').files = dt.files; IA.ld($('dr-' + t).querySelector('input'), t); T(`已粘贴到${t === 'd' ? '解密' : '加密'}框`);
 });
 ['e', 'd'].forEach(t => {
     const d = $('dr-' + t);
+    d.addEventListener('mousedown', () => IA.target = t);
     d.addEventListener('dragover', e => { e.preventDefault(); d.style.borderColor = 'var(--p)'; d.style.background = 'rgba(0,242,255,.1)'; });
     d.addEventListener('dragleave', e => { e.preventDefault(); d.style.borderColor = 'var(--b)'; d.style.background = 'rgba(0,0,0,.2)'; });
     d.addEventListener('drop', e => { e.preventDefault(); d.style.borderColor = 'var(--b)'; d.style.background = 'rgba(0,0,0,.2)'; if (e.dataTransfer.files[0]) { const i = d.querySelector('input'); i.files = e.dataTransfer.files; IA.ld(i, t); } });
