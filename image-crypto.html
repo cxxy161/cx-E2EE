@@ -5,36 +5,155 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>图片加密 - C-X 安全终端</title>
     <link rel="stylesheet" href="style.css?v=3.0">
+    <style>
+    /* ===== V3 区域打码 · 整页蓝白清爽主题（切 V3 时 body.v3-theme 整体生效） ===== */
+    body.v3-theme {
+        --p:#1f6feb; --s:#5aa8ff; --a:#18a058; --e:#f56a6a;
+        --bg:#eef4fd; --c:rgba(255,255,255,.92); --b:rgba(31,111,235,.16);
+        --t:#1f3a5f; --ts:#5d7ba3;
+    }
+    body.v3-theme { background: var(--bg) radial-gradient(circle at 50% 0, rgba(31,111,235,.12), transparent 45%); }
+    body.v3-theme h1 { background:linear-gradient(90deg,#1f6feb,#5aa8ff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; border-bottom-color:var(--b); }
+    body.v3-theme .nav-home { background:rgba(31,111,235,.08); border-color:var(--p); }
+    body.v3-theme .card { background:var(--c); border-color:var(--b); box-shadow:0 6px 22px rgba(31,111,235,.08); }
+    body.v3-theme input[type=text], body.v3-theme textarea, body.v3-theme select { background:#fff; color:var(--t); border-color:var(--b); }
+    body.v3-theme input:focus, body.v3-theme textarea:focus, body.v3-theme select:focus { border-color:var(--p); box-shadow:0 0 0 3px rgba(31,111,235,.12); }
+    body.v3-theme .btn { background:linear-gradient(135deg,#1f6feb,#5aa8ff); }
+    body.v3-theme .btn.green { background:linear-gradient(135deg,#18a058,#34c77b); }
+    body.v3-theme .cp { background:rgba(31,111,235,.06); color:var(--p); border-color:rgba(31,111,235,.2); }
+    body.v3-theme .mt { background:rgba(31,111,235,.06); color:var(--ts); }
+    body.v3-theme .mt.on { background:var(--p); color:#fff; border-color:var(--p); }
+    body.v3-theme .drop { background:rgba(255,255,255,.72); border-color:var(--b); }
+    body.v3-theme .drop:hover { border-color:var(--p); background:rgba(255,255,255,.9); }
+    body.v3-theme .as { background:rgba(31,111,235,.08); }
+    body.v3-theme .ao.on { background:var(--p); }
+    body.v3-theme .sr { background:rgba(31,111,235,.06); border-color:var(--b); }
+    body.v3-theme .vt { background:#fff; color:var(--p); border-color:var(--b); box-shadow:0 1px 3px rgba(31,111,235,.12); }
+    body.v3-theme .res { background:#fff; border-color:var(--b); box-shadow:0 4px 14px rgba(31,111,235,.07); }
+    body.v3-theme .p-img { background:#dfe8f6; }
+    body.v3-theme #tst { background:rgba(31,111,235,.95); color:#fff; }
+    /* V3 面板融入整页主题，不再是独立卡片 */
+    .v3-wrap { padding:4px 2px; }
+    .v3-hint{ color:var(--p); font-weight:700; font-size:.9rem; margin-bottom:10px; }
+    .v3-stage{ position:relative; border:1px solid var(--b); border-radius:14px; overflow:hidden; background:#dfe8f6; touch-action:none; box-shadow:0 4px 16px rgba(31,111,235,.08); }
+    .v3-stage img{ display:block; width:100%; height:auto; }
+    .v3-stage canvas{ position:absolute; top:0; left:0; width:100%; height:100%; touch-action:none; cursor:crosshair; }
+    .v3-empty{ padding:34px 12px; text-align:center; color:var(--ts); font-size:.85rem; }
+    .v3-bar{ display:flex; gap:8px; margin:12px 0 2px; }
+    .v3-b2{ flex:1; background:#fff; border:1px solid var(--b); color:var(--t); padding:9px; border-radius:10px; cursor:pointer; font-size:.8rem; font-weight:600; transition:.2s; }
+    .v3-b2:hover{ border-color:var(--p); color:var(--p); background:#f0f7ff; }
+    .v3-b2.prim{ background:linear-gradient(135deg,#1f6feb,#5aa8ff); color:#fff; border:none; }
+    .v3-b2.prim:hover{ filter:brightness(1.06); color:#fff; background:linear-gradient(135deg,#1f6feb,#5aa8ff); }
+    .v3-list{ margin:8px 0 2px; max-height:150px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; }
+    .v3-item{ display:flex; align-items:center; gap:8px; background:#fff; border:1px solid var(--b); border-radius:10px; padding:7px 10px; font-size:.78rem; color:var(--t); }
+    .v3-item .num{ background:var(--p); color:#fff; min-width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.72rem; }
+    .v3-item .meta{ flex:1; font-family:'Courier New',monospace; color:var(--ts); }
+    .v3-del{ background:none; border:none; color:#f56a6a; font-size:1.1rem; cursor:pointer; font-weight:700; padding:0 4px; }
+    .v3-count{ color:var(--ts); font-size:.75rem; margin-top:6px; text-align:right; }
+    .v3-tip{ color:var(--ts); font-size:.75rem; line-height:1.6; margin:6px 0 2px; }
+    /* V3 容量三选弹窗 */
+    #v3-ask { position:fixed; inset:0; background:rgba(15,30,50,.55); backdrop-filter:blur(4px); z-index:200; display:none; align-items:center; justify-content:center; }
+    #v3-ask.on { display:flex; }
+    .v3-ask-box { background:#fff; border-radius:16px; width:min(430px,92vw); padding:20px; box-shadow:0 20px 60px rgba(20,60,120,.35); }
+    .v3-ask-box h3 { margin:0 0 8px; color:#1f3a5f; font-size:1.02rem; }
+    .v3-ask-box .desc { color:#5d7ba3; font-size:.8rem; line-height:1.55; margin-bottom:14px; }
+    .v3-ask-box .opt { display:flex; align-items:flex-start; gap:10px; background:#f4f8ff; border:1px solid #dce7f8; border-radius:10px; padding:10px 12px; margin:0 0 9px; cursor:pointer; transition:.15s; }
+    .v3-ask-box .opt:hover { border-color:#2f7bff; background:#eaf2ff; }
+    .v3-ask-box .opt b { color:#1f3a5f; font-size:.85rem; display:block; }
+    .v3-ask-box .opt span { color:#7d9ac0; font-size:.72rem; line-height:1.4; }
+    .v3-ask-box .opt .ic { font-size:1.15rem; }
+    .v3-ask-box .cancel { text-align:center; color:#94a8c6; font-size:.78rem; padding-top:6px; cursor:pointer; }
+    .v3-ask-box .cancel:hover { color:#f56a6a; }
+    /* 帮助弹窗 */
+    #v3-help { position:fixed; inset:0; background:rgba(15,30,50,.55); backdrop-filter:blur(4px); z-index:210; display:none; align-items:center; justify-content:center; padding:14px; }
+    #v3-help.on { display:flex; }
+    .v3-help-box { background:#fff; border-radius:16px; width:min(560px,94vw); max-height:86vh; overflow-y:auto; padding:22px; box-shadow:0 20px 60px rgba(20,60,120,.35); color:#1f3a5f; }
+    .v3-help-box h2 { margin:0 0 4px; color:#1f6feb; font-size:1.15rem; }
+    .v3-help-box .hsec { margin:14px 0 6px; color:#1f6feb; font-weight:700; font-size:.95rem; border-left:3px solid #1f6feb; padding-left:8px; }
+    .v3-help-box ol, .v3-help-box ul { margin:4px 0 8px; padding-left:20px; }
+    .v3-help-box li { font-size:.83rem; line-height:1.7; color:#35507a; }
+    .v3-help-box .hlp-warn { background:#fff7e6; border:1px solid #ffd591; color:#8a5a00; border-radius:8px; padding:8px 10px; font-size:.78rem; line-height:1.6; margin-top:10px; }
+    .v3-help-box .close { display:block; width:100%; margin-top:16px; padding:10px; background:linear-gradient(135deg,#1f6feb,#5aa8ff); color:#fff; border:none; border-radius:10px; font-size:.9rem; font-weight:600; cursor:pointer; }
+    body.v3-theme #v3-help-box { background:#fff; }
+    </style>
 </head>
 <body>
 <div class="box">
     <a href="index.html" class="nav-home">← 返回控制台</a>
     <h1>图片混淆引擎</h1>
 
+    <!-- V1 隐藏入口 -->
+    <div id="v1-toggle" onclick="IA.showV1()" style="position:fixed;top:12px;right:12px;width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#666;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:99;transition:all .3s" onmouseenter="this.style.background='rgba(0,242,255,.15)';this.style.borderColor='var(--p)';this.style.color='var(--p)'" onmouseleave="this.style.background='rgba(255,255,255,.08)';this.style.borderColor='rgba(255,255,255,.15)';this.style.color='#666'" title="切换到 V1 强加密">V1</div>
+
+    <!-- 帮助按钮（右上角，始终可见） -->
+    <div id="help-toggle" onclick="IA.showHelp()" style="position:fixed;top:10px;right:48px;padding:5px 14px;border-radius:14px;background:var(--p);color:#fff;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:99;box-shadow:0 2px 8px rgba(0,120,255,.35);transition:all .25s" onmouseenter="this.style.filter='brightness(1.12)'" onmouseleave="this.style.filter='brightness(1)'" title="打开使用帮助">帮助</div>
+
     <div class="card" style="padding:15px">
         <div class="ht" style="margin-bottom:10px;border:none">算法选择</div>
         <div class="as">
-            <div class="ao on" onclick="IA.set('v1')" id="b-v1">V1 强加密 (高隐蔽)</div>
+            <div class="ao" onclick="IA.set('v1')" id="b-v1" style="display:none">V1 强加密 (高隐蔽)</div>
             <div class="ao" onclick="IA.set('v2')" id="b-v2">V2 抗干扰 (防压缩)</div>
+            <div class="ao on" onclick="IA.set('v3')" id="b-v3">V3 区域打码</div>
         </div>
     </div>
 
-    <div class="mtb"><div class="mt on" onclick="TS('e')" id="mt-e">加密图片</div><div class="mt" onclick="TS('d')" id="mt-d">解密图片</div></div>
+    <div class="mtb"><div class="mt on" onclick="TS('e');IA.target='e'" id="mt-e">加密图片</div><div class="mt" onclick="TS('d');IA.target='d'" id="mt-d">解密图片</div></div>
     
     <div class="spl">
         <div class="card sp on" id="sp-e">
             <div class="ht">🔒 加密图片 (ENCRYPT)</div>
             <div class="drop" id="dr-e"><input type="file" accept="image/*" onchange="IA.ld(this,'e')"><div style="font-size:2rem">🖼️</div><div id="lb-e">点击或拖拽原图<br><span style="font-size:.8rem;color:#888">(支持 Ctrl+V)</span></div><img id="pv-e" class="p-img"></div>
-            <label>设置密码</label><input type="text" id="ke" placeholder="输入加密密码 (请牢记)">
-            <div id="pa-v1" style="margin-top:15px">
+            <label id="lbl-ke">设置密码</label><input type="text" id="ke" placeholder="输入加密密码 (请牢记)" autocomplete="off">
+            <div id="pa-v1" style="margin-top:15px;display:none">
                 <label>输出质量</label><div class="sr"><input type="range" id="qv1" min="10" max="100" value="80" oninput="IA.ui()"><span class="vt" id="vq1">80%</span></div>
             </div>
-            <div id="pa-v2" style="margin-top:15px;display:none">
-                <label>前置缩放</label><div class="sr"><input type="range" id="sv2" min="20" max="100" value="100" oninput="IA.ui()"><span class="vt" id="vs2">100%</span></div>
-                <label>后置压缩</label><div class="sr"><input type="range" id="qv2" min="10" max="100" value="90" oninput="IA.ui()"><span class="vt" id="vq2">90%</span></div>
+            <div id="pa-v2" style="margin-top:15px">
+                <label>前置缩放 <span style="position:relative;cursor:help;color:#666;font-size:.75rem;border:1px solid #555;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;line-height:1" onmouseenter="this.querySelector('.tip').style.display='block'" onmouseleave="this.querySelector('.tip').style.display='none'">i<span class="tip" style="display:none;position:absolute;top:120%;left:50%;transform:translateX(-50%);background:#222;color:#ccc;padding:6px 10px;border-radius:6px;font-size:.7rem;white-space:nowrap;z-index:10;border:1px solid #444">加密前先缩小图片，可以降低加密速度和最终大小，不建议低于50</span></span></label><div class="sr"><input type="range" id="sv2" min="20" max="100" value="100" oninput="IA.ui()"><span class="vt" id="vs2">100%</span></div>
+                <label>后置压缩 <span style="position:relative;cursor:help;color:#666;font-size:.75rem;border:1px solid #555;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;line-height:1" onmouseenter="this.querySelector('.tip').style.display='block'" onmouseleave="this.querySelector('.tip').style.display='none'">i<span class="tip" style="display:none;position:absolute;top:120%;left:50%;transform:translateX(-50%);background:#222;color:#ccc;padding:6px 10px;border-radius:6px;font-size:.7rem;white-space:nowrap;z-index:10;border:1px solid #444">加密后压缩图片体积，建议80,对解密画质影响不大</span></span></label><div class="sr"><input type="range" id="qv2" min="10" max="100" value="100" oninput="IA.ui()"><span class="vt" id="vq2">PNG</span></div>
             </div>
+
+            <!-- ===== V3 区域打码面板 ===== -->
+            <div id="pa-v3" style="display:none">
+                <div class="v3-wrap">
+                    <div class="v3-hint">✏️ 在图上用手指/鼠标框选要打码的多个区域</div>
+                    <div class="v3-stage" id="v3-stage">
+                        <div class="v3-empty" id="v3-empty">先载入原图，即可拖拽框选加密区域</div>
+                        <img id="pv3-img" style="display:none">
+                        <canvas id="pv3-ov"></canvas>
+                    </div>
+                    <div class="v3-bar">
+                        <button class="v3-b2" onclick="MOB.undo()">↶ 撤销</button>
+                        <button class="v3-b2" onclick="MOB.clear()">🗑 全清</button>
+                        <button class="v3-b2 prim" onclick="MOB.all()">☰ 整图加密</button>
+                    </div>
+                    <div class="v3-list" id="v3-list"></div>
+                    <div class="v3-count" id="v3-count">已选 0 个区域（元数据将编码进外扩边框，原图零牺牲）</div>
+                    <label style="margin-top:14px">🔑 设置密码</label>
+                    <input type="text" id="ke3" placeholder="输入加密密码（加密/解密需一致，请牢记）" autocomplete="off">
+                    <div class="v3-tip">加密与解密使用同一密码。密码丢失无法找回。</div>
+                    <label>输出格式</label>
+                    <div class="sr"><input type="range" id="qv3" min="60" max="100" value="100" oninput="IA.ui()"><span class="vt" id="vq3">PNG</span></div>
+                    <div class="v3-tip">100% 输出无损 PNG；降低输出 JPEG，元数据以块级编码写入加宽边框。</div>
+                    <label>前置缩放 <span style="position:relative;cursor:help;color:#666;font-size:.75rem;border:1px solid #555;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;line-height:1" onmouseenter="this.querySelector('.tip').style.display='block'" onmouseleave="this.querySelector('.tip').style.display='none'">i<span class="tip" style="display:none;position:absolute;top:120%;left:50%;transform:translateX(-50%);background:#222;color:#ccc;padding:6px 10px;border-radius:6px;font-size:.7rem;white-space:nowrap;z-index:10;border:1px solid #444">加密前先缩小图片，可减小输出体积并降低诱饵容量占用，避免有损降采样；不建议低于50</span></span></label>
+                    <div class="sr"><input type="range" id="sv3" min="20" max="100" value="100" oninput="IA.ui()"><span class="vt" id="vs3">100%</span></div>
+                    <label style="margin-top:12px">🔻 PNG 增强选项（仅 PNG 可用，JPEG 自动忽略）</label>
+                    <div class="v3-bar" style="margin-top:8px">
+                        <button class="v3-b2" id="v3-decoyb" onclick="MOB.togDecoy()">🖼 诱饵图: 关</button>
+                    </div>
+                    <div id="v3-decoy-row" style="display:none;margin-top:8px">
+                        <div style="background:#fff;border:1px solid var(--b);border-radius:10px;padding:10px;text-align:center;color:var(--ts);font-size:.78rem;position:relative;overflow:hidden">
+                            <span id="v3-decoy-lb">📁 选择诱饵图（打码区域将伪装为诱饵图的对应区域，解密无需诱饵图）</span>
+                            <input type="file" accept="image/*" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="MOB.pickDecoy(this)">
+                        </div>
+                        <div class="v3-tip">📌 诱饵模式容量限制：打码区域总面积 ≤ 原图 1/8；解密自动还原，无需再次上传诱饵图。</div>
+                    </div>
+                    <button class="v3-b2 prim v3-enc" onclick="IA.run('e')" style="margin-top:12px;padding:12px;font-size:.9rem">🔒 生成打码加密图</button>
+                    <div class="v3-res" id="v3-res"></div>
+                </div>
+            </div>
+
             <button class="btn" onclick="IA.run('e')">生成加密图</button>
-            <div id="rx-e" class="res"><img id="oe" class="p-img on" style="border-color:var(--a)"><div style="text-align:right;font-size:.75rem;margin-top:5px;color:#aaa" id="me"></div><button class="cp" onclick="IA.dl('e')">📥 保存图片</button></div>
+            <div id="rx-e" class="res"><img id="oe" class="p-img on" style="border-color:var(--a)"><div style="text-align:right;font-size:.75rem;margin-top:5px;color:#aaa" id="me"></div><button class="cp" onclick="IA.dl('e')">📥 保存图片</button><div style="font-size:.7rem;color:#888;text-align:center;margin-top:4px">若点击下载无响应，请长按图片进行保存</div></div>
         </div>
         
         <div class="card sp" id="sp-d">
@@ -42,15 +161,67 @@
             <div class="drop" id="dr-d"><input type="file" accept="image/*" onchange="IA.ld(this,'d')"><div style="font-size:2rem">🔓</div><div id="lb-d">点击或拖拽乱码图<br><span style="font-size:.8rem;color:#888">(支持 Ctrl+V)</span></div><img id="pv-d" class="p-img"></div>
             <label>解密密码</label><input type="text" id="kd" placeholder="输入对应密码">
             <button class="btn green" onclick="IA.run('d')">开始还原</button>
-            <div id="rx-d" class="res"><label style="color:var(--a)">还原结果:</label><img id="od" class="p-img on" style="border-color:var(--a)"><button class="cp" onclick="IA.dl('d')">📥 保存原图</button></div>
+            <div id="rx-d" class="res"><label style="color:var(--a)">还原结果:</label><img id="od" class="p-img on" style="border-color:var(--a)"><button class="cp" onclick="IA.dl('d')">📥 保存原图</button><div style="font-size:.7rem;color:#888;text-align:center;margin-top:4px">若点击下载无响应，请长按图片进行保存</div></div>
         </div>
     </div>
 </div>
 <canvas id="cvs" style="display:none"></canvas>
+<div id="v3-ask">
+    <div class="v3-ask-box">
+        <h3>⚠️ 打码数据超容量</h3>
+        <div class="desc" id="v3-ask-d"></div>
+        <div class="opt" id="v3-opt-nodecoy"><div class="ic">🚫</div><div><b>关闭诱饵图 · 无损</b><span>不使用诱饵伪装，按普通打码加密，区域像素级无损</span></div></div>
+        <div class="opt" id="v3-opt-losse"><div class="ic">🧩</div><div><b>接受有损</b><span>保持诱饵伪装，区域解密为 M×M 马赛克近似</span></div></div>
+        <div class="cancel" id="v3-opt-cancel">取消加密</div>
+    </div>
+</div>
+    <div id="v3-help">
+    <div class="v3-help-box">
+        <h2>使用帮助</h2>
+        <div class="hsec">一、加密图片</div>
+        <ol>
+            <li>在上方算法区选择模式（V3 区域打码为默认）</li>
+            <li>点击或拖拽图片到「加密图片」框（支持 Ctrl+V 粘贴）</li>
+            <li>如需区域打码：在图上用手指/鼠标框选要保护的区域，可多选，也可以设置全图打码</li>
+            <li>输入密码 → 点击加密按钮 → 生成加密图，右下角显示格式与大小</li>
+        </ol>
+        <div class="hsec">二、解密图片</div>
+        <ol>
+            <li>切到「解密图片」，载入加密图</li>
+            <li>输入同一密码 → 点击还原</li>
+            <li>密码错误会提示；若出现「无法读取元数据」，请检查：
+                <ul>
+                    <li>图片是否被裁切过</li>
+                    <li>若对方使用无损传输，是否为未压缩的原图</li>
+                </ul>
+            </li>
+        </ol>
+        <div class="hsec">三、V3 参数说明</div>
+        <ul>
+            <li><b>前置缩放</b>：加密前先把图片缩小，减小输出体积。仅影响输出尺寸，不影响还原</li>
+            <li><b>输出格式</b>：100% 为无损 PNG（体积可能增加 3-4 倍，网络传输必须传输原图，否则会造成损坏）；调低会输出 JPEG（体积更小，网络传输不易损坏）</li>
+            <li><b>诱饵图</b>：可选上传一张图片，让打码区域外观伪装成诱饵图。可能会造成图片尺寸增大</li>
+        </ul>
+        <div class="hsec">四、关于 / 安全说明</div>
+        <ul>
+            <li>本页所有加密、解密操作均在你自己的设备上完成，图片不会上传到任何服务器</li>
+            <li>安全性取决于密码强度：请使用足够长、不易被猜到的密码</li>
+            <li>密码无法找回，丢失即无法解密，请妥善保管</li>
+            <li>加密后的图片可以自由传输，但若为 PNG 格式需保证传输过程不经过有损压缩（详见上文输出格式说明）</li>
+            <li>本工具的设计目标是在任意渠道隐匿图片内容，不建议用于任何违法用途</li>
+        </ul>
+        <button class="close" onclick="IA.hideHelp()">关闭</button>
+    </div>
+</div>
     <script src="core.js?v=3.0"></script>
 <script>
 const IA = {
-    al: 'v1', fs: { e: null, d: null }, target: 'e',
+    al: 'v3', fs: { e: null, d: null }, target: 'e',
+    showV1() {
+        $('b-v1').style.display = '';
+        this.set('v1');
+        $('v1-toggle').style.display = 'none';
+    },
     hash(s) {
         let h1 = 1779033703, h2 = 3144134277, h3 = 1013904242, h4 = 2773480762;
         for (let i = 0; i < s.length; i++) {
@@ -61,17 +232,40 @@ const IA = {
     },
     rng(a) { return function() { var t = a += 0x6D2B79F5; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; } },
     perm(len, seed) { const r = this.rng(seed), p = new Uint32Array(len); for (let i = 0; i < len; i++) p[i] = i; for (let i = len - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; } return p; },
-    set(v) { this.al = v; $('b-v1').className = v === 'v1' ? 'ao on' : 'ao'; $('b-v2').className = v === 'v2' ? 'ao on' : 'ao'; $('pa-v1').style.display = v === 'v1' ? 'block' : 'none'; $('pa-v2').style.display = v === 'v2' ? 'block' : 'none'; },
-    ui() { $('vq1').innerText = $('qv1').value == 100 ? "PNG" : $('qv1').value + "%"; $('vs2').innerText = $('sv2').value + "%"; $('vq2').innerText = $('qv2').value == 100 ? "PNG" : $('qv2').value + "%"; },
+    set(v) {
+        this.al = v;
+        $('b-v1').className = v === 'v1' ? 'ao on' : 'ao';
+        $('b-v2').className = v === 'v2' ? 'ao on' : 'ao';
+        $('b-v3').className = v === 'v3' ? 'ao on' : 'ao';
+        $('pa-v1').style.display = v === 'v1' ? 'block' : 'none';
+        $('pa-v2').style.display = v === 'v2' ? 'block' : 'none';
+        $('pa-v3').style.display = v === 'v3' ? 'block' : 'none';
+        // V3 时隐藏默认加密按钮与通用密码框（V3 面板有自己的密码输入，位于打码区域下方）；整页切换蓝白主题
+        const mainBtn = document.querySelector('#sp-e .btn');
+        if (mainBtn) mainBtn.style.display = v === 'v3' ? 'none' : '';
+        if ($('lbl-ke')) $('lbl-ke').style.display = v === 'v3' ? 'none' : '';
+        if ($('ke')) $('ke').style.display = v === 'v3' ? 'none' : '';
+        $('v1-toggle').style.display = v === 'v3' ? 'none' : '';
+        document.body.classList.toggle('v3-theme', v === 'v3');
+        if (v === 'v3') this.initV3();
+    },
+    ui() { let v1 = parseInt($('qv1').value), v2 = parseInt($('qv2').value), v3 = parseInt($('qv3').value);
+        $('vq1').innerText = v1 == 100 ? "PNG" : v1 + "%"; $('vs2').innerText = $('sv2').value + "%"; $('vs3').innerText = $('sv3').value + "%"; $('vq2').innerText = v2 == 100 ? "PNG" : v2 + "%"; $('vq3').innerText = v3 == 100 ? "PNG" : v3 + "%"; },
     ld(i, t) {
         const f = i.files[0]; if (!f) return; this.fs[t] = f; this.target = t;
-        if (this.u) URL.revokeObjectURL(this.u); this.u = URL.createObjectURL(f);
-        $('pv-' + t).src = this.u; $('pv-' + t).classList.add('on'); $('lb-' + t).style.display = 'none';
+        // 加密/解密面板各自独立的 blob URL，避免互相 revoke 导致预览失效
+        if (!this.u) this.u = {};
+        if (this.u[t]) URL.revokeObjectURL(this.u[t]);
+        this.u[t] = URL.createObjectURL(f);
+        $('pv-' + t).src = this.u[t]; $('pv-' + t).classList.add('on'); $('lb-' + t).style.display = 'none';
+        // 仅加密区载入时同步打码编辑器；解密载入不影响编辑状态
+        if (this.al === 'v3' && t === 'e') MOB.loadFrom(this.u[t], t);
     },
     run(t) {
         const f = this.fs[t]; if (!f && !$('pv-' + t).src) return T("请先载入图片");
-        const k = $('ke').value || $('kd').value; if (!k) return T("请输入密码");
-        const img = new Image(); img.onload = () => { if (this.al === 'v1') this.pV1(img, k, t); else this.pV2(img, k, t); }; img.src = $('pv-' + t).src;
+        const k = (t === 'e' ? ($('ke3') ? $('ke3').value : $('ke').value) : $('kd').value) || '';
+        if (!k) return T("请输入密码");
+        const img = new Image(); img.onload = () => { if (this.al === 'v1') this.pV1(img, k, t); else if (this.al === 'v2') this.pV2(img, k, t); else this.pV3(img, k, t); }; img.src = $('pv-' + t).src;
     },
     pV1(img, k, t) {
         const c = $('cvs'), x = c.getContext('2d'), w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
@@ -106,9 +300,521 @@ const IA = {
         x.putImageData(new ImageData(b, w, h), 0, 0);
         let q = 1.0, m = 'image/png'; if (E) { const v = parseInt($('qv2').value); if (v < 100) { m = 'image/jpeg'; q = v / 100; } } this.fin(c, t, m, q);
     },
-    fin(c, t, m, q) { const u = c.toDataURL(m, q), i = $('o' + t); i.src = u; $('rx-' + t).classList.add('on'); i.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); if (t === 'e') { const s = Math.round((u.length - 22) * .75); $('me').innerText = `格式:${m.split('/')[1].toUpperCase()}|大小:${s > 1e6 ? (s / 1e6).toFixed(2) + "MB" : (s / 1024).toFixed(0) + "KB"}`; } },
-    dl(t) { const s = $('o' + t).src; if (s) { const a = document.createElement('a'); a.href = s; a.download = `CX_${this.al}_${Date.now()}.${s.includes('png') ? 'png' : 'jpg'}`; a.click(); } }
+    initV3() { MOB.setup(); },
+    /* 区域内 8×8 块置换 + YUV 变换；sort=true 时加密末尾按亮度排序（索引写LSB），解密开头逆排 */
+    regionEnc(d, w, h, reg, seed, E, sort) {
+        let x0 = Math.floor(reg.x / 8) * 8, y0 = Math.floor(reg.y / 8) * 8;
+        let x1 = Math.min(w, Math.ceil((reg.x + reg.w) / 8) * 8), y1 = Math.min(h, Math.ceil((reg.y + reg.h) / 8) * 8);
+        if (x1 <= x0 || y1 <= y0) return;
+        const bx = (x1 - x0) / 8, by = (y1 - y0) / 8, bl = bx * by;
+        const r = this.rng(seed), p = this.perm(bl, seed), cm = new Int32Array(bl), nr = this.rng(seed + 999);
+        for (let i = 0; i < bl; i++) cm[i] = Math.floor(nr() * 1e6);
+        if (!E && sort) this.sortRegion(d, w, h, x0, y0, bx, by, bl, false); // 先逆排再逆变换
+        const out = new Uint8ClampedArray(d);
+        for (let i = 0; i < bl; i++) {
+            let si, di; if (E) { si = i; di = p[i]; } else { si = p[i]; di = i; }
+            const sCol = si % bx, sRow = Math.floor(si / bx), dCol = di % bx, dRow = Math.floor(di / bx);
+            const sx = x0 + sCol * 8, sy = y0 + sRow * 8, dx = x0 + dCol * 8, dy = y0 + dRow * 8;
+            const rw = cm[E ? di : si], ns = (rw % 81) - 40, fU = rw & 0x100, fV = rw & 0x200, sw = rw & 0x400;
+            for (let y = 0; y < 8; y++) for (let l = 0; l < 8; l++) {
+                const sI = ((sy + y) * w + (sx + l)) * 4, dI = ((dy + y) * w + (dx + l)) * 4;
+                let R = d[sI], G = d[sI + 1], B = d[sI + 2];
+                let Y = .299 * R + .587 * G + .114 * B, U = -.147 * R - .289 * G + .436 * B, V = .615 * R - .515 * G - .1 * B;
+                const CM = v => 50 + (v / 255) * 155, EX = v => { let n = (v - 50) / 155; if (n < 0) n = 0; if (n > 1) n = 1; return n * 255; };
+                if (E) { Y = CM(Y) + ns; if (sw) [U, V] = [V, U]; if (fU) U = -U; if (fV) V = -V; }
+                else { if (fV) V = -V; if (fU) U = -U; if (sw) [U, V] = [V, U]; Y -= ns; Y = EX(Y); }
+                out[dI] = Y + 1.14 * V; out[dI + 1] = Y - .395 * U - .581 * V; out[dI + 2] = Y + 2.032 * U; out[dI + 3] = 255;
+            }
+        }
+        d.set(out);
+        if (E && sort) this.sortRegion(d, w, h, x0, y0, bx, by, bl, true); // 加密末尾按亮度排序
+    },
+    /* 区域内块按亮度排序（E=true 写原索引到块首像素 R LSB；E=false 读 LSB 逆排） */
+    sortRegion(d, w, h, x0, y0, bx, by, bl, enc) {
+        const rbit = Math.ceil(Math.log2(bl)) || 1, ord = new Int32Array(bl);
+        const lum = new Float64Array(bl);
+        for (let i = 0; i < bl; i++) {
+            let s = 0;
+            for (let y = 0; y < 8; y++) for (let l = 0; l < 8; l++) {
+                const f = ((y0 + Math.floor(i / bx) * 8 + y) * w + (x0 + (i % bx) * 8 + l)) * 4;
+                s += d[f] * .299 + d[f + 1] * .587 + d[f + 2] * .114;
+            }
+            lum[i] = s / 64;
+        }
+        if (enc) {
+            for (let i = 0; i < bl; i++) ord[i] = i;
+            ord.sort((a, b) => lum[a] - lum[b]); // 亮度升序
+            // 应用重排并把原索引写进每个目标块首像素 R LSB
+            const tmp = new Uint8ClampedArray(d);
+            for (let j = 0; j < bl; j++) {
+                const src = ord[j]; // 新位置 j 应放原 src 块
+                for (let y = 0; y < 8; y++) for (let l = 0; l < 8; l++) {
+                    const sf = ((y0 + Math.floor(src / bx) * 8 + y) * w + (x0 + (src % bx) * 8 + l)) * 4;
+                    const tf = ((y0 + Math.floor(j / bx) * 8 + y) * w + (x0 + (j % bx) * 8 + l)) * 4;
+                    d[tf] = tmp[sf]; d[tf + 1] = tmp[sf + 1]; d[tf + 2] = tmp[sf + 2];
+                }
+                // 写原索引到块首 rbit 像素 R LSB
+                for (let b = 0; b < rbit; b++) {
+                    const f = ((y0 + Math.floor(j / bx) * 8) * w + (x0 + (j % bx) * 8) + b) * 4;
+                    d[f] = (d[f] & 254) | (src >> b & 1);
+                }
+            }
+        } else {
+            // 读每块首像素 LSB 得到原索引，逆排
+            const idx = new Int32Array(bl), tmp = new Uint8ClampedArray(d);
+            for (let j = 0; j < bl; j++) {
+                let v = 0;
+                for (let b = 0; b < rbit; b++) {
+                    const f = ((y0 + Math.floor(j / bx) * 8) * w + (x0 + (j % bx) * 8) + b) * 4;
+                    v |= (tmp[f] & 1) << b;
+                }
+                idx[j] = v;
+            }
+            for (let j = 0; j < bl; j++) {
+                const dst = idx[j];
+                for (let y = 0; y < 8; y++) for (let l = 0; l < 8; l++) {
+                    const sf = ((y0 + Math.floor(j / bx) * 8 + y) * w + (x0 + (j % bx) * 8 + l)) * 4;
+                    const tf = ((y0 + Math.floor(dst / bx) * 8 + y) * w + (x0 + (dst % bx) * 8 + l)) * 4;
+                    d[tf] = tmp[sf]; d[tf + 1] = tmp[sf + 1]; d[tf + 2] = tmp[sf + 2];
+                }
+            }
+        }
+    },
+    /* 元数据字节流：count + 区域坐标 + 魔数CX + 签名 + 标志(bit0=诱饵,bit1=排序,bit2-3=降采样率-1) + 数据长度LE */
+    metaBytes(count, regions, k, flag, dataLen) {
+        const bs = [count];
+        for (const r of regions) bs.push(r.x >> 8 & 255, r.x & 255, r.y >> 8 & 255, r.y & 255, r.w >> 8 & 255, r.w & 255, r.h >> 8 & 255, r.h & 255);
+        bs.push(67, 88); // "CX"
+        const sig = (this.hash('V3|' + count + '|' + regions.map(r => r.x + ',' + r.y + ',' + r.w + ',' + r.h).join('&') + '|' + k) >>> 0) & 0xFFFFFF;
+        bs.push(sig >> 16 & 255, sig >> 8 & 255, sig & 255);
+        bs.push(flag & 255, dataLen >>> 24 & 255, dataLen >>> 16 & 255, dataLen >>> 8 & 255, dataLen & 255);
+        return bs;
+    },
+    /* ===== V3 外扩边框元数据：原图居中，四周 B 宽边框承载元数据，原图像素零占用 ===== */
+    /* PNG 模式边框宽度 8px；JPEG 模式 32px（4 块，抗压缩冗余） */
+    bW() { return parseInt($('qv3').value) < 100 ? 32 : 8; },
+    /* 边框像素索引流：顶→右→底→左（跳过四角），供 LSB 或块级使用 */
+    borderOrd(cw, ch, B) {
+        const pts = [];
+        for (let x = 0; x < cw; x++) for (let y = 0; y < B; y++) pts.push(y * cw + x);          // 顶
+        for (let y = B; y < ch - B; y++) for (let x = cw - B; x < cw; x++) pts.push(y * cw + x); // 右
+        for (let x = cw - 1; x >= 0; x--) for (let y = ch - B; y < ch; y++) pts.push(y * cw + x); // 底
+        for (let y = ch - B - 1; y >= B; y--) for (let x = 0; x < B; x++) pts.push(y * cw + x);   // 左
+        return pts;
+    },
+    /* PNG/LSB：每字节写 8 像素 R 最低位 */
+    wMetaPng(bs, d, ord) {
+        let bi = 0;
+        for (const b of bs) for (let i = 7; i >= 0; i--) {
+            const p = ord[bi++], f = p * 4; d[f] = (d[f] & 254) | (b >> i & 1);
+        }
+        return true;
+    },
+    rMetaPng(d, ord, maxB) {
+        const bits = []; for (let i = 0; i < Math.min(ord.length, maxB * 8); i++) bits.push(d[ord[i] * 4] & 1);
+        const bytes = []; for (let i = 0; i + 8 <= bits.length; i += 8) { let b = 0; for (let j = 0; j < 8; j++) b = b * 2 + bits[i + j]; bytes.push(b); }
+        return bytes;
+    },
+    /* 边框 8×8 块坐标流：顶(全宽)→右(y避开角)→底(全宽)→左(y避开角) */
+    borderBlocks(w, h, B) {
+        const bz = w >> 3, bh = h >> 3, nb = B >> 3, bl = [];
+        for (let r = 0; r < nb; r++) for (let c = 0; c < bz; c++) bl.push({ x: c * 8, y: r * 8 });                    // 顶
+        for (let r = nb; r < bh - nb; r++) for (let c = 0; c < nb; c++) bl.push({ x: w - B + c * 8, y: r * 8 });      // 右
+        for (let r = bh - nb; r < bh; r++) for (let c = 0; c < bz; c++) bl.push({ x: c * 8, y: r * 8 });              // 底
+        for (let r = nb; r < bh - nb; r++) for (let c = 0; c < nb; c++) bl.push({ x: c * 8, y: r * 8 });              // 左
+        return bl;
+    },
+    wMetaJpeg(bs, d, w, h, B) {
+        const bl = this.borderBlocks(w, h, B), stride = Math.floor(bl.length / 3), LV = [16, 80, 176, 240];
+        const bits = []; for (const b of bs) for (let i = 7; i >= 0; i--) bits.push(b >> i & 1);
+        while (bits.length % 2) bits.push(0);
+        const qs = []; for (let i = 0; i < bits.length; i += 2) qs.push(bits[i] * 2 + bits[i + 1]);
+        if (qs.length > stride) return false;
+        for (let rep = 0; rep < 3; rep++) for (let i = 0; i < qs.length; i++) {
+            const b2 = bl[rep * stride + i], v = LV[qs[i]];
+            for (let y = 0; y < 8; y++) for (let l = 0; l < 8; l++) { const f = ((b2.y + y) * w + (b2.x + l)) * 4; d[f] = v; d[f + 1] = v; d[f + 2] = v; d[f + 3] = 255; }
+        }
+        return true;
+    },
+    rMetaJpeg(d, w, h, B) {
+        const bl = this.borderBlocks(w, h, B), stride = Math.floor(bl.length / 3), LV = [16, 80, 176, 240], vals = [];
+        for (const b2 of bl) { let s = 0; for (let y = 0; y < 8; y++) for (let l = 0; l < 8; l++) s += d[((b2.y + y) * w + (b2.x + l)) * 4]; vals.push(Math.round(s / 64)); }
+        const qs = [];
+        for (let i = 0; i < stride; i++) {
+            const mean = (vals[i] + vals[i + stride] + vals[i + 2 * stride]) / 3;
+            let q = 0, bd = 1e9; for (let j = 0; j < 4; j++) { const dd = Math.abs(mean - LV[j]); if (dd < bd) { bd = dd; q = j; } }
+            qs.push(q);
+        }
+        const bytes = []; for (let i = 0; i < qs.length; i += 4) { let b = 0; for (let j = 0; j < 4; j++) b = b * 4 + (qs[i + j] || 0); bytes.push(b); }
+        return bytes;
+    },
+    /* 解析字节流 → {cnt, regions, stored, flag, dataLen}，魔数不对返回 null */
+    parseMeta(bs) {
+        if (!bs || bs.length < 5) return null;
+        const cnt = bs[0]; if (cnt < 1 || cnt > 12) return null;
+        if (bs[1 + cnt * 8] !== 67 || bs[2 + cnt * 8] !== 88) return null;
+        const regions = [];
+        for (let i = 0; i < cnt; i++) { const o = 1 + i * 8; regions.push({ x: bs[o] * 256 + bs[o + 1], y: bs[o + 2] * 256 + bs[o + 3], w: bs[o + 4] * 256 + bs[o + 5], h: bs[o + 6] * 256 + bs[o + 7] }); }
+        const so = 1 + cnt * 8 + 2;
+        const stored = (bs[so] << 16) | (bs[so + 1] << 8) | bs[so + 2];
+        const flag = bs[so + 3] & 255, dataLen = bs.length > so + 7 ? (bs[so + 4] << 24 | bs[so + 5] << 16 | bs[so + 6] << 8 | bs[so + 7]) : 0;
+        return { cnt, regions, stored, flag, dataLen };
+    },
+    /* 加密：外扩画布，原图居中，边框存元数据；解密：读边框→校验→还原→裁剪回原尺寸 */
+    pV3(img, k, t) {
+        const c = $('cvs'), x = c.getContext('2d');
+        let w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+        if (w * h > 45000000) { T("图片过大"); return; }
+        const E = t === 'e', B = E ? this.bW() : 0;
+        // 前置缩放（仅加密）：按 sv3 比例缩小原图，减小输出体积与诱饵容量占用
+        let scale = 1;
+        if (E && w && h) {
+            const s = parseInt($('sv3').value) / 100;
+            if (s > 0 && s < 1) { scale = s; w = Math.max(8, Math.floor(w * s)); h = Math.max(8, Math.floor(h * s)); }
+        }
+        // 加密：外扩边框；解密：加密图本身含边框，直接采用其尺寸
+        const cw = E ? w + B * 2 : w, ch = E ? h + B * 2 : h;
+        c.width = cw; c.height = ch;
+        // 边框背景：将原图四条边缘向外拉伸，边框视觉上自然延续图片色彩
+        if (E) {
+            x.drawImage(img, 0, 0, w, 1, 0, 0, cw, B);       // 上
+            x.drawImage(img, 0, h - 1, w, 1, 0, ch - B, cw, B); // 下
+            x.drawImage(img, 0, 0, 1, h, 0, B, B, ch - B * 2);  // 左
+            x.drawImage(img, w - 1, 0, 1, h, cw - B, B, B, ch - B * 2); // 右
+            x.drawImage(img, B, B, w, h);                     // 原图居中
+        } else {
+            x.drawImage(img, 0, 0, w, h);
+        }
+        const d = x.getImageData(0, 0, cw, ch);
+        if (E) {
+            let regions = MOB.regions.slice();
+            if (!regions.length) return T("请先框选要打码的区域");
+            // 区域坐标等比换算到缩放后
+            if (scale !== 1) regions = regions.map(r => ({ x: Math.round(r.x * scale), y: Math.round(r.y * scale), w: Math.max(1, Math.round(r.w * scale)), h: Math.max(1, Math.round(r.h * scale)) }));
+            const jpeg = parseInt($('qv3').value) < 100;
+            const decoy = !jpeg && MOB.decoyOn && MOB.decoyImg;
+            const sort = !jpeg && !decoy && MOB.sortOn;
+            if (MOB.decoyOn && !MOB.decoyImg) { T("请先选择诱饵图"); return; }
+            if (jpeg) { T("诱饵图/色块排序仅支持 PNG 输出，当前已自动忽略"); }
+            // 区域加密（含排序）——诱饵模式跳过：数据将按原字节存入 LSB
+            if (!decoy) regions.forEach((reg, idx) => this.regionEnc(d.data, cw, ch, { ...reg, x: reg.x + B, y: reg.y + B }, this.hash(k + '#' + idx), true, sort));
+            // 诱饵模式：区域原始像素散布到原图区 LSB，区域本体填诱饵图
+            let decoySc = 1, dataLen = 0;
+            if (decoy) {
+                // 容量预估：区域数据是否需要降采样（有损）
+                const cap3 = w * h * 3, need0 = regions.reduce((a, r) => a + r.w * r.h * 24, 0);
+                if (need0 > cap3) {
+                    const approxSc = Math.max(2, Math.ceil(Math.sqrt(need0 / cap3)));
+                    // 弹出三选 modal；选择后经回调继续
+                    this.promptCap(need0, cap3, approxSc, (choice) => {
+                        if (choice === 'cancel') { T("已取消加密"); return; }
+                        if (choice === 'nodecoy') {
+                            // 关闭诱饵 → 普通打码无损，重跑
+                            MOB.decoyOn = false; if ($('v3-decoyb')) $('v3-decoyb').innerText = '🖼 诱饵图: 关';
+                            T("已关闭诱饵图，按普通打码加密");
+                            this.pV3(img, k, t);
+                            return;
+                        }
+                        // losse：接受降采样，继续诱饵加密
+                        this.decoyCvs = this.prepareDecoy(MOB.decoyImg, w, h);
+                        const em = this.decoyEmbed(d.data, cw, ch, w, h, B, regions);
+                        if (!em) { T("诱饵容量仍不足，请减小打码区域"); return; }
+                        this.decoyPaint(d.data, cw, ch, w, h, B, regions, this.decoyCvs);
+                        this.decoyMetaOut(c, x, d, cw, ch, B, jpeg, t, regions, k, 1, em.total, em.sc);
+                    });
+                    return; // 等 modal 回调
+                }
+                this.decoyCvs = this.prepareDecoy(MOB.decoyImg, w, h);
+                const em = this.decoyEmbed(d.data, cw, ch, w, h, B, regions);
+                if (!em) { T("诱饵容量仍不足，请减小打码区域"); return; }
+                decoySc = em.sc; dataLen = em.total;
+                this.decoyPaint(d.data, cw, ch, w, h, B, regions, this.decoyCvs);
+            }
+            this.decoyMetaOut(c, x, d, cw, ch, B, jpeg, t, regions, k, decoy ? 1 : 0, dataLen, decoySc);
+        } else {
+            // 解密：先试 8px 边框 PNG/LSB，再试 32px JPEG/块级
+            const ord8 = this.borderOrd(cw, ch, 8);
+            let dB = 8, parsed = this.parseMeta(this.rMetaPng(d.data, ord8, 200));
+            if (!parsed) { parsed = this.parseMeta(this.rMetaJpeg(d.data, cw, ch, 32)); dB = 32; }
+            if (!parsed) { T("未识别到打码元数据，或不是 V3 加密图"); return; }
+            const { cnt, regions, stored, flag, dataLen } = parsed;
+            const expect = (this.hash('V3|' + cnt + '|' + regions.map(r => r.x + ',' + r.y + ',' + r.w + ',' + r.h).join('&') + '|' + k) >>> 0) & 0xFFFFFF;
+            if (stored !== expect) { T("❌ 密码错误，无法解密"); return; }
+            if (flag & 1) { // 诱饵：直接从 LSB 提取区域原始像素填回（无 YUV 往返，精确还原）
+                const sc = ((flag >> 2) & 63) || 1;
+                if (!this.decoyExtract(d.data, cw, ch, dB, regions, dataLen, sc)) { T("诱饵数据提取失败"); return; }
+            } else {
+                const sort2 = !!(flag & 2);
+                // 逆序还原：加密时后处理的区域先还原
+                regions.slice().reverse().forEach((reg, idx) => this.regionEnc(d.data, cw, ch, { ...reg, x: reg.x + dB, y: reg.y + dB }, this.hash(k + '#' + (regions.length - 1 - idx)), false, sort2));
+            }
+            x.putImageData(d, 0, 0);
+            // 裁剪回原尺寸
+            const c2 = document.createElement('canvas'), x2 = c2.getContext('2d');
+            const w2 = cw - dB * 2, h2 = ch - dB * 2;
+            c2.width = w2; c2.height = h2; x2.drawImage(c, dB, dB, w2, h2, 0, 0, w2, h2);
+            this.fin(c2, t, 'image/png', 1);
+        }
+    },
+    /* 诱饵图资源：缩放原图尺寸供取色 */
+    decoyCvs: null,
+    prepareDecoy(img, w, h) {
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+        const x = cv.getContext('2d'); x.drawImage(img, 0, 0, w, h);
+        return cv;
+    },
+    /* 把每个区域(加密后)像素散布到原图区 LSB；容量不足自动降采样。返回 {bits, sc} 或 null */
+    decoyEmbed(d, cw, ch, w, h, B, regions) {
+        const cap = w * h * 3;
+        // 需要位数 = 各区域(w*sc缩放)像素*24
+        let need = 0; for (const r of regions) need += r.w * r.h * 24;
+        let sc = 1;
+        // 降采样到 ≤ 容量：面积缩到 (w*h/8)，sc² ≥ 面积比
+        if (need > cap) {
+            sc = Math.ceil(Math.sqrt(need / cap)) || 2;
+            if (sc < 2) sc = 2;
+            if (sc > 16) sc = 16;
+        }
+        const bits = [];
+        for (const reg of regions) {
+            const sw = Math.ceil(reg.w / sc) || 1, sh = Math.ceil(reg.h / sc) || 1;
+            for (let sy = 0; sy < sh; sy++) for (let sx = 0; sx < sw; sx++) {
+                // 取 sc×sc 块中心像素作代表
+                const cx = sx * sc + (sc >> 1), cy = sy * sc + (sc >> 1);
+                const px = Math.min(reg.x + cx, reg.x + reg.w - 1), py = Math.min(reg.y + cy, reg.y + reg.h - 1);
+                const f = ((B + py) * cw + (B + px)) * 4;
+                bits.push(d[f], d[f + 1], d[f + 2]);
+            }
+        }
+        const total = bits.length * 8;
+        if (total > cap) return null; // 极端情况兜底
+        // 逐位写入原图区像素 R/G/B LSB
+        let bi = 0;
+        outer:
+        for (let y = 0; y < h; y++) for (let l = 0; l < w; l++) {
+            const f = ((B + y) * cw + (B + l)) * 4;
+            for (let ch_ = 0; ch_ < 3; ch_++) {
+                if (bi >= total) break outer;
+                const byte = bits[bi >> 3], bit = bi & 7;
+                d[f + ch_] = (d[f + ch_] & 254) | ((byte >> (7 - bit)) & 1);
+                bi++;
+            }
+        }
+        return { total, sc };
+    },
+    /* 帮助弹窗 */
+    showHelp() { const h = $('v3-help'); if (h) h.classList.add('on'); },
+    hideHelp() { const h = $('v3-help'); if (h) h.classList.remove('on'); },
+    /* 超容量三选 modal：关闭诱饵(无损) / 接受有损 / 取消 —— 经 callback 返回选择 */
+    promptCap(need, cap, sc, cb) {
+        const kb = n => (n / 8 / 1024).toFixed(0);
+        $('v3-ask-d').innerHTML = `打码区域数据量 <b>${kb(need)} KB</b> 超过容量 <b>${kb(cap)} KB</b>。<br>` +
+            `当前诱饵模式需 <b>${sc}×${sc}</b> 降采样存储，解密时区域为马赛克近似（有损）。请选择：`;
+        const box = $('v3-ask');
+        const done = (v) => { box.classList.remove('on'); cb(v); };
+        const bind = (id, v) => { const el = $(id); el.onclick = () => done(v); };
+        bind('v3-opt-nodecoy', 'nodecoy');
+        bind('v3-opt-losse', 'losse');
+        $('v3-opt-cancel').onclick = () => done('cancel');
+        box.classList.add('on');
+    },
+    /* 诱饵/打码收尾：写元数据 + 输出 */
+    decoyMetaOut(c, x, d, cw, ch, B, jpeg, t, regions, k, decoyFlag, dataLen, decoySc) {
+        const flag = decoyFlag | ((decoySc & 63) << 2);
+        const bs = this.metaBytes(regions.length, regions, k, flag, dataLen);
+        const ord = this.borderOrd(cw, ch, B);
+        const ok = jpeg ? this.wMetaJpeg(bs, d.data, cw, ch, B) : this.wMetaPng(bs, d.data, ord);
+        if (!ok) { T("边框放不下元数据，请减少区域"); return; }
+        x.putImageData(d, 0, 0);
+        let q = 1.0, m = 'image/png';
+        if (jpeg) { m = 'image/jpeg'; q = parseInt($('qv3').value) / 100; }
+        this.fin(c, t, m, q);
+    },
+    /* 从 LSB 提取诱饵数据，按区域 24bit/像素 还原为加密+排序后状态；sc=降采样率(1=原始) */
+    decoyExtract(d, cw, ch, dB, regions, dataLen, sc) {
+        const bits = [];
+        let bi = 0;
+        outer:
+        for (let y = 0; y < ch - dB * 2; y++) for (let l = 0; l < cw - dB * 2; l++) {
+            const f = ((dB + y) * cw + (dB + l)) * 4;
+            for (let ch_ = 0; ch_ < 3; ch_++) {
+                if (bi >= dataLen) break outer;
+                bits[bi] = d[f + ch_] & 1; bi++;
+            }
+        }
+        if (bits.length < dataLen) return false;
+        const byteAt = (bi2) => { let v = 0; if (bi2 * 8 + 7 >= bits.length) return 0; for (let b = 0; b < 8; b++) v = (v << 1) | bits[bi2 * 8 + b]; return v; };
+        let off = 0;
+        for (const reg of regions) {
+            const sw = Math.ceil(reg.w / sc) || 1, sh = Math.ceil(reg.h / sc) || 1;
+            for (let sy = 0; sy < sh; sy++) for (let sx = 0; sx < sw; sx++) {
+                const R = byteAt(off), G = byteAt(off + 1), B = byteAt(off + 2);
+                off += 3;
+                // 放大填充 sc×sc 块
+                for (let yy = 0; yy < sc; yy++) for (let xx = 0; xx < sc; xx++) {
+                    const px = reg.x + sx * sc + xx, py = reg.y + sy * sc + yy;
+                    if (px >= reg.x + reg.w || py >= reg.y + reg.h) continue;
+                    const f = ((dB + py) * cw + (dB + px)) * 4;
+                    d[f] = R; d[f + 1] = G; d[f + 2] = B;
+                }
+            }
+        }
+        return true;
+    },
+    /* 区域本体填充诱饵图对应区域像素（仅高 7 位，保留 LSB 数据位） */
+    decoyPaint(d, cw, ch, w, h, B, regions, decoyCvs) {
+        const ctx = decoyCvs.getContext('2d');
+        const dd = ctx.getImageData(0, 0, w, h).data;
+        for (const reg of regions) {
+            for (let yy = 0; yy < reg.h; yy++) for (let xx = 0; xx < reg.w; xx++) {
+                const f = ((B + reg.y + yy) * cw + (B + reg.x + xx)) * 4;
+                const ff = ((reg.y + yy) * w + (reg.x + xx)) * 4;
+                d[f] = (d[f] & 1) | (dd[ff] & 254);
+                d[f + 1] = (d[f + 1] & 1) | (dd[ff + 1] & 254);
+                d[f + 2] = (d[f + 2] & 1) | (dd[ff + 2] & 254);
+            }
+        }
+    },
+    fin(c, t, m, q) {
+        const i = $('o' + t);
+        // 结果图用 Blob URL 展示（纯本地，长按可保存；不经过任何服务器）
+        if (!this.buMime) this.buMime = {};
+        this.buMime[t] = m;
+        const show = (blob) => {
+            if (!this.bu) this.bu = {};
+            if (this.bu[t]) URL.revokeObjectURL(this.bu[t]);
+            this.bu[t] = URL.createObjectURL(blob);
+            i.src = this.bu[t];
+            $('rx-' + t).classList.add('on');
+            i.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            if (t === 'e') {
+                const s = blob.size;
+                $('me').innerText = `格式:${m.split('/')[1].toUpperCase()}|大小:${s > 1e6 ? (s / 1e6).toFixed(2) + "MB" : (s / 1024).toFixed(0) + "KB"}`;
+            }
+        };
+        try { c.toBlob(b => { if (b) show(b); else { const u = c.toDataURL(m, q); i.src = u; } }, m, q); }
+        catch (e) { const u = c.toDataURL(m, q); i.src = u; }
+    },
+    dl(t) {
+        const s = $('o' + t).src; if (!s) return;
+        const mime = this.buMime && this.buMime[t] || (s.includes('png') ? 'image/png' : 'image/jpeg');
+        const ext = mime.includes('png') ? 'png' : 'jpg';
+        const name = `CX_${this.al}_${Date.now()}.${ext}`;
+        const fire = (url) => {
+            const a = document.createElement('a');
+            a.href = url; a.download = name; a.rel = 'noopener'; a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => document.body.removeChild(a), 500);
+        };
+        if (s.startsWith('blob:')) {
+            // 已是 Blob URL：直接下载；安卓 WebView 若无效则长按保存（blob 图可长按）
+            fire(s);
+        } else if (s.startsWith('data:')) {
+            // dataURL → Blob URL（兼容旧路径），a 挂载 DOM 后 click
+            try {
+                const b = atob(s.split(',')[1]); const n = b.length; const u8 = new Uint8Array(n);
+                for (let i = 0; i < n; i++) u8[i] = b.charCodeAt(i);
+                const blob = new Blob([u8], { type: mime });
+                const url = URL.createObjectURL(blob);
+                fire(url);
+                setTimeout(() => URL.revokeObjectURL(url), 5000);
+            } catch (e) { fire(s); }
+        }
+    }
 };
+
+/* ===== V3 打码编辑器 ===== */
+const MOB = {
+    url: null, img: null, natW: 0, natH: 0, regions: [], drag: null,
+    setup() { const ov = $('pv3-ov'); if (ov.__bound) return; ov.__bound = true;
+        const start = (e) => { if (!this.img) return; const p = this.pt(e); this.drag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y }; ov.setPointerCapture(e.pointerId); };
+        const move = (e) => { if (!this.drag) return; const p = this.pt(e); this.drag.x1 = p.x; this.drag.y1 = p.y; this.draw(); };
+        const end = () => { if (!this.drag) return; const d = this.drag; this.drag = null;
+            let x = Math.min(d.x0, d.x1), y = Math.min(d.y0, d.y1), w = Math.abs(d.x1 - d.x0), h = Math.abs(d.y1 - d.y0);
+            if (w > 8 && h > 8) { this.addRegion({ x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) }); } this.draw(); };
+        ov.addEventListener('pointerdown', start);
+        ov.addEventListener('pointermove', move);
+        ov.addEventListener('pointerup', end);
+        ov.addEventListener('pointercancel', end);
+        window.addEventListener('resize', () => this.draw());
+    },
+    pt(e) { const r = $('pv3-ov').getBoundingClientRect(); const sx = this.natW / r.width, sy = this.natH / r.height;
+        return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy }; },
+    addRegion(reg) { if (this.regions.length >= 12) return T("最多 12 个区域"); this.regions.push(this.norm(reg)); this.renderList(); this.draw(); },
+    norm(reg) { // 适配坐标系（区域可在原图全范围，边框外扩不影响）
+        let x = Math.max(0, reg.x), y = Math.max(0, reg.y);
+        let x2 = Math.min(this.natW, reg.x + reg.w), y2 = Math.min(this.natH, reg.y + reg.h);
+        return { x: Math.round(x), y: Math.round(y), w: Math.round(x2 - x), h: Math.round(y2 - y) }; },
+    all() { if (!this.img) return T("先载入图片"); this.addRegion({ x: 0, y: 0, w: this.natW, h: this.natH }); },
+    undo() { this.regions.pop(); this.renderList(); this.draw(); },
+    clear() { this.regions = []; this.renderList(); this.draw(); this.encClear(); },
+    del(i) { this.regions.splice(i, 1); this.renderList(); this.draw(); },
+    renderList() {
+        const L = $('v3-list'); L.innerHTML = '';
+        this.regions.forEach((r, i) => {
+            const it = document.createElement('div'); it.className = 'v3-item';
+            it.innerHTML = `<span class="num">${i + 1}</span><span class="meta">${r.w}×${r.h} @ (${r.x},${r.y})</span><button class="v3-del">✕</button>`;
+            it.querySelector('.v3-del').onclick = () => this.del(i);
+            L.appendChild(it);
+        });
+        $('v3-count').innerText = '已选 ' + this.regions.length + ' 个区域（元数据外扩进边框）';
+    },
+    draw() {
+        const ov = $('pv3-ov'), c = ov.getContext('2d');
+        if (!this.img || !this.natW) { ov.width = ov.height = 0; return; }
+        const r = $('v3-stage').getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        ov.width = Math.round(r.width * dpr); ov.height = Math.round(r.height * dpr);
+        c.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const sx = r.width / this.natW, sy = r.height / this.natH;
+        this.regions.forEach((reg, i) => {
+            c.fillStyle = 'rgba(47,123,255,.22)'; c.strokeStyle = '#2f7bff'; c.lineWidth = 2;
+            c.fillRect(reg.x * sx, reg.y * sy, reg.w * sx, reg.h * sy);
+            c.strokeRect(reg.x * sx, reg.y * sy, reg.w * sx, reg.h * sy);
+            c.fillStyle = '#2f7bff';
+            c.beginPath(); c.arc(reg.x * sx + 10, reg.y * sy + 10, 11, 0, 7); c.fill();
+            c.fillStyle = '#fff'; c.font = 'bold 12px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+            c.fillText(i + 1, reg.x * sx + 10, reg.y * sy + 10);
+        });
+        if (this.drag) {
+            let x = Math.min(this.drag.x0, this.drag.x1) * sx, y = Math.min(this.drag.y0, this.drag.y1) * sy;
+            let w = Math.abs(this.drag.x1 - this.drag.x0) * sx, h = Math.abs(this.drag.y1 - this.drag.y0) * sy;
+            c.strokeStyle = '#2f7bff'; c.lineWidth = 2; c.setLineDash([6, 4]);
+            c.strokeRect(x, y, w, h); c.setLineDash([]);
+            c.fillStyle = 'rgba(47,123,255,.15)'; c.fillRect(x, y, w, h);
+        }
+    },
+    loadFrom(url, t) {
+        const img = new Image();
+        img.onload = () => { this.url = url; this.img = img; this.natW = img.naturalWidth; this.natH = img.naturalHeight;
+            this.regions = []; this.encClear();
+            const st = $('v3-stage'); st.style.aspectRatio = this.natW + '/' + this.natH;
+            $('pv3-img').src = url; $('pv3-img').style.display = 'block'; $('v3-empty').style.display = 'none';
+            this.draw(); };
+        img.src = url;
+    },
+    encClear() { },
+    /* PNG 增强开关：诱饵图（排序功能已下线） */
+    sortOn: false, decoyOn: false, decoyImg: null, decoyURL: null,
+    togDecoy() {
+        this.decoyOn = !this.decoyOn;
+        $('v3-decoyb').innerText = '🖼 诱饵图: ' + (this.decoyOn ? '开' : '关');
+        $('v3-decoy-row').style.display = this.decoyOn ? 'block' : 'none';
+    },
+    pickDecoy(i) {
+        const f = i.files[0]; if (!f) return;
+        if (this.decoyURL) URL.revokeObjectURL(this.decoyURL);
+        this.decoyURL = URL.createObjectURL(f);
+        const im = new Image();
+        im.onload = () => { this.decoyImg = im; $('v3-decoy-lb').innerText = '✅ 诱饵图已载入 ' + im.naturalWidth + '×' + im.naturalHeight + '（可重新选择）'; };
+        im.src = this.decoyURL;
+    },
+    decoyReset() { if (this.decoyURL) URL.revokeObjectURL(this.decoyURL); this.decoyURL = null; this.decoyImg = null; $('v3-decoy-lb').innerHTML = '📁 选择诱饵图（打码区域将伪装为诱饵图的对应区域，解密无需诱饵图）'; },
+};
+
+// 页面默认打开 V3 区域打码
+IA.set('v3');
 
 // 全局粘贴与拖拽支持
 document.addEventListener('paste', e => {
@@ -117,7 +823,7 @@ document.addEventListener('paste', e => {
 });
 ['e', 'd'].forEach(t => {
     const d = $('dr-' + t);
-    d.addEventListener('mousedown', () => IA.target = t);
+    d.addEventListener('mouseenter', () => IA.target = t);
     d.addEventListener('dragover', e => { e.preventDefault(); d.style.borderColor = 'var(--p)'; d.style.background = 'rgba(0,242,255,.1)'; });
     d.addEventListener('dragleave', e => { e.preventDefault(); d.style.borderColor = 'var(--b)'; d.style.background = 'rgba(0,0,0,.2)'; });
     d.addEventListener('drop', e => { e.preventDefault(); d.style.borderColor = 'var(--b)'; d.style.background = 'rgba(0,0,0,.2)'; if (e.dataTransfer.files[0]) { const i = d.querySelector('input'); i.files = e.dataTransfer.files; IA.ld(i, t); } });
