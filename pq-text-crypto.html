@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>后量子文本信道 - C-X 安全终端</title>
-    <link rel="stylesheet" href="pq-style.css?v=1.0">
+    <link rel="stylesheet" href="pq-style.css?v=1.1">
 </head>
 <body>
 <div class="box">
@@ -22,7 +22,7 @@
     <div class="card">
         <div class="ht" onclick="ACS.tog()" style="cursor:pointer"><span>通讯录 (CONTACTS)</span><span id="car">▼</span></div>
         <div id="cpnl" style="display:none;margin-top:15px">
-            <div class="trow"><button class="tbtn" onclick="Directory.exp()">📤 导出</button><button class="tbtn" onclick="Directory.imp()">📥 导入</button></div>
+            <div class="trow"><button class="tbtn" onclick="PQ_Directory.exp()">📤 导出</button><button class="tbtn" onclick="PQ_Directory.imp()">📥 导入</button></div>
             <div class="abox"><input type="text" id="cid" placeholder="联系人 ID" class="ainp" style="flex:0.4"><input type="text" id="cnn" placeholder="昵称(可选)" class="ainp" style="flex:0.3"></div>
             <input type="text" id="cepk" placeholder="ML-KEM 公钥 (Base64)" style="margin-bottom:8px">
             <button class="btn" style="margin:0 0 15px 0;padding:10px;font-size:.9rem" onclick="ACS.add()">➕ 添加联系人</button>
@@ -77,7 +77,7 @@ import('./lib/ml-kem.bundle.mjs').then(function(mod) {
 });
 
 // Contacts directory
-var Directory = {
+var PQ_Directory = {
     store: 'cx_pq_contacts',
     data: {},
     _onEncFill: null,
@@ -112,7 +112,7 @@ var Directory = {
             var e = all[i];
             var key = e.encryption_pubkey || '';
             var name = e.nickname || e.id;
-            html += '<div class="crow"><div class="cinf" onclick="Directory._onRowClick(\'' + self._esc(e.id) + '\')"><div class="cnm">' + self._esc(name) + '</div><div class="cky"><span class="klbl">K:</span><span title="' + self._esc(key) + '">' + self._esc(self._trunc(key)) + '</span>' + (key ? '<span class="kcp" onclick="event.stopPropagation();CP(\'' + key.replace(/'/g,"\\'") + '\',false)">复制</span>' : '') + '</div></div><div class="cdel" onclick="if(confirm(\'确定删除？\')){Directory.remove(\'' + self._esc(e.id) + '\');Directory.render(\'' + containerId + '\')}">×</div></div>';
+            html += '<div class="crow"><div class="cinf" onclick="PQ_Directory._onRowClick(\'' + self._esc(e.id) + '\')"><div class="cnm">' + self._esc(name) + '</div><div class="cky"><span class="klbl">K:</span><span title="' + self._esc(key) + '">' + self._esc(self._trunc(key)) + '</span>' + (key ? '<span class="kcp" onclick="event.stopPropagation();CP(\'' + key.replace(/'/g,"\\'") + '\',false)">复制</span>' : '') + '</div></div><div class="cdel" onclick="if(confirm(\'确定删除？\')){PQ_Directory.remove(\'' + self._esc(e.id) + '\');PQ_Directory.render(\'' + containerId + '\')}">×</div></div>';
         }
         c.innerHTML = html;
     },
@@ -133,9 +133,9 @@ var Directory = {
         } catch(e) { T('数据无效'); }
     }
 };
-Directory.load();
-Directory._onEncFill = function(k) { $('trk').value = k; T('公钥已填入'); };
-Directory.render('clst');
+PQ_Directory.load();
+PQ_Directory._onEncFill = function(k) { $('trk').value = k; T('公钥已填入'); };
+PQ_Directory.render('clst');
 
 // TA - Text encryption
 var TA = {
@@ -149,10 +149,10 @@ var TA = {
         if (!window.crypto || !window.crypto.subtle) return T('当前环境不支持 Web Crypto API');
         var b = $('tb'); b.disabled = true; b.innerText = "计算中...";
         crypto.subtle.importKey("raw", self.c.e.encode(tx), { name: "PBKDF2" }, false, ["deriveBits"])
-        .then(function(km) { return crypto.subtle.deriveBits({ name: "PBKDF2", salt: self.c.e.encode("CX-PQ"), iterations: 1e5, hash: "SHA-256" }, km, 64); })
+        .then(function(km) { return crypto.subtle.deriveBits({ name: "PBKDF2", salt: self.c.e.encode("CX-PQ"), iterations: 1e5, hash: "SHA-256" }, km, 512); })
         .then(function(sd) {
             var seed = new Uint8Array(sd);
-            var kp = ml_kem768.keygen(seed.subarray(0, 32));
+            var kp = ml_kem768.keygen(seed);
             self.c.sk = kp.secretKey;
             self.c.pk = kp.publicKey;
             $('tpk').innerText = PQ_Utils.buf2b64(self.c.pk);
@@ -221,9 +221,9 @@ var ACS = {
         var id = $('cid').value.trim(), nn = $('cnn').value.trim(), epk = $('cepk').value.trim();
         if (!id) return T('请输入联系人 ID');
         if (!epk) return T('请输入 ML-KEM 公钥');
-        Directory.add(id, epk, nn);
+        PQ_Directory.add(id, epk, nn);
         $('cid').value = ''; $('cnn').value = ''; $('cepk').value = '';
-        Directory.render('clst'); T('已添加');
+        PQ_Directory.render('clst'); T('已添加');
     }
 };
 </script>
