@@ -70,6 +70,25 @@
 import { ml_dsa65 } from './lib/ml-dsa.bundle.mjs';
 window.ml_dsa65 = ml_dsa65;
 
+// Utility functions for base64/hex conversion
+const PQ_Utils = {
+    b642buf: (b64) => {
+        try {
+            const bin = atob(b64.replace(/\s+/g, ''));
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            return bytes.buffer;
+        } catch { return null; }
+    },
+    buf2b64: (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))),
+    buf2hex: (buffer) => Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join(''),
+    hex2buf: (hex) => {
+        const c = hex.replace(/\s+/g, '');
+        if (c.length % 2 !== 0) return null;
+        return new Uint8Array(c.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+    }
+};
+
 // Local contacts directory (no server)
 const PQDir = {
     store: 'cx_pq_sig_contacts',
@@ -156,6 +175,7 @@ const PQDir = {
     }
 };
 PQDir.load();
+window.PQDir = PQDir;
 
 PQDir._onSigFill = function(k) { $('v-pubkey').value = k; T('签名公钥已填入'); };
 PQDir.render('clst');
@@ -178,6 +198,7 @@ var ACS = {
         T('已添加');
     }
 };
+window.ACS = ACS;
 
 const MLDSA = {
     enc: new TextEncoder(), dec: new TextDecoder('utf-8'),
@@ -254,6 +275,7 @@ const MLDSA = {
         else { sEl.style.color = '#f59e0b'; dEl.innerText = '格式解析阻断。'; }
     }
 };
+window.MLDSA = MLDSA;
 </script>
 </body>
 </html>

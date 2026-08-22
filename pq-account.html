@@ -52,6 +52,25 @@ import { ml_kem768 } from './lib/ml-kem.bundle.mjs';
 window.ml_dsa65 = ml_dsa65;
 window.ml_kem768 = ml_kem768;
 
+// Utility functions for base64/hex conversion
+const PQ_Utils = {
+    b642buf: (b64) => {
+        try {
+            const bin = atob(b64.replace(/\s+/g, ''));
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            return bytes.buffer;
+        } catch { return null; }
+    },
+    buf2b64: (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))),
+    buf2hex: (buffer) => Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join(''),
+    hex2buf: (hex) => {
+        const c = hex.replace(/\s+/g, '');
+        if (c.length % 2 !== 0) return null;
+        return new Uint8Array(c.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+    }
+};
+
 var PQAcc = {
     enc: new TextEncoder(),
     kp_dsa: null,
@@ -110,6 +129,7 @@ var PQAcc = {
         T('公钥包已复制');
     }
 };
+window.PQAcc = PQAcc;
 </script>
 </body>
 </html>
