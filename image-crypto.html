@@ -142,10 +142,10 @@
                     </div>
                     <div id="v3-decoy-row" style="display:none;margin-top:8px">
                         <div style="background:#fff;border:1px solid var(--b);border-radius:10px;padding:10px;text-align:center;color:var(--ts);font-size:.78rem;position:relative;overflow:hidden">
-                            <span id="v3-decoy-lb">📁 选择诱饵图（打码区域将伪装为诱饵图的对应区域，解密无需诱饵图）</span>
+                            <span id="v3-decoy-lb">📁 选择诱饵图（每个打码区域将独立铺满显示这张诱饵图，解密无需诱饵图）</span>
                             <input type="file" accept="image/*" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="MOB.pickDecoy(this)">
                         </div>
-                        <div class="v3-tip">📌 诱饵模式容量限制：打码区域总面积 ≤ 原图 1/8；解密自动还原，无需再次上传诱饵图。</div>
+                        <div class="v3-tip">📌 每个打码区域都会独立拉伸铺满显示这张诱饵图（N 个区域 = 这张图出现 N 次）。容量限制：打码区域总面积 ≤ 原图 1/8；解密自动还原，无需再次上传诱饵图。</div>
                     </div>
                     <button class="v3-b2 prim v3-enc" onclick="IA.run('e')" style="margin-top:12px;padding:12px;font-size:.9rem">🔒 生成打码加密图</button>
                     <div class="v3-res" id="v3-res"></div>
@@ -200,7 +200,7 @@
         <ul>
             <li><b>前置缩放</b>：加密前先把图片缩小，减小输出体积。仅影响输出尺寸，不影响还原</li>
             <li><b>输出格式</b>：100% 为无损 PNG（体积可能增加 3-4 倍，网络传输必须传输原图，否则会造成损坏）；调低会输出 JPEG（体积更小，网络传输不易损坏）</li>
-            <li><b>诱饵图</b>：可选上传一张图片，让打码区域外观伪装成诱饵图。可能会造成图片尺寸增大</li>
+            <li><b>诱饵图</b>：可选上传一张图片，每个打码区域都会独立铺满显示这张诱饵图（N 个区域 = 这张图出现 N 次）。可能会造成图片尺寸增大</li>
         </ul>
         <div class="hsec">四、关于 / 安全说明</div>
         <ul>
@@ -661,17 +661,20 @@ const IA = {
         }
         return true;
     },
-    /* 区域本体填充诱饵图对应区域像素（仅高 7 位，保留 LSB 数据位） */
+    /* 区域本体填充诱饵图：每个打码区域独立把整张诱饵图拉伸铺满（仅高 7 位，保留 LSB 数据位） */
     decoyPaint(d, cw, ch, w, h, B, regions, decoyCvs) {
-        const ctx = decoyCvs.getContext('2d');
-        const dd = ctx.getImageData(0, 0, w, h).data;
         for (const reg of regions) {
+            // 整张诱饵图拉伸到该区域尺寸 → 每个打码区域各自独立显示同一张诱饵图
+            const rc = document.createElement('canvas'); rc.width = reg.w; rc.height = reg.h;
+            const rx = rc.getContext('2d');
+            rx.drawImage(decoyCvs, 0, 0, w, h, 0, 0, reg.w, reg.h);
+            const ddr = rx.getImageData(0, 0, reg.w, reg.h).data;
             for (let yy = 0; yy < reg.h; yy++) for (let xx = 0; xx < reg.w; xx++) {
                 const f = ((B + reg.y + yy) * cw + (B + reg.x + xx)) * 4;
-                const ff = ((reg.y + yy) * w + (reg.x + xx)) * 4;
-                d[f] = (d[f] & 1) | (dd[ff] & 254);
-                d[f + 1] = (d[f + 1] & 1) | (dd[ff + 1] & 254);
-                d[f + 2] = (d[f + 2] & 1) | (dd[ff + 2] & 254);
+                const ff = (yy * reg.w + xx) * 4;
+                d[f] = (d[f] & 1) | (ddr[ff] & 254);
+                d[f + 1] = (d[f + 1] & 1) | (ddr[ff + 1] & 254);
+                d[f + 2] = (d[f + 2] & 1) | (ddr[ff + 2] & 254);
             }
         }
     },
@@ -810,7 +813,7 @@ const MOB = {
         im.onload = () => { this.decoyImg = im; $('v3-decoy-lb').innerText = '✅ 诱饵图已载入 ' + im.naturalWidth + '×' + im.naturalHeight + '（可重新选择）'; };
         im.src = this.decoyURL;
     },
-    decoyReset() { if (this.decoyURL) URL.revokeObjectURL(this.decoyURL); this.decoyURL = null; this.decoyImg = null; $('v3-decoy-lb').innerHTML = '📁 选择诱饵图（打码区域将伪装为诱饵图的对应区域，解密无需诱饵图）'; },
+    decoyReset() { if (this.decoyURL) URL.revokeObjectURL(this.decoyURL); this.decoyURL = null; this.decoyImg = null; $('v3-decoy-lb').innerHTML = '📁 选择诱饵图（每个打码区域将独立铺满显示这张诱饵图，解密无需诱饵图）'; },
 };
 
 // 页面默认打开 V3 区域打码
