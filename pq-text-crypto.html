@@ -138,6 +138,7 @@ const TA = {
     async enc() { try { $('tct').innerText = await this.c.run($('trk').value, $('tpt').value, false); $('trc').classList.add('on'); } catch (e) { T("错误:" + e); } },
     async dec() { try { $('tdt').innerText = await this.c.run(null, $('tci').value, true); $('trd').classList.add('on'); } catch (e) { $('tdt').innerText = "解密失败: " + e; $('trd').classList.add('on'); } }
 };
+window.TA = TA;
 
 // Directory setup - contacts without server
 const Directory = {
