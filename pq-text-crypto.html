@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>后量子文本信道 - C-X 安全终端</title>
     <link rel="stylesheet" href="pq-style.css?v=1.0">
-    <script src="lib/ml-kem.bundle.mjs" type="module"></script>
 </head>
 <body>
 <div class="box">
@@ -50,114 +49,46 @@
     </div>
 </div>
 
-    <script src="core.js?v=3.0"></script>
-<script type="module">
-// Import ML-KEM from bundle
-import { ml_kem768 } from './lib/ml-kem.bundle.mjs';
-window.ml_kem768 = ml_kem768;
-
-// Utility functions for base64/hex conversion
-const PQ_Utils = {
-    b642buf: (b64) => {
+<script src="core.js?v=3.0"></script>
+<script>
+// Utility functions
+var PQ_Utils = {
+    b642buf: function(b64) {
         try {
-            const bin = atob(b64.replace(/\s+/g, ''));
-            const bytes = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            var bin = atob(b64.replace(/\s+/g, ''));
+            var bytes = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
             return bytes.buffer;
-        } catch { return null; }
+        } catch(e) { return null; }
     },
-    buf2b64: (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))),
-    buf2hex: (buffer) => Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join(''),
-    hex2buf: (hex) => {
-        const c = hex.replace(/\s+/g, '');
-        if (c.length % 2 !== 0) return null;
-        return new Uint8Array(c.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-    }
+    buf2b64: function(buf) { return btoa(String.fromCharCode.apply(null, new Uint8Array(buf))); }
 };
 
-// ML-KEM based text encryption
-const TA = {
-    c: {
-        e: new TextEncoder(), d: new TextDecoder(), pr: null, pk: null,
-        async init(tx) {
-            if (!tx) throw "请输入口令";
-            if (!window.crypto?.subtle) throw "当前环境不支持 Web Crypto API";
-            // Derive seed from passphrase using PBKDF2
-            const km = await crypto.subtle.importKey("raw", this.e.encode(tx), { name: "PBKDF2" }, false, ["deriveBits"]);
-            const sd = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: this.e.encode("CX-PQ"), iterations: 1e5, hash: "SHA-256" }, km, 64);
-            const seed = new Uint8Array(sd);
-            // Generate ML-KEM key pair
-            const keyPair = ml_kem768.keygen(seed.subarray(0, 32));
-            this.sk = keyPair.secretKey;
-            this.pk = keyPair.publicKey;
-            return PQ_Utils.buf2b64(this.pk);
-        },
-        async run(theirPkB64, plaintext, decrypt) {
-            if (!this.sk) throw "请先初始化";
-            if (decrypt) {
-                // Parse ciphertext JSON
-                const j = JSON.parse(this.d.decode(PQ_Utils.b642buf(plaintext)));
-                // Decapsulate to get shared secret
-                const ct = new Uint8Array(PQ_Utils.b642buf(j.ct));
-                const sharedSecret = ml_kem768.decapsulate(ct, this.sk);
-                // Derive AES key from shared secret
-                const key = await crypto.subtle.importKey("raw", sharedSecret, "AES-GCM", false, ["decrypt"]);
-                return this.d.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: PQ_Utils.b642buf(j.iv) }, key, PQ_Utils.b642buf(j.c)));
-            } else {
-                // Parse recipient's public key
-                const theirPk = new Uint8Array(PQ_Utils.b642buf(theirPkB64));
-                if (!theirPk || theirPk.byteLength !== 1184) throw "接收方公钥格式损坏或长度不符 (需要 1184 字节)";
-                // Encapsulate shared secret
-                const { cipherText, sharedSecret } = ml_kem768.encapsulate(theirPk);
-                // Derive AES key from shared secret
-                const key = await crypto.subtle.importKey("raw", sharedSecret, "AES-GCM", false, ["encrypt"]);
-                const iv = crypto.getRandomValues(new Uint8Array(12));
-                const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, this.e.encode(plaintext));
-                // Return JSON with ciphertext, encrypted data, and IV
-                return PQ_Utils.buf2b64(this.e.encode(JSON.stringify({
-                    ct: PQ_Utils.buf2b64(cipherText),
-                    iv: PQ_Utils.buf2b64(iv.buffer),
-                    c: PQ_Utils.buf2b64(encrypted)
-                })));
-            }
-        }
-    },
-    rst() { $('led').style.color = '#94a3b8'; $('tb').disabled = false; $('tb').innerText = "初始化身份"; $('trp').classList.remove('on'); },
-    async init() {
-        let b = $('tb'); b.disabled = true; b.innerText = "计算中...";
-        setTimeout(async () => {
-            try { 
-                $('tpk').innerText = await this.c.init($('tp').value);
-                $('trp').classList.add('on');
-                $('led').style.color = 'var(--a)';
-                b.innerText = "身份已激活";
-            }
-            catch (e) { T(e); b.disabled = false; b.innerText = "初始化身份"; }
-        }, 50);
-    },
-    async enc() { try { $('tct').innerText = await this.c.run($('trk').value, $('tpt').value, false); $('trc').classList.add('on'); } catch (e) { T("错误:" + e); } },
-    async dec() { try { $('tdt').innerText = await this.c.run(null, $('tci').value, true); $('trd').classList.add('on'); } catch (e) { $('tdt').innerText = "解密失败: " + e; $('trd').classList.add('on'); } }
-};
-window.TA = TA;
+// ML-KEM instance (loaded async)
+var ml_kem768 = null;
 
-// Directory setup - contacts without server
-const Directory = {
+// Load ML-KEM bundle dynamically
+import('./lib/ml-kem.bundle.mjs').then(function(mod) {
+    ml_kem768 = mod.ml_kem768;
+    console.log('ML-KEM-768 loaded');
+}).catch(function(e) {
+    console.error('Failed to load ML-KEM:', e);
+    T('后量子模块加载失败');
+});
+
+// Contacts directory
+var Directory = {
     store: 'cx_pq_contacts',
     data: {},
     _onEncFill: null,
-    _lastContainer: null,
-    _lastType: null,
 
-    load() {
+    load: function() {
         try { this.data = JSON.parse(localStorage.getItem(this.store)) || {}; }
-        catch { this.data = {}; }
+        catch(e) { this.data = {}; }
     },
-    save() { localStorage.setItem(this.store, JSON.stringify(this.data)); },
-    getAll() { return Object.values(this.data); },
-    has(id) { return !!this.data[id]; },
-    get(id) { return this.data[id] || null; },
-
-    add(id, encryptionPubkey, nickname) {
+    save: function() { localStorage.setItem(this.store, JSON.stringify(this.data)); },
+    getAll: function() { return Object.values(this.data); },
+    add: function(id, encryptionPubkey, nickname) {
         this.data[id] = {
             id: id,
             nickname: nickname || (this.data[id] ? this.data[id].nickname : ''),
@@ -166,112 +97,135 @@ const Directory = {
         };
         this.save();
     },
-
-    remove(id) {
-        delete this.data[id];
-        this.save();
-    },
-
-    _esc(s) {
-        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    },
-    _trunc(s) {
-        if (!s) return '—';
-        return s.length > 32 ? s.substring(0, 16) + '...' + s.substring(s.length - 12) : s;
-    },
-
-    _onRowClick(id) {
-        var e = this.data[id];
-        if (!e) return;
-        if (this._onEncFill && e.encryption_pubkey) this._onEncFill(e.encryption_pubkey);
-    },
-
-    render(containerId) {
-        this._lastContainer = containerId;
-        var c = $(containerId);
+    remove: function(id) { delete this.data[id]; this.save(); },
+    _esc: function(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+    _trunc: function(s) { if (!s) return '—'; return s.length > 32 ? s.substring(0, 16) + '...' + s.substring(s.length - 12) : s; },
+    render: function(containerId) {
+        var c = document.getElementById(containerId);
         if (!c) return;
         c.innerHTML = '';
         var all = this.getAll();
-        if (!all.length) {
-            c.innerHTML = '<div style="text-align:center;color:var(--ts);font-size:.8rem;padding:10px">空</div>';
-            return;
-        }
-        var esc = this._esc.bind(this);
-        var trunc = this._trunc.bind(this);
+        if (!all.length) { c.innerHTML = '<div style="text-align:center;color:var(--ts);font-size:.8rem;padding:10px">空</div>'; return; }
+        var self = this;
         var html = '';
         for (var i = 0; i < all.length; i++) {
             var e = all[i];
             var key = e.encryption_pubkey || '';
             var name = e.nickname || e.id;
-            var rid = e.id;
-            html += '<div class="crow">' +
-                '<div class="cinf" onclick="Directory._onRowClick(\'' + esc(rid) + '\')">' +
-                '<div class="cnm">' + esc(name) + '</div>' +
-                '<div class="cky"><span class="klbl">K:</span><span title="' + esc(key) + '">' + esc(trunc(key)) + '</span>' +
-                (key ? '<span class="kcp" onclick="event.stopPropagation();CP(\'' + key.replace(/'/g,'\\\'') + '\',false)">复制</span>' : '') +
-                '</div>' +
-                '</div>' +
-                '<div class="cdel" onclick="if(confirm(\'\\u786e\\u5b9a\\u5220\\u9664\\uff1f\\')){Directory.remove(\'' + esc(rid) + '\');Directory.render(\'' + containerId + '\')}">×</div>' +
-                '</div>';
+            html += '<div class="crow"><div class="cinf" onclick="Directory._onRowClick(\'' + self._esc(e.id) + '\')"><div class="cnm">' + self._esc(name) + '</div><div class="cky"><span class="klbl">K:</span><span title="' + self._esc(key) + '">' + self._esc(self._trunc(key)) + '</span>' + (key ? '<span class="kcp" onclick="event.stopPropagation();CP(\'' + key.replace(/'/g,"\\'") + '\',false)">复制</span>' : '') + '</div></div><div class="cdel" onclick="if(confirm(\'确定删除？\')){Directory.remove(\'' + self._esc(e.id) + '\');Directory.render(\'' + containerId + '\')}">×</div></div>';
         }
         c.innerHTML = html;
     },
-
-    exp() {
-        if (!Object.keys(this.data).length) return T('列表为空');
-        CP(JSON.stringify(this.data), false);
+    _onRowClick: function(id) {
+        var e = this.data[id];
+        if (e && this._onEncFill && e.encryption_pubkey) this._onEncFill(e.encryption_pubkey);
     },
-    imp() {
+    exp: function() { if (!Object.keys(this.data).length) return T('列表为空'); CP(JSON.stringify(this.data), false); },
+    imp: function() {
         var s = prompt('粘贴通讯录备份代码:');
         if (!s) return;
         try {
             var obj = JSON.parse(s);
             if (typeof obj !== 'object') throw 1;
-            if (confirm('覆盖(OK) 还是 合并(Cancel)?')) {
-                this.data = obj;
-            } else {
-                for (var k in obj) {
-                    if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
-                    if (!this.data[k]) this.data[k] = obj[k];
-                }
-            }
-            this.save();
-            this.render(this._lastContainer);
-            T('导入成功');
-        } catch (e) { T('数据无效'); }
+            if (confirm('覆盖(OK) 还是 合并(Cancel)?')) { this.data = obj; }
+            else { for (var k in obj) { if (obj.hasOwnProperty(k) && !this.data[k]) this.data[k] = obj[k]; } }
+            this.save(); this.render('clst'); T('导入成功');
+        } catch(e) { T('数据无效'); }
     }
 };
 Directory.load();
-window.Directory = Directory;
-
 Directory._onEncFill = function(k) { $('trk').value = k; T('公钥已填入'); };
 Directory.render('clst');
 
-var ACS = {
-    tog() {
-        var p = $('cpnl'), a = $('car');
-        if (p.style.display === 'none') {
-            p.style.display = 'block';
-            a.innerText = '▲';
-            if ($('trk').value) $('cepk').value = $('trk').value;
-        } else {
-            p.style.display = 'none';
-            a.innerText = '▼';
-        }
+// TA - Text encryption
+var TA = {
+    c: { e: new TextEncoder(), d: new TextDecoder(), sk: null, pk: null },
+    rst: function() { $('led').style.color = '#94a3b8'; $('tb').disabled = false; $('tb').innerText = "初始化身份"; $('trp').classList.remove('on'); },
+    init: function() {
+        var self = this;
+        var tx = $('tp').value;
+        if (!tx) return T('请输入口令');
+        if (!ml_kem768) return T('后量子模块加载中，请稍候...');
+        if (!window.crypto || !window.crypto.subtle) return T('当前环境不支持 Web Crypto API');
+        var b = $('tb'); b.disabled = true; b.innerText = "计算中...";
+        crypto.subtle.importKey("raw", self.c.e.encode(tx), { name: "PBKDF2" }, false, ["deriveBits"])
+        .then(function(km) { return crypto.subtle.deriveBits({ name: "PBKDF2", salt: self.c.e.encode("CX-PQ"), iterations: 1e5, hash: "SHA-256" }, km, 64); })
+        .then(function(sd) {
+            var seed = new Uint8Array(sd);
+            var kp = ml_kem768.keygen(seed.subarray(0, 32));
+            self.c.sk = kp.secretKey;
+            self.c.pk = kp.publicKey;
+            $('tpk').innerText = PQ_Utils.buf2b64(self.c.pk);
+            $('trp').classList.add('on');
+            $('led').style.color = 'var(--a)';
+            b.innerText = "身份已激活";
+        })
+        .catch(function(e) { T('派生失败: ' + e); b.disabled = false; b.innerText = "初始化身份"; });
     },
-    add() {
-        var id = $('cid').value.trim();
-        var nn = $('cnn').value.trim();
-        var epk = $('cepk').value.trim();
+    enc: function() {
+        var self = this;
+        if (!self.c.sk) return T('请先初始化身份');
+        if (!ml_kem768) return T('模块加载中...');
+        var theirPkB64 = $('trk').value;
+        var plaintext = $('tpt').value;
+        if (!theirPkB64 || !plaintext) return T('请填写公钥和明文');
+        try {
+            var theirPk = new Uint8Array(PQ_Utils.b642buf(theirPkB64));
+            if (!theirPk || theirPk.byteLength !== 1184) throw "接收方公钥格式不符 (需要 1184 字节)";
+            var result = ml_kem768.encapsulate(theirPk);
+            var ct = result.cipherText;
+            var ss = result.sharedSecret;
+            crypto.subtle.importKey("raw", ss, "AES-GCM", false, ["encrypt"])
+            .then(function(key) {
+                var iv = crypto.getRandomValues(new Uint8Array(12));
+                return crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, self.c.e.encode(plaintext))
+                .then(function(enc) {
+                    var out = { ct: PQ_Utils.buf2b64(ct), iv: PQ_Utils.buf2b64(iv.buffer), c: PQ_Utils.buf2b64(enc) };
+                    $('tct').innerText = PQ_Utils.buf2b64(self.c.e.encode(JSON.stringify(out)));
+                    $('trc').classList.add('on');
+                });
+            })
+            .catch(function(e) { T('加密失败: ' + e); });
+        } catch(e) { T('错误: ' + e); }
+    },
+    dec: function() {
+        var self = this;
+        if (!self.c.sk) return T('请先初始化身份');
+        if (!ml_kem768) return T('模块加载中...');
+        var cipherB64 = $('tci').value;
+        if (!cipherB64) return T('请粘贴密文');
+        try {
+            var j = JSON.parse(self.c.d.decode(PQ_Utils.b642buf(cipherB64)));
+            var ct = new Uint8Array(PQ_Utils.b642buf(j.ct));
+            var ss = ml_kem768.decapsulate(ct, self.c.sk);
+            crypto.subtle.importKey("raw", ss, "AES-GCM", false, ["decrypt"])
+            .then(function(key) {
+                return crypto.subtle.decrypt({ name: "AES-GCM", iv: PQ_Utils.b642buf(j.iv) }, key, PQ_Utils.b642buf(j.c));
+            })
+            .then(function(dec) {
+                $('tdt').innerText = self.c.d.decode(dec);
+                $('trd').classList.add('on');
+            })
+            .catch(function(e) { $('tdt').innerText = "解密失败: " + e; $('trd').classList.add('on'); });
+        } catch(e) { $('tdt').innerText = "解析失败: " + e; $('trd').classList.add('on'); }
+    }
+};
+
+var ACS = {
+    tog: function() {
+        var p = $('cpnl'), a = $('car');
+        if (p.style.display === 'none') { p.style.display = 'block'; a.innerText = '▲'; }
+        else { p.style.display = 'none'; a.innerText = '▼'; }
+    },
+    add: function() {
+        var id = $('cid').value.trim(), nn = $('cnn').value.trim(), epk = $('cepk').value.trim();
         if (!id) return T('请输入联系人 ID');
         if (!epk) return T('请输入 ML-KEM 公钥');
         Directory.add(id, epk, nn);
         $('cid').value = ''; $('cnn').value = ''; $('cepk').value = '';
-        Directory.render('clst');
-        T('已添加');
+        Directory.render('clst'); T('已添加');
     }
 };
-window.ACS = ACS;
 </script>
 </body>
 </html>

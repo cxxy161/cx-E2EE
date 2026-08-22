@@ -45,91 +45,54 @@
     </div>
 </div>
 
-    <script src="core.js?v=3.0"></script>
-<script type="module">
-import { ml_dsa65 } from './lib/ml-dsa.bundle.mjs';
-import { ml_kem768 } from './lib/ml-kem.bundle.mjs';
-window.ml_dsa65 = ml_dsa65;
-window.ml_kem768 = ml_kem768;
-
-// Utility functions for base64/hex conversion
-const PQ_Utils = {
-    b642buf: (b64) => {
-        try {
-            const bin = atob(b64.replace(/\s+/g, ''));
-            const bytes = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-            return bytes.buffer;
-        } catch { return null; }
-    },
-    buf2b64: (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))),
-    buf2hex: (buffer) => Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join(''),
-    hex2buf: (hex) => {
-        const c = hex.replace(/\s+/g, '');
-        if (c.length % 2 !== 0) return null;
-        return new Uint8Array(c.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-    }
+<script src="core.js?v=3.0"></script>
+<script>
+var PQ_Utils = {
+    b642buf: function(b64) { try { var bin = atob(b64.replace(/\s+/g, '')); var bytes = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); return bytes.buffer; } catch(e) { return null; } },
+    buf2b64: function(buf) { return btoa(String.fromCharCode.apply(null, new Uint8Array(buf))); }
 };
+
+var ml_dsa65 = null, ml_kem768 = null;
+Promise.all([
+    import('./lib/ml-dsa.bundle.mjs').then(function(m) { ml_dsa65 = m.ml_dsa65; }),
+    import('./lib/ml-kem.bundle.mjs').then(function(m) { ml_kem768 = m.ml_kem768; })
+]).then(function() { console.log('ML-DSA-65 + ML-KEM-768 loaded'); })
+.catch(function(e) { console.error('Load failed:', e); T('后量子模块加载失败'); });
 
 var PQAcc = {
     enc: new TextEncoder(),
-    kp_dsa: null,
-    kp_kem: null,
-
-    async derive() {
+    kp_dsa: null, kp_kem: null,
+    derive: function() {
+        var self = this;
         var m = $('mnemo').value.trim();
         if (!m) return T('请输入助记词');
-        try {
-            // Derive seed using SHA-256
-            const hashBuf = await crypto.subtle.digest('SHA-256', this.enc.encode(m));
-            const seed = new Uint8Array(hashBuf);
-
-            // Generate ML-DSA-65 key pair for signing
-            this.kp_dsa = ml_dsa65.keygen(seed);
-            var spkB64 = PQ_Utils.buf2b64(this.kp_dsa.publicKey);
-            $('dspk').innerText = spkB64;
-            $('spk').value = spkB64;
-
-            // Derive separate seed for ML-KEM using PBKDF2
-            const km = await crypto.subtle.importKey('raw', this.enc.encode(m), { name: 'PBKDF2' }, false, ['deriveBits']);
-            const sd = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: this.enc.encode('CX-PQ-KEM'), iterations: 1e5, hash: 'SHA-256' }, km, 256);
-            const kemSeed = new Uint8Array(sd);
-
-            // Generate ML-KEM-768 key pair for encryption
-            this.kp_kem = ml_kem768.keygen(kemSeed.subarray(0, 32));
-            var epkB64 = PQ_Utils.buf2b64(this.kp_kem.publicKey);
-            $('depk').innerText = epkB64;
-            $('epk').value = epkB64;
-
+        if (!ml_dsa65 || !ml_kem768) return T('模块加载中，请稍候...');
+        crypto.subtle.digest('SHA-256', self.enc.encode(m)).then(function(hashBuf) {
+            var seed = new Uint8Array(hashBuf);
+            self.kp_dsa = ml_dsa65.keygen(seed);
+            $('dspk').innerText = PQ_Utils.buf2b64(self.kp_dsa.publicKey);
+            $('spk').value = PQ_Utils.buf2b64(self.kp_dsa.publicKey);
+            return crypto.subtle.importKey('raw', self.enc.encode(m), { name: 'PBKDF2' }, false, ['deriveBits']);
+        }).then(function(km) {
+            return crypto.subtle.deriveBits({ name: 'PBKDF2', salt: self.enc.encode('CX-PQ-KEM'), iterations: 1e5, hash: 'SHA-256' }, km, 256);
+        }).then(function(sd) {
+            self.kp_kem = ml_kem768.keygen(new Uint8Array(sd).subarray(0, 32));
+            $('depk').innerText = PQ_Utils.buf2b64(self.kp_kem.publicKey);
+            $('epk').value = PQ_Utils.buf2b64(self.kp_kem.publicKey);
             $('dkeys').classList.add('on');
             T('密钥对已派生');
-        } catch(e) { T('派生失败: ' + (e.message || e)); }
+        }).catch(function(e) { T('派生失败: ' + e); });
     },
-
-    async exportAll() {
-        var id = $('uid').value.trim();
-        var spk = $('spk').value.trim();
-        var epk = $('epk').value.trim();
-
+    exportAll: function() {
+        var id = $('uid').value.trim(), spk = $('spk').value.trim(), epk = $('epk').value.trim();
         if (!id) return T('请输入 ID');
         if (!spk || !epk) return T('请先派生密钥对');
-
-        var pkBundle = {
-            id: id,
-            signing_pubkey: spk,
-            encryption_pubkey: epk,
-            algorithm: 'ML-DSA-65 + ML-KEM-768',
-            timestamp: Date.now()
-        };
-
-        var st = $('status');
-        st.classList.add('on');
+        var pkBundle = { id: id, signing_pubkey: spk, encryption_pubkey: epk, algorithm: 'ML-DSA-65 + ML-KEM-768', timestamp: Date.now() };
+        var st = $('status'); st.classList.add('on');
         st.innerHTML = '<div style="color:var(--t);word-break:break-all">' + JSON.stringify(pkBundle, null, 2) + '</div>';
-        CP(JSON.stringify(pkBundle), false);
-        T('公钥包已复制');
+        CP(JSON.stringify(pkBundle), false); T('公钥包已复制');
     }
 };
-window.PQAcc = PQAcc;
 </script>
 </body>
 </html>

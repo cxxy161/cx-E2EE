@@ -33,7 +33,6 @@
             <input type="text" id="signer-name">
             <label>待签名明文</label>
             <textarea id="message" placeholder="输入需要签名的原文内容"></textarea>
-            
             <button class="btn" onclick="MLDSA.sign()">执行签名与封装</button>
             <div id="rx-e" class="res">
                 <div style="color:var(--s);margin-bottom:5px">公钥 (ML-DSA-65, Base64):</div>
@@ -51,7 +50,6 @@
             <input type="text" id="v-pubkey" placeholder="粘贴对方 ML-DSA 公钥">
             <label>完整验证文本</label>
             <textarea id="v-combined" placeholder="粘贴原文与签名合并的数据..." style="height:150px"></textarea>
-            
             <button class="btn green" onclick="MLDSA.verify()">解码与校验</button>
             <div id="rx-d" class="res">
                 <div id="v-status" style="font-weight:700;margin-bottom:8px;"></div>
@@ -65,217 +63,101 @@
     </div>
 </div>
 
-    <script src="core.js?v=3.0"></script>
-<script type="module">
-import { ml_dsa65 } from './lib/ml-dsa.bundle.mjs';
-window.ml_dsa65 = ml_dsa65;
-
-// Utility functions for base64/hex conversion
-const PQ_Utils = {
-    b642buf: (b64) => {
-        try {
-            const bin = atob(b64.replace(/\s+/g, ''));
-            const bytes = new Uint8Array(bin.length);
-            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-            return bytes.buffer;
-        } catch { return null; }
-    },
-    buf2b64: (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))),
-    buf2hex: (buffer) => Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join(''),
-    hex2buf: (hex) => {
-        const c = hex.replace(/\s+/g, '');
-        if (c.length % 2 !== 0) return null;
-        return new Uint8Array(c.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-    }
+<script src="core.js?v=3.0"></script>
+<script>
+var PQ_Utils = {
+    b642buf: function(b64) { try { var bin = atob(b64.replace(/\s+/g, '')); var bytes = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); return bytes.buffer; } catch(e) { return null; } },
+    buf2b64: function(buf) { return btoa(String.fromCharCode.apply(null, new Uint8Array(buf))); }
 };
 
-// Local contacts directory (no server)
-const PQDir = {
-    store: 'cx_pq_sig_contacts',
-    data: {},
-    _onSigFill: null,
-    _lastContainer: null,
+var ml_dsa65 = null;
+import('./lib/ml-dsa.bundle.mjs').then(function(mod) {
+    ml_dsa65 = mod.ml_dsa65;
+    console.log('ML-DSA-65 loaded');
+}).catch(function(e) { console.error('Failed to load ML-DSA:', e); T('后量子签名模块加载失败'); });
 
-    load() {
-        try { this.data = JSON.parse(localStorage.getItem(this.store)) || {}; }
-        catch { this.data = {}; }
-    },
-    save() { localStorage.setItem(this.store, JSON.stringify(this.data)); },
-    getAll() { return Object.values(this.data); },
-    add(id, signingPubkey, nickname) {
-        this.data[id] = {
-            id: id,
-            nickname: nickname || (this.data[id] ? this.data[id].nickname : ''),
-            signing_pubkey: signingPubkey || '',
-            timestamp: Date.now()
-        };
-        this.save();
-    },
-    remove(id) { delete this.data[id]; this.save(); },
-    _esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
-    _trunc(s) {
-        if (!s) return '—';
-        return s.length > 40 ? s.substring(0, 18) + '...' + s.substring(s.length - 14) : s;
-    },
-    render(containerId) {
-        this._lastContainer = containerId;
-        var c = $(containerId);
-        if (!c) return;
-        c.innerHTML = '';
+var PQDir = {
+    store: 'cx_pq_sig_contacts', data: {}, _onSigFill: null,
+    load: function() { try { this.data = JSON.parse(localStorage.getItem(this.store)) || {}; } catch(e) { this.data = {}; } },
+    save: function() { localStorage.setItem(this.store, JSON.stringify(this.data)); },
+    getAll: function() { return Object.values(this.data); },
+    add: function(id, signingPubkey, nickname) { this.data[id] = { id: id, nickname: nickname || (this.data[id] ? this.data[id].nickname : ''), signing_pubkey: signingPubkey || '', timestamp: Date.now() }; this.save(); },
+    remove: function(id) { delete this.data[id]; this.save(); },
+    _esc: function(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+    _trunc: function(s) { if (!s) return '—'; return s.length > 40 ? s.substring(0, 18) + '...' + s.substring(s.length - 14) : s; },
+    render: function(containerId) {
+        var c = document.getElementById(containerId); if (!c) return; c.innerHTML = '';
         var all = this.getAll();
-        if (!all.length) {
-            c.innerHTML = '<div style="text-align:center;color:var(--ts);font-size:.8rem;padding:10px">空</div>';
-            return;
-        }
-        var esc = this._esc.bind(this);
-        var trunc = this._trunc.bind(this);
-        var html = '';
+        if (!all.length) { c.innerHTML = '<div style="text-align:center;color:var(--ts);font-size:.8rem;padding:10px">空</div>'; return; }
+        var self = this, html = '';
         for (var i = 0; i < all.length; i++) {
-            var e = all[i];
-            var key = e.signing_pubkey || '';
-            var name = e.nickname || e.id;
-            var rid = e.id;
-            html += '<div class="crow">' +
-                '<div class="cinf" onclick="PQDir._onSigClick(\'' + esc(rid) + '\')">' +
-                '<div class="cnm">' + esc(name) + '</div>' +
-                '<div class="cky"><span class="klbl">S:</span><span title="' + esc(key) + '">' + esc(trunc(key)) + '</span>' +
-                (key ? '<span class="kcp" onclick="event.stopPropagation();CP(\'' + key.replace(/'/g,'\\\'') + '\',false)">复制</span>' : '') +
-                '</div></div>' +
-                '<div class="cdel" onclick="if(confirm(\'\\u786e\\u5b9a\\u5220\\u9664\\uff1f\\')){PQDir.remove(\'' + esc(rid) + '\');PQDir.render(\'' + containerId + '\')}">×</div>' +
-                '</div>';
+            var e = all[i], key = e.signing_pubkey || '', name = e.nickname || e.id;
+            html += '<div class="crow"><div class="cinf" onclick="PQDir._onSigClick(\'' + self._esc(e.id) + '\')"><div class="cnm">' + self._esc(name) + '</div><div class="cky"><span class="klbl">S:</span><span title="' + self._esc(key) + '">' + self._esc(self._trunc(key)) + '</span>' + (key ? '<span class="kcp" onclick="event.stopPropagation();CP(\'' + key.replace(/'/g,"\\'") + '\',false)">复制</span>' : '') + '</div></div><div class="cdel" onclick="if(confirm(\'确定删除？\')){PQDir.remove(\'' + self._esc(e.id) + '\');PQDir.render(\'' + containerId + '\')}">×</div></div>';
         }
         c.innerHTML = html;
     },
-    _onSigClick(id) {
-        var e = this.data[id];
-        if (!e) return;
-        if (this._onSigFill && e.signing_pubkey) this._onSigFill(e.signing_pubkey);
-    },
-    exp() {
-        if (!Object.keys(this.data).length) return T('列表为空');
-        CP(JSON.stringify(this.data), false);
-    },
-    imp() {
-        var s = prompt('粘贴通讯录备份代码:');
-        if (!s) return;
-        try {
-            var obj = JSON.parse(s);
-            if (typeof obj !== 'object') throw 1;
-            if (confirm('覆盖(OK) 还是 合并(Cancel)?')) { this.data = obj; }
-            else {
-                for (var k in obj) {
-                    if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
-                    if (!this.data[k]) this.data[k] = obj[k];
-                }
-            }
-            this.save();
-            this.render(this._lastContainer);
-            T('导入成功');
-        } catch (e) { T('数据无效'); }
-    }
+    _onSigClick: function(id) { var e = this.data[id]; if (e && this._onSigFill && e.signing_pubkey) this._onSigFill(e.signing_pubkey); },
+    exp: function() { if (!Object.keys(this.data).length) return T('列表为空'); CP(JSON.stringify(this.data), false); },
+    imp: function() { var s = prompt('粘贴通讯录备份代码:'); if (!s) return; try { var obj = JSON.parse(s); if (typeof obj !== 'object') throw 1; if (confirm('覆盖(OK) 还是 合并(Cancel)?')) { this.data = obj; } else { for (var k in obj) { if (obj.hasOwnProperty(k) && !this.data[k]) this.data[k] = obj[k]; } } this.save(); this.render('clst'); T('导入成功'); } catch(e) { T('数据无效'); } }
 };
 PQDir.load();
-window.PQDir = PQDir;
-
 PQDir._onSigFill = function(k) { $('v-pubkey').value = k; T('签名公钥已填入'); };
 PQDir.render('clst');
 
 var ACS = {
-    tog() {
-        var p = $('cpnl'), a = $('car');
-        if (p.style.display === 'none') { p.style.display = 'block'; a.innerText = '▲'; }
-        else { p.style.display = 'none'; a.innerText = '▼'; }
-    },
-    add() {
-        var id = $('cid').value.trim();
-        var nn = $('cnn').value.trim();
-        var spk = $('cspk').value.trim();
-        if (!id) return T('请输入联系人 ID');
-        if (!spk) return T('请输入签名公钥');
-        PQDir.add(id, spk, nn);
-        $('cid').value = ''; $('cnn').value = ''; $('cspk').value = '';
-        PQDir.render('clst');
-        T('已添加');
-    }
+    tog: function() { var p = $('cpnl'), a = $('car'); if (p.style.display === 'none') { p.style.display = 'block'; a.innerText = '▲'; } else { p.style.display = 'none'; a.innerText = '▼'; } },
+    add: function() { var id = $('cid').value.trim(), nn = $('cnn').value.trim(), spk = $('cspk').value.trim(); if (!id) return T('请输入联系人 ID'); if (!spk) return T('请输入签名公钥'); PQDir.add(id, spk, nn); $('cid').value = ''; $('cnn').value = ''; $('cspk').value = ''; PQDir.render('clst'); T('已添加'); }
 };
-window.ACS = ACS;
 
-const MLDSA = {
+var MLDSA = {
     enc: new TextEncoder(), dec: new TextDecoder('utf-8'),
-    async sign() {
-        try {
-            const m = $('mnemonic').value, sn = $('signer-name').value, msg = $('message').value;
-            if (!m || !sn || !msg) return T("参数不完整");
-
-            // Derive seed from mnemonic
-            const hashBuf = await crypto.subtle.digest('SHA-256', this.enc.encode(m));
-            const seed = new Uint8Array(hashBuf);
-
-            // Generate ML-DSA-65 key pair
-            const kp = ml_dsa65.keygen(seed);
-            const mBytes = this.enc.encode(msg);
-            const nBytes = this.enc.encode(sn);
-
-            // Create payload: message + null byte + signer name
-            const payload = new Uint8Array(mBytes.length + 1 + nBytes.length);
+    sign: function() {
+        var self = this;
+        var m = $('mnemonic').value, sn = $('signer-name').value, msg = $('message').value;
+        if (!m || !sn || !msg) return T("参数不完整");
+        if (!ml_dsa65) return T("签名模块加载中...");
+        crypto.subtle.digest('SHA-256', self.enc.encode(m)).then(function(hashBuf) {
+            var kp = ml_dsa65.keygen(new Uint8Array(hashBuf));
+            var mBytes = self.enc.encode(msg), nBytes = self.enc.encode(sn);
+            var payload = new Uint8Array(mBytes.length + 1 + nBytes.length);
             payload.set(mBytes, 0); payload.set([0], mBytes.length); payload.set(nBytes, mBytes.length + 1);
-
-            // Sign with ML-DSA-65
-            const sig = ml_dsa65.sign(payload, kp.secretKey);
-
-            // Create steganographic payload: signature + signer name
-            const stego = new Uint8Array(sig.length + nBytes.length);
+            var sig = ml_dsa65.sign(payload, kp.secretKey);
+            var stego = new Uint8Array(sig.length + nBytes.length);
             stego.set(sig, 0); stego.set(nBytes, sig.length);
-
             $('out-pubkey').value = PQ_Utils.buf2b64(kp.publicKey);
             $('out-combined').value = msg + '\n' + PQ_Utils.buf2b64(stego);
             $('rx-e').classList.add('on');
-        } catch (e) { T("签名失败: " + (e.message || e)); }
+        }).catch(function(e) { T("签名失败: " + e); });
     },
-    verify() {
-        const pkB64 = $('v-pubkey').value.trim(), text = $('v-combined').value;
-        const pkBuf = PQ_Utils.b642buf(pkB64);
-        const pk = pkBuf ? new Uint8Array(pkBuf) : null;
-        const resBox = $('rx-d'), st = $('v-status'), de = $('v-desc'), idb = $('v-id-box'), idn = $('v-id-name');
-        
+    verify: function() {
+        var pkB64 = $('v-pubkey').value.trim(), text = $('v-combined').value;
+        var pkBuf = PQ_Utils.b642buf(pkB64);
+        var pk = pkBuf ? new Uint8Array(pkBuf) : null;
+        var resBox = $('rx-d'), st = $('v-status'), de = $('v-desc'), idb = $('v-id-box'), idn = $('v-id-name');
         resBox.classList.add('on'); idb.style.display = 'none';
-        
+        if (!ml_dsa65) { st.innerText = "签名模块加载中..."; st.style.color = '#f59e0b'; return; }
         if (!pk || pk.length !== 1952) { this.UI(st, de, "error", "公钥格式异常 (ML-DSA-65 公钥应为 1952 字节)"); return; }
-        
-        const match = text.match(/([\s\S]*?)\r?\n([A-Za-z0-9+/=]+)$/);
+        var match = text.match(/([\s\S]*?)\r?\n([A-Za-z0-9+/=]+)$/);
         if (!match) { this.UI(st, de, "error", "未提取到 Base64 签名载荷"); return; }
-        
-        const msg = match[1], b64 = match[2], buf = PQ_Utils.b642buf(b64);
+        var msg = match[1], b64 = match[2], buf = PQ_Utils.b642buf(b64);
         if (!buf || buf.byteLength < 3293) { this.UI(st, de, "error", "签名数据损毁 (ML-DSA-65 签名应≥3293字节)"); return; }
-        
-        const u8 = new Uint8Array(buf);
-        const sig = u8.slice(0, 3293);  // ML-DSA-65 signature size
-        const nBytes = u8.slice(3293);
-        const exName = this.dec.decode(nBytes);
-        const mBytes = this.enc.encode(msg);
-        
-        // Reconstruct payload
-        const payload = new Uint8Array(mBytes.length + 1 + nBytes.length);
+        var u8 = new Uint8Array(buf), sig = u8.slice(0, 3293), nBytes = u8.slice(3293);
+        var exName = this.dec.decode(nBytes), mBytes = this.enc.encode(msg);
+        var payload = new Uint8Array(mBytes.length + 1 + nBytes.length);
         payload.set(mBytes, 0); payload.set([0], mBytes.length); payload.set(nBytes, mBytes.length + 1);
-        
         try {
-            const valid = ml_dsa65.verify(sig, payload, pk);
-            if (valid) {
-                this.UI(st, de, "success", "✓ 签名校验通过");
-                idn.innerText = exName; idb.style.display = 'block';
-            } else {
-                this.UI(st, de, "fail", "✕ 校验失败，内容或公钥不匹配");
-            }
-        } catch (e) { this.UI(st, de, "error", "引擎异常: " + e.message); }
+            var valid = ml_dsa65.verify(sig, payload, pk);
+            if (valid) { this.UI(st, de, "success", "✓ 签名校验通过"); idn.innerText = exName; idb.style.display = 'block'; }
+            else { this.UI(st, de, "fail", "✕ 校验失败，内容或公钥不匹配"); }
+        } catch(e) { this.UI(st, de, "error", "引擎异常: " + e.message); }
     },
-    UI(sEl, dEl, t, m) {
+    UI: function(sEl, dEl, t, m) {
         sEl.innerText = m;
-        if (t === 'success') { sEl.style.color = 'var(--a)'; dEl.innerText = '信息完整且来源可信 (ML-DSA-65 格签名)。'; }
+        if (t === 'success') { sEl.style.color = 'var(--a)'; dEl.innerText = '信息完整且来源可信。'; }
         else if (t === 'fail') { sEl.style.color = 'var(--e)'; dEl.innerText = '数据可能已被篡改。'; }
         else { sEl.style.color = '#f59e0b'; dEl.innerText = '格式解析阻断。'; }
     }
 };
-window.MLDSA = MLDSA;
 </script>
 </body>
 </html>
