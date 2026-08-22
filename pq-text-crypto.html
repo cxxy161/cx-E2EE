@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>后量子文本信道 - C-X 安全终端</title>
+    <link rel="stylesheet" href="pq-style.css?v=1.0">
+    <script src="lib/ml-kem.bundle.mjs" type="module"></script>
+</head>
+<body>
+<div class="box">
+    <a href="index.html" class="nav-home">← 返回控制台</a>
+    <h1>🔮 后量子文本通信 <span class="algo-badge">ML-KEM-768</span></h1>
+
+    <div class="card">
+        <div class="ht"><span>身份凭证 (IDENTITY)</span><span id="led" style="color:#94a3b8">●</span></div>
+        <label>助记句 (输入唯一口令生成身份)</label>
+        <input type="text" id="tp" placeholder="在此输入您的专属口令，用于生成私钥" oninput="TA.rst()">
+        <button class="btn" onclick="TA.init()" id="tb">初始化身份</button>
+        <div id="trp" class="res"><div style="color:var(--s);margin-bottom:5px">我的 ML-KEM 公钥:</div><div id="tpk" style="color:var(--t);word-break:break-all"></div><button class="cp" onclick="CP('tpk',1)">复制公钥</button></div>
+    </div>
+
+    <div class="card">
+        <div class="ht" onclick="ACS.tog()" style="cursor:pointer"><span>通讯录 (CONTACTS)</span><span id="car">▼</span></div>
+        <div id="cpnl" style="display:none;margin-top:15px">
+            <div class="trow"><button class="tbtn" onclick="Directory.exp()">📤 导出</button><button class="tbtn" onclick="Directory.imp()">📥 导入</button></div>
+            <div class="abox"><input type="text" id="cid" placeholder="联系人 ID" class="ainp" style="flex:0.4"><input type="text" id="cnn" placeholder="昵称(可选)" class="ainp" style="flex:0.3"></div>
+            <input type="text" id="cepk" placeholder="ML-KEM 公钥 (Base64)" style="margin-bottom:8px">
+            <button class="btn" style="margin:0 0 15px 0;padding:10px;font-size:.9rem" onclick="ACS.add()">➕ 添加联系人</button>
+            <div id="clst" style="max-height:200px;overflow-y:auto"></div>
+        </div>
+    </div>
+
+    <div class="mtb"><div class="mt on" onclick="TS('e')" id="mt-e">加密模式</div><div class="mt" onclick="TS('d')" id="mt-d">解密模式</div></div>
+    
+    <div class="spl">
+        <div class="card sp on" id="sp-e">
+            <div class="ht">🔒 加密发送 (ENCRYPT)</div>
+            <label>接收方 ML-KEM 公钥</label><input type="text" id="trk" placeholder="粘贴公钥或从通讯录选择">
+            <label>明文内容</label><textarea id="tpt" placeholder="输入机密信息..."></textarea>
+            <button class="btn" onclick="TA.enc()">执行加密</button>
+            <div id="trc" class="res"><div id="tct" style="color:var(--t)"></div><button class="cp" onclick="CP('tct',1)">复制密文</button></div>
+        </div>
+        <div class="card sp" id="sp-d">
+            <div class="ht">🔓 解密接收 (DECRYPT)</div>
+            <label>密文数据</label><textarea id="tci" placeholder="粘贴收到的密文..."></textarea>
+            <button class="btn green" onclick="TA.dec()">执行解密</button>
+            <div id="trd" class="res"><div style="color:var(--a);margin-bottom:5px">解密结果:</div><div id="tdt" style="color:var(--t);font-weight:700;word-break:break-all"></div></div>
+        </div>
+    </div>
+</div>
+
+    <script src="core.js?v=3.0"></script>
+<script type="module">
+// Import ML-KEM from bundle
+import { ml_kem768 } from './lib/ml-kem.bundle.mjs';
+window.ml_kem768 = ml_kem768;
+
+// ML-KEM based text encryption
+const TA = {
+    c: {
+        e: new TextEncoder(), d: new TextDecoder(), pr: null, pk: null,
+        async init(tx) {
+            if (!tx) throw "请输入口令";
+            if (!window.crypto?.subtle) throw "当前环境不支持 Web Crypto API";
+            // Derive seed from passphrase using PBKDF2
+            const km = await crypto.subtle.importKey("raw", this.e.encode(tx), { name: "PBKDF2" }, false, ["deriveBits"]);
+            const sd = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: this.e.encode("CX-PQ"), iterations: 1e5, hash: "SHA-256" }, km, 64);
+            const seed = new Uint8Array(sd);
+            // Generate ML-KEM key pair
+            const keyPair = ml_kem768.keygen(seed.subarray(0, 32));
+            this.sk = keyPair.secretKey;
+            this.pk = keyPair.publicKey;
+            return PQ_Utils.buf2b64(this.pk);
+        },
+        async run(theirPkB64, plaintext, decrypt) {
+            if (!this.sk) throw "请先初始化";
+            if (decrypt) {
+                // Parse ciphertext JSON
+                const j = JSON.parse(this.d.decode(PQ_Utils.b642buf(plaintext)));
+                // Decapsulate to get shared secret
+                const ct = new Uint8Array(PQ_Utils.b642buf(j.ct));
+                const sharedSecret = ml_kem768.decapsulate(ct, this.sk);
+                // Derive AES key from shared secret
+                const key = await crypto.subtle.importKey("raw", sharedSecret, "AES-GCM", false, ["decrypt"]);
+                return this.d.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: PQ_Utils.b642buf(j.iv) }, key, PQ_Utils.b642buf(j.c)));
+            } else {
+                // Parse recipient's public key
+                const theirPk = new Uint8Array(PQ_Utils.b642buf(theirPkB64));
+                if (!theirPk || theirPk.byteLength !== 1184) throw "接收方公钥格式损坏或长度不符 (需要 1184 字节)";
+                // Encapsulate shared secret
+                const { cipherText, sharedSecret } = ml_kem768.encapsulate(theirPk);
+                // Derive AES key from shared secret
+                const key = await crypto.subtle.importKey("raw", sharedSecret, "AES-GCM", false, ["encrypt"]);
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, this.e.encode(plaintext));
+                // Return JSON with ciphertext, encrypted data, and IV
+                return PQ_Utils.buf2b64(this.e.encode(JSON.stringify({
+                    ct: PQ_Utils.buf2b64(cipherText),
+                    iv: PQ_Utils.buf2b64(iv.buffer),
+                    c: PQ_Utils.buf2b64(encrypted)
+                })));
+            }
+        }
+    },
+    rst() { $('led').style.color = '#94a3b8'; $('tb').disabled = false; $('tb').innerText = "初始化身份"; $('trp').classList.remove('on'); },
+    async init() {
+        let b = $('tb'); b.disabled = true; b.innerText = "计算中...";
+        setTimeout(async () => {
+            try { 
+                $('tpk').innerText = await this.c.init($('tp').value);
+                $('trp').classList.add('on');
+                $('led').style.color = 'var(--a)';
+                b.innerText = "身份已激活";
+            }
+            catch (e) { T(e); b.disabled = false; b.innerText = "初始化身份"; }
+        }, 50);
+    },
+    async enc() { try { $('tct').innerText = await this.c.run($('trk').value, $('tpt').value, false); $('trc').classList.add('on'); } catch (e) { T("错误:" + e); } },
+    async dec() { try { $('tdt').innerText = await this.c.run(null, $('tci').value, true); $('trd').classList.add('on'); } catch (e) { $('tdt').innerText = "解密失败: " + e; $('trd').classList.add('on'); } }
+};
+
+// Directory setup - contacts without server
+const Directory = {
+    store: 'cx_pq_contacts',
+    data: {},
+    _onEncFill: null,
+    _lastContainer: null,
+    _lastType: null,
+
+    load() {
+        try { this.data = JSON.parse(localStorage.getItem(this.store)) || {}; }
+        catch { this.data = {}; }
+    },
+    save() { localStorage.setItem(this.store, JSON.stringify(this.data)); },
+    getAll() { return Object.values(this.data); },
+    has(id) { return !!this.data[id]; },
+    get(id) { return this.data[id] || null; },
+
+    add(id, encryptionPubkey, nickname) {
+        this.data[id] = {
+            id: id,
+            nickname: nickname || (this.data[id] ? this.data[id].nickname : ''),
+            encryption_pubkey: encryptionPubkey || '',
+            timestamp: Date.now()
+        };
+        this.save();
+    },
+
+    remove(id) {
+        delete this.data[id];
+        this.save();
+    },
+
+    _esc(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    },
+    _trunc(s) {
+        if (!s) return '—';
+        return s.length > 32 ? s.substring(0, 16) + '...' + s.substring(s.length - 12) : s;
+    },
+
+    _onRowClick(id) {
+        var e = this.data[id];
+        if (!e) return;
+        if (this._onEncFill && e.encryption_pubkey) this._onEncFill(e.encryption_pubkey);
+    },
+
+    render(containerId) {
+        this._lastContainer = containerId;
+        var c = $(containerId);
+        if (!c) return;
+        c.innerHTML = '';
+        var all = this.getAll();
+        if (!all.length) {
+            c.innerHTML = '<div style="text-align:center;color:var(--ts);font-size:.8rem;padding:10px">空</div>';
+            return;
+        }
+        var esc = this._esc.bind(this);
+        var trunc = this._trunc.bind(this);
+        var html = '';
+        for (var i = 0; i < all.length; i++) {
+            var e = all[i];
+            var key = e.encryption_pubkey || '';
+            var name = e.nickname || e.id;
+            var rid = e.id;
+            html += '<div class="crow">' +
+                '<div class="cinf" onclick="Directory._onRowClick(\'' + esc(rid) + '\')">' +
+                '<div class="cnm">' + esc(name) + '</div>' +
+                '<div class="cky"><span class="klbl">K:</span><span title="' + esc(key) + '">' + esc(trunc(key)) + '</span>' +
+                (key ? '<span class="kcp" onclick="event.stopPropagation();CP(\'' + key.replace(/'/g,'\\\'') + '\',false)">复制</span>' : '') +
+                '</div>' +
+                '</div>' +
+                '<div class="cdel" onclick="if(confirm(\'\\u786e\\u5b9a\\u5220\\u9664\\uff1f\\')){Directory.remove(\'' + esc(rid) + '\');Directory.render(\'' + containerId + '\')}">×</div>' +
+                '</div>';
+        }
+        c.innerHTML = html;
+    },
+
+    exp() {
+        if (!Object.keys(this.data).length) return T('列表为空');
+        CP(JSON.stringify(this.data), false);
+    },
+    imp() {
+        var s = prompt('粘贴通讯录备份代码:');
+        if (!s) return;
+        try {
+            var obj = JSON.parse(s);
+            if (typeof obj !== 'object') throw 1;
+            if (confirm('覆盖(OK) 还是 合并(Cancel)?')) {
+                this.data = obj;
+            } else {
+                for (var k in obj) {
+                    if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+                    if (!this.data[k]) this.data[k] = obj[k];
+                }
+            }
+            this.save();
+            this.render(this._lastContainer);
+            T('导入成功');
+        } catch (e) { T('数据无效'); }
+    }
+};
+Directory.load();
+
+Directory._onEncFill = function(k) { $('trk').value = k; T('公钥已填入'); };
+Directory.render('clst');
+
+var ACS = {
+    tog() {
+        var p = $('cpnl'), a = $('car');
+        if (p.style.display === 'none') {
+            p.style.display = 'block';
+            a.innerText = '▲';
+            if ($('trk').value) $('cepk').value = $('trk').value;
+        } else {
+            p.style.display = 'none';
+            a.innerText = '▼';
+        }
+    },
+    add() {
+        var id = $('cid').value.trim();
+        var nn = $('cnn').value.trim();
+        var epk = $('cepk').value.trim();
+        if (!id) return T('请输入联系人 ID');
+        if (!epk) return T('请输入 ML-KEM 公钥');
+        Directory.add(id, epk, nn);
+        $('cid').value = ''; $('cnn').value = ''; $('cepk').value = '';
+        Directory.render('clst');
+        T('已添加');
+    }
+};
+</script>
+</body>
+</html>

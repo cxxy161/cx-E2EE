@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>后量子密钥管理 - C-X 安全终端</title>
+    <link rel="stylesheet" href="pq-style.css?v=1.0">
+</head>
+<body>
+<div class="box">
+    <a href="index.html" class="nav-home">← 返回控制台</a>
+    <h1>🔮 后量子密钥管理 <span class="algo-badge">ML-KEM + ML-DSA</span></h1>
+
+    <div class="card">
+        <div class="ht">身份凭证</div>
+        <label>用户 ID</label>
+        <input type="text" id="uid" placeholder="输入唯一用户标识">
+        <label>助记词</label>
+        <textarea id="mnemo" placeholder="输入助记词，用于派生后量子密钥对"></textarea>
+        <button class="btn" onclick="PQAcc.derive()">派生密钥对</button>
+        <div id="dkeys" class="res">
+            <div style="color:var(--s);margin-bottom:5px">派生签名公钥 (ML-DSA-65):</div>
+            <div id="dspk" style="color:var(--t);word-break:break-all"></div>
+            <button class="cp" onclick="CP('dspk',1)">复制签名公钥</button>
+            <div style="color:var(--s);margin-top:12px;margin-bottom:5px">派生加密公钥 (ML-KEM-768):</div>
+            <div id="depk" style="color:var(--t);word-break:break-all"></div>
+            <button class="cp" onclick="CP('depk',1)">复制加密公钥</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="ht">公钥信息</div>
+        <label>签名公钥 (ML-DSA-65, Base64) — 1952 字节</label>
+        <input type="text" id="spk" placeholder="ML-DSA-65 公钥 Base64">
+        <label>加密公钥 (ML-KEM-768, Base64) — 1184 字节</label>
+        <input type="text" id="epk" placeholder="ML-KEM-768 公钥 Base64">
+        <div style="font-size:.75rem;color:var(--ts);margin-top:8px">签名公钥需与助记词匹配，否则自签名校验将失败。</div>
+    </div>
+
+    <div class="card">
+        <div class="ht">导出密钥</div>
+        <p style="font-size:.8rem;color:var(--ts);margin:0 0 10px">将公钥复制后手动分享给通讯对方（无服务器上传）。</p>
+        <button class="btn" onclick="PQAcc.exportAll()">📤 导出完整公钥包</button>
+        <div id="status" class="res"></div>
+    </div>
+</div>
+
+    <script src="core.js?v=3.0"></script>
+<script type="module">
+import { ml_dsa65 } from './lib/ml-dsa.bundle.mjs';
+import { ml_kem768 } from './lib/ml-kem.bundle.mjs';
+window.ml_dsa65 = ml_dsa65;
+window.ml_kem768 = ml_kem768;
+
+var PQAcc = {
+    enc: new TextEncoder(),
+    kp_dsa: null,
+    kp_kem: null,
+
+    async derive() {
+        var m = $('mnemo').value.trim();
+        if (!m) return T('请输入助记词');
+        try {
+            // Derive seed using SHA-256
+            const hashBuf = await crypto.subtle.digest('SHA-256', this.enc.encode(m));
+            const seed = new Uint8Array(hashBuf);
+
+            // Generate ML-DSA-65 key pair for signing
+            this.kp_dsa = ml_dsa65.keygen(seed);
+            var spkB64 = PQ_Utils.buf2b64(this.kp_dsa.publicKey);
+            $('dspk').innerText = spkB64;
+            $('spk').value = spkB64;
+
+            // Derive separate seed for ML-KEM using PBKDF2
+            const km = await crypto.subtle.importKey('raw', this.enc.encode(m), { name: 'PBKDF2' }, false, ['deriveBits']);
+            const sd = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: this.enc.encode('CX-PQ-KEM'), iterations: 1e5, hash: 'SHA-256' }, km, 256);
+            const kemSeed = new Uint8Array(sd);
+
+            // Generate ML-KEM-768 key pair for encryption
+            this.kp_kem = ml_kem768.keygen(kemSeed.subarray(0, 32));
+            var epkB64 = PQ_Utils.buf2b64(this.kp_kem.publicKey);
+            $('depk').innerText = epkB64;
+            $('epk').value = epkB64;
+
+            $('dkeys').classList.add('on');
+            T('密钥对已派生');
+        } catch(e) { T('派生失败: ' + (e.message || e)); }
+    },
+
+    async exportAll() {
+        var id = $('uid').value.trim();
+        var spk = $('spk').value.trim();
+        var epk = $('epk').value.trim();
+
+        if (!id) return T('请输入 ID');
+        if (!spk || !epk) return T('请先派生密钥对');
+
+        var pkBundle = {
+            id: id,
+            signing_pubkey: spk,
+            encryption_pubkey: epk,
+            algorithm: 'ML-DSA-65 + ML-KEM-768',
+            timestamp: Date.now()
+        };
+
+        var st = $('status');
+        st.classList.add('on');
+        st.innerHTML = '<div style="color:var(--t);word-break:break-all">' + JSON.stringify(pkBundle, null, 2) + '</div>';
+        CP(JSON.stringify(pkBundle), false);
+        T('公钥包已复制');
+    }
+};
+</script>
+</body>
+</html>

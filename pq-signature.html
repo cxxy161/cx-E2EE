@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>后量子数字签名 - C-X 安全终端</title>
+    <link rel="stylesheet" href="pq-style.css?v=1.0">
+</head>
+<body>
+<div class="box">
+    <a href="index.html" class="nav-home">← 返回控制台</a>
+    <h1>🔮 ML-DSA 签名协议 <span class="algo-badge">Dilithium-65</span></h1>
+
+    <div class="card">
+        <div class="ht" onclick="ACS.tog()" style="cursor:pointer"><span>通讯录 (CONTACTS)</span><span id="car">▼</span></div>
+        <div id="cpnl" style="display:none;margin-top:15px">
+            <div class="trow"><button class="tbtn" onclick="PQDir.exp()">📤 导出</button><button class="tbtn" onclick="PQDir.imp()">📥 导入</button></div>
+            <div class="abox"><input type="text" id="cid" placeholder="联系人 ID" class="ainp" style="flex:0.4"><input type="text" id="cnn" placeholder="昵称(可选)" class="ainp" style="flex:0.3"></div>
+            <input type="text" id="cspk" placeholder="ML-DSA 签名公钥 (Base64)" style="margin-bottom:8px">
+            <button class="btn" style="margin:0 0 15px 0;padding:10px;font-size:.9rem" onclick="ACS.add()">➕ 添加联系人</button>
+            <div id="clst" style="max-height:200px;overflow-y:auto"></div>
+        </div>
+    </div>
+
+    <div class="mtb"><div class="mt on" onclick="TS('e')" id="mt-e">生成签名</div><div class="mt" onclick="TS('d')" id="mt-d">校验解析</div></div>
+
+    <div class="spl">
+        <div class="card sp on" id="sp-e">
+            <div class="ht">✍️ 签名生成 (SIGN)</div>
+            <label>助记词 / 私钥种子</label>
+            <textarea id="mnemonic" placeholder="输入随机种子"></textarea>
+            <label>签名者名称 (隐形埋入)</label>
+            <input type="text" id="signer-name">
+            <label>待签名明文</label>
+            <textarea id="message" placeholder="输入需要签名的原文内容"></textarea>
+            
+            <button class="btn" onclick="MLDSA.sign()">执行签名与封装</button>
+            <div id="rx-e" class="res">
+                <div style="color:var(--s);margin-bottom:5px">公钥 (ML-DSA-65, Base64):</div>
+                <input type="text" id="out-pubkey" readonly style="margin-bottom:5px">
+                <button class="cp" onclick="CP('out-pubkey',1)" style="margin-bottom:10px">复制公钥</button>
+                <div style="color:var(--s);margin-bottom:5px">组合输出 (原文+签名载荷):</div>
+                <textarea id="out-combined" readonly style="height:120px"></textarea>
+                <button class="cp" onclick="CP('out-combined',1)">复制合并文本</button>
+            </div>
+        </div>
+
+        <div class="card sp" id="sp-d">
+            <div class="ht">🔍 签名验证 (VERIFY)</div>
+            <label>签名公钥 (Base64)</label>
+            <input type="text" id="v-pubkey" placeholder="粘贴对方 ML-DSA 公钥">
+            <label>完整验证文本</label>
+            <textarea id="v-combined" placeholder="粘贴原文与签名合并的数据..." style="height:150px"></textarea>
+            
+            <button class="btn green" onclick="MLDSA.verify()">解码与校验</button>
+            <div id="rx-d" class="res">
+                <div id="v-status" style="font-weight:700;margin-bottom:8px;"></div>
+                <div id="v-desc" style="color:var(--ts);font-size:.8rem;margin-bottom:10px;"></div>
+                <div id="v-id-box" style="display:none;background:#f8fafc;padding:10px;border-radius:8px;border:1px dashed var(--b);">
+                    <span style="color:var(--ts);font-size:.7rem">签名者标识:</span><br>
+                    <span id="v-id-name" style="color:var(--s);font-weight:700;"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+    <script src="core.js?v=3.0"></script>
+<script type="module">
+import { ml_dsa65 } from './lib/ml-dsa.bundle.mjs';
+window.ml_dsa65 = ml_dsa65;
+
+// Local contacts directory (no server)
+const PQDir = {
+    store: 'cx_pq_sig_contacts',
+    data: {},
+    _onSigFill: null,
+    _lastContainer: null,
+
+    load() {
+        try { this.data = JSON.parse(localStorage.getItem(this.store)) || {}; }
+        catch { this.data = {}; }
+    },
+    save() { localStorage.setItem(this.store, JSON.stringify(this.data)); },
+    getAll() { return Object.values(this.data); },
+    add(id, signingPubkey, nickname) {
+        this.data[id] = {
+            id: id,
+            nickname: nickname || (this.data[id] ? this.data[id].nickname : ''),
+            signing_pubkey: signingPubkey || '',
+            timestamp: Date.now()
+        };
+        this.save();
+    },
+    remove(id) { delete this.data[id]; this.save(); },
+    _esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); },
+    _trunc(s) {
+        if (!s) return '—';
+        return s.length > 40 ? s.substring(0, 18) + '...' + s.substring(s.length - 14) : s;
+    },
+    render(containerId) {
+        this._lastContainer = containerId;
+        var c = $(containerId);
+        if (!c) return;
+        c.innerHTML = '';
+        var all = this.getAll();
+        if (!all.length) {
+            c.innerHTML = '<div style="text-align:center;color:var(--ts);font-size:.8rem;padding:10px">空</div>';
+            return;
+        }
+        var esc = this._esc.bind(this);
+        var trunc = this._trunc.bind(this);
+        var html = '';
+        for (var i = 0; i < all.length; i++) {
+            var e = all[i];
+            var key = e.signing_pubkey || '';
+            var name = e.nickname || e.id;
+            var rid = e.id;
+            html += '<div class="crow">' +
+                '<div class="cinf" onclick="PQDir._onSigClick(\'' + esc(rid) + '\')">' +
+                '<div class="cnm">' + esc(name) + '</div>' +
+                '<div class="cky"><span class="klbl">S:</span><span title="' + esc(key) + '">' + esc(trunc(key)) + '</span>' +
+                (key ? '<span class="kcp" onclick="event.stopPropagation();CP(\'' + key.replace(/'/g,'\\\'') + '\',false)">复制</span>' : '') +
+                '</div></div>' +
+                '<div class="cdel" onclick="if(confirm(\'\\u786e\\u5b9a\\u5220\\u9664\\uff1f\\')){PQDir.remove(\'' + esc(rid) + '\');PQDir.render(\'' + containerId + '\')}">×</div>' +
+                '</div>';
+        }
+        c.innerHTML = html;
+    },
+    _onSigClick(id) {
+        var e = this.data[id];
+        if (!e) return;
+        if (this._onSigFill && e.signing_pubkey) this._onSigFill(e.signing_pubkey);
+    },
+    exp() {
+        if (!Object.keys(this.data).length) return T('列表为空');
+        CP(JSON.stringify(this.data), false);
+    },
+    imp() {
+        var s = prompt('粘贴通讯录备份代码:');
+        if (!s) return;
+        try {
+            var obj = JSON.parse(s);
+            if (typeof obj !== 'object') throw 1;
+            if (confirm('覆盖(OK) 还是 合并(Cancel)?')) { this.data = obj; }
+            else {
+                for (var k in obj) {
+                    if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+                    if (!this.data[k]) this.data[k] = obj[k];
+                }
+            }
+            this.save();
+            this.render(this._lastContainer);
+            T('导入成功');
+        } catch (e) { T('数据无效'); }
+    }
+};
+PQDir.load();
+
+PQDir._onSigFill = function(k) { $('v-pubkey').value = k; T('签名公钥已填入'); };
+PQDir.render('clst');
+
+var ACS = {
+    tog() {
+        var p = $('cpnl'), a = $('car');
+        if (p.style.display === 'none') { p.style.display = 'block'; a.innerText = '▲'; }
+        else { p.style.display = 'none'; a.innerText = '▼'; }
+    },
+    add() {
+        var id = $('cid').value.trim();
+        var nn = $('cnn').value.trim();
+        var spk = $('cspk').value.trim();
+        if (!id) return T('请输入联系人 ID');
+        if (!spk) return T('请输入签名公钥');
+        PQDir.add(id, spk, nn);
+        $('cid').value = ''; $('cnn').value = ''; $('cspk').value = '';
+        PQDir.render('clst');
+        T('已添加');
+    }
+};
+
+const MLDSA = {
+    enc: new TextEncoder(), dec: new TextDecoder('utf-8'),
+    async sign() {
+        try {
+            const m = $('mnemonic').value, sn = $('signer-name').value, msg = $('message').value;
+            if (!m || !sn || !msg) return T("参数不完整");
+
+            // Derive seed from mnemonic
+            const hashBuf = await crypto.subtle.digest('SHA-256', this.enc.encode(m));
+            const seed = new Uint8Array(hashBuf);
+
+            // Generate ML-DSA-65 key pair
+            const kp = ml_dsa65.keygen(seed);
+            const mBytes = this.enc.encode(msg);
+            const nBytes = this.enc.encode(sn);
+
+            // Create payload: message + null byte + signer name
+            const payload = new Uint8Array(mBytes.length + 1 + nBytes.length);
+            payload.set(mBytes, 0); payload.set([0], mBytes.length); payload.set(nBytes, mBytes.length + 1);
+
+            // Sign with ML-DSA-65
+            const sig = ml_dsa65.sign(payload, kp.secretKey);
+
+            // Create steganographic payload: signature + signer name
+            const stego = new Uint8Array(sig.length + nBytes.length);
+            stego.set(sig, 0); stego.set(nBytes, sig.length);
+
+            $('out-pubkey').value = PQ_Utils.buf2b64(kp.publicKey);
+            $('out-combined').value = msg + '\n' + PQ_Utils.buf2b64(stego);
+            $('rx-e').classList.add('on');
+        } catch (e) { T("签名失败: " + (e.message || e)); }
+    },
+    verify() {
+        const pkB64 = $('v-pubkey').value.trim(), text = $('v-combined').value;
+        const pkBuf = PQ_Utils.b642buf(pkB64);
+        const pk = pkBuf ? new Uint8Array(pkBuf) : null;
+        const resBox = $('rx-d'), st = $('v-status'), de = $('v-desc'), idb = $('v-id-box'), idn = $('v-id-name');
+        
+        resBox.classList.add('on'); idb.style.display = 'none';
+        
+        if (!pk || pk.length !== 1952) { this.UI(st, de, "error", "公钥格式异常 (ML-DSA-65 公钥应为 1952 字节)"); return; }
+        
+        const match = text.match(/([\s\S]*?)\r?\n([A-Za-z0-9+/=]+)$/);
+        if (!match) { this.UI(st, de, "error", "未提取到 Base64 签名载荷"); return; }
+        
+        const msg = match[1], b64 = match[2], buf = PQ_Utils.b642buf(b64);
+        if (!buf || buf.byteLength < 3293) { this.UI(st, de, "error", "签名数据损毁 (ML-DSA-65 签名应≥3293字节)"); return; }
+        
+        const u8 = new Uint8Array(buf);
+        const sig = u8.slice(0, 3293);  // ML-DSA-65 signature size
+        const nBytes = u8.slice(3293);
+        const exName = this.dec.decode(nBytes);
+        const mBytes = this.enc.encode(msg);
+        
+        // Reconstruct payload
+        const payload = new Uint8Array(mBytes.length + 1 + nBytes.length);
+        payload.set(mBytes, 0); payload.set([0], mBytes.length); payload.set(nBytes, mBytes.length + 1);
+        
+        try {
+            const valid = ml_dsa65.verify(sig, payload, pk);
+            if (valid) {
+                this.UI(st, de, "success", "✓ 签名校验通过");
+                idn.innerText = exName; idb.style.display = 'block';
+            } else {
+                this.UI(st, de, "fail", "✕ 校验失败，内容或公钥不匹配");
+            }
+        } catch (e) { this.UI(st, de, "error", "引擎异常: " + e.message); }
+    },
+    UI(sEl, dEl, t, m) {
+        sEl.innerText = m;
+        if (t === 'success') { sEl.style.color = 'var(--a)'; dEl.innerText = '信息完整且来源可信 (ML-DSA-65 格签名)。'; }
+        else if (t === 'fail') { sEl.style.color = 'var(--e)'; dEl.innerText = '数据可能已被篡改。'; }
+        else { sEl.style.color = '#f59e0b'; dEl.innerText = '格式解析阻断。'; }
+    }
+};
+</script>
+</body>
+</html>
