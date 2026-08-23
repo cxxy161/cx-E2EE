@@ -119,21 +119,51 @@ var ACC = {
         if (!this._validB64(spk, 32)) return T('签名公钥格式无效 (需32字节 Base64)');
         if (!this._validB64(epk, 32)) return T('加密公钥格式无效 (需32字节 Base64)');
 
+        var st = $('status');
+        st.classList.add('on');
+
         var ts = Date.now();
         var payload = id + '\n' + spk + '\n' + epk + '\n' + ts;
         var sig = nacl.sign.detached(this.enc.encode(payload), this.kp.secretKey);
         var sigB64 = Util.buf2b64(sig.buffer);
+
+        // PoW 工作量证明
+        var powPrefix = id + '\n' + spk + '\n' + epk + '\n' + ts + '\n';
+        var powTargetBits = 16;
+        st.innerHTML = '<div style="color:var(--ts)">计算工作量证明...</div>';
+
+        var powNonce;
+        try {
+            powNonce = await new Promise(function(resolve, reject) {
+                var w = new Worker('pow-worker.js');
+                w.onmessage = function(e) {
+                    if (e.data.type === 'progress') {
+                        st.innerHTML = '<div style="color:var(--ts)">计算中... ' + e.data.attempts + ' 次</div>';
+                    } else if (e.data.type === 'done') {
+                        w.terminate();
+                        resolve(e.data.nonce);
+                    } else if (e.data.type === 'failed') {
+                        w.terminate();
+                        reject('计算超时');
+                    }
+                };
+                w.onerror = function() { w.terminate(); reject('Worker 错误'); };
+                w.postMessage({ prefix: powPrefix, targetBits: powTargetBits });
+            });
+        } catch(e) {
+            st.innerHTML = '<div style="color:var(--e);font-weight:700">✕ 工作量证明失败: ' + e + '</div>';
+            return;
+        }
 
         var body = {
             id: id,
             signing_pubkey: spk,
             encryption_pubkey: epk,
             timestamp: ts,
-            signature: sigB64
+            signature: sigB64,
+            pow_nonce: powNonce
         };
 
-        var st = $('status');
-        st.classList.add('on');
         st.innerHTML = '<div style="color:var(--ts)">提交中...</div>';
 
         try {

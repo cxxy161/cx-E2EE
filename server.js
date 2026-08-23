@@ -2,6 +2,9 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const nacl = require('tweetnacl');
+const crypto = require('crypto');
+
+const POW_BITS = 16;
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -33,11 +36,30 @@ function isValidPubkey(str) {
     return buf && buf.length === 32;
 }
 
-app.post('/api/update', (req, res) => {
-    const { id, signing_pubkey, encryption_pubkey, timestamp, signature } = req.body;
+function verifyPow(id, spk, epk, ts, nonce) {
+    if (typeof nonce !== 'number' || nonce < 0 || !Number.isInteger(nonce)) return false;
+    const hash = crypto.createHash('sha256')
+        .update(`${id}\n${spk}\n${epk}\n${ts}\n${nonce}`)
+        .digest();
+    let zeros = 0;
+    for (const byte of hash) {
+        if (byte === 0) { zeros += 8; continue; }
+        let m = 0x80;
+        while (!(byte & m)) { zeros++; m >>= 1; }
+        break;
+    }
+    return zeros >= POW_BITS;
+}
 
-    if (!id || !signing_pubkey || !encryption_pubkey || !timestamp || !signature) {
-        return res.status(400).json({ error: '字段不完整，需提供 id, signing_pubkey, encryption_pubkey, timestamp, signature' });
+app.post('/api/update', (req, res) => {
+    const { id, signing_pubkey, encryption_pubkey, timestamp, signature, pow_nonce } = req.body;
+
+    if (!id || !signing_pubkey || !encryption_pubkey || !timestamp || !signature || pow_nonce === undefined) {
+        return res.status(400).json({ error: '字段不完整，需提供 id, signing_pubkey, encryption_pubkey, timestamp, signature, pow_nonce' });
+    }
+
+    if (!verifyPow(id, signing_pubkey, encryption_pubkey, timestamp, pow_nonce)) {
+        return res.status(429).json({ error: '工作量证明无效，请重试' });
     }
 
     if (typeof id !== 'string' || !id.trim()) {
