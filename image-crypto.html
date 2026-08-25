@@ -768,32 +768,36 @@ const IA = {
         x2.putImageData(id, 0, 0);
         return c2;
     },
-    /* 分数几何重建后：区域外 band 宽度环带混入加密噪声，用更外 ref 距离的像素外延替换（消除 1px 噪声环） */
+    /* 区域边界清理：对齐盒(8px对齐)外扩 band 的环带(含4px对齐边距)用盒外 ref 像素外延替换，
+   消除 JPEG 压缩残留在边界的噪声带/振铃；随后对选框内缘 1px 做均化，去掉暗色镶边 */
     jpegBandClean(d, w, h, regions, band) {
         band = band || 2;
         const ref = band + 2;
         for (const r of regions) {
-            const y0 = Math.max(0, r.y - band), y1 = Math.min(h, r.y + r.h + band);
-            const x0 = Math.max(0, r.x - band), x1 = Math.min(w, r.x + r.w + band);
-            // 左带
-            for (let x = x0; x < Math.max(0, r.x); x++) {
-                const sx8 = Math.max(0, r.x - ref);
-                for (let y = y0; y < y1; y++) { const f = (y * w + x) * 4, s = (y * w + sx8) * 4; d[f] = d[s]; d[f + 1] = d[s + 1]; d[f + 2] = d[s + 2]; }
+            const ax0 = Math.max(0, Math.floor(r.x / 8) * 8), ay0 = Math.max(0, Math.floor(r.y / 8) * 8);
+            const ax1 = Math.min(w, Math.ceil((r.x + r.w) / 8) * 8), ay1 = Math.min(h, Math.ceil((r.y + r.h) / 8) * 8);
+            const yA = Math.max(0, ay0 - band), yB = Math.min(h, ay1 + band);
+            const xA = Math.max(0, ax0 - band), xB = Math.min(w, ax1 + band);
+            // 左带 [xA, r.x)
+            for (let x = xA; x < r.x; x++) { const s8 = Math.max(0, ax0 - ref); for (let y = yA; y < yB; y++) { const f = (y * w + x) * 4, s = (y * w + s8) * 4; d[f] = d[s]; d[f + 1] = d[s + 1]; d[f + 2] = d[s + 2]; } }
+            // 右带 [r.x+r.w, xB)
+            for (let x = Math.min(w, r.x + r.w); x < xB; x++) { const s8 = Math.min(w - 1, ax1 + ref - 1); for (let y = yA; y < yB; y++) { const f = (y * w + x) * 4, s = (y * w + s8) * 4; d[f] = d[s]; d[f + 1] = d[s + 1]; d[f + 2] = d[s + 2]; } }
+            // 上带 [yA, r.y)
+            for (let y = yA; y < r.y; y++) { const s8 = Math.max(0, ay0 - ref); for (let x = xA; x < xB; x++) { const f = (y * w + x) * 4, s = (s8 * w + x) * 4; d[f] = d[s]; d[f + 1] = d[s + 1]; d[f + 2] = d[s + 2]; } }
+            // 下带 [r.y+r.h, yB)
+            for (let y = Math.min(h, r.y + r.h); y < yB; y++) { const s8 = Math.min(h - 1, ay1 + ref - 1); for (let x = xA; x < xB; x++) { const f = (y * w + x) * 4, s = (s8 * w + x) * 4; d[f] = d[s]; d[f + 1] = d[s + 1]; d[f + 2] = d[s + 2]; } }
+            // 选框内缘 1px 均化（左/右缘 ← 内侧 2px；上/下缘 ← 内侧 2px）
+            for (let y = r.y; y < Math.min(h, r.y + r.h); y++) {
+                const X2 = Math.min(w - 1, r.x + 2), X3 = Math.max(0, r.x + r.w - 3);
+                const fL = (y * w + r.x) * 4, sL = (y * w + X2) * 4, fR = (y * w + r.x + r.w - 1) * 4, sR = (y * w + X3) * 4;
+                d[fL] = d[sL]; d[fL + 1] = d[sL + 1]; d[fL + 2] = d[sL + 2];
+                d[fR] = d[sR]; d[fR + 1] = d[sR + 1]; d[fR + 2] = d[sR + 2];
             }
-            // 右带
-            for (let x = Math.min(w, r.x + r.w); x < x1; x++) {
-                const sx8 = Math.min(w - 1, r.x + r.w + ref - 1);
-                for (let y = y0; y < y1; y++) { const f = (y * w + x) * 4, s = (y * w + sx8) * 4; d[f] = d[s]; d[f + 1] = d[s + 1]; d[f + 2] = d[s + 2]; }
-            }
-            // 上带
-            for (let y = y0; y < Math.max(0, r.y); y++) {
-                const sy8 = Math.max(0, r.y - ref);
-                for (let x = x0; x < x1; x++) { const f = (y * w + x) * 4, s = (sy8 * w + x) * 4; d[f] = d[s]; d[f + 1] = d[s + 1]; d[f + 2] = d[s + 2]; }
-            }
-            // 下带
-            for (let y = Math.min(h, r.y + r.h); y < y1; y++) {
-                const sy8 = Math.min(h - 1, r.y + r.h + ref - 1);
-                for (let x = x0; x < x1; x++) { const f = (y * w + x) * 4, s = (sy8 * w + x) * 4; d[f] = d[s]; d[f + 1] = d[s + 1]; d[f + 2] = d[s + 2]; }
+            for (let x = r.x; x < Math.min(w, r.x + r.w); x++) {
+                const Y2 = Math.min(h - 1, r.y + 2), Y3 = Math.max(0, r.y + r.h - 3);
+                const fT = (r.y * w + x) * 4, sT = (Y2 * w + x) * 4, fB = ((r.y + r.h - 1) * w + x) * 4, sB = (Y3 * w + x) * 4;
+                d[fT] = d[sT]; d[fT + 1] = d[sT + 1]; d[fT + 2] = d[sT + 2];
+                d[fB] = d[sB]; d[fB + 1] = d[sB + 1]; d[fB + 2] = d[sB + 2];
             }
         }
     },
@@ -892,10 +896,8 @@ const IA = {
                 const c2 = this.robustReconstruct(d.data, cw, ch, w0, h0, geo), x2 = c2.getContext('2d');
                 const rd = x2.getImageData(0, 0, c2.width, c2.height);
                 regions.slice().reverse().forEach((reg, idx) => this.regionEnc(rd.data, c2.width, c2.height, { x: reg.x, y: reg.y, w: reg.w, h: reg.h }, this.hash(k + '#' + (regions.length - 1 - idx)), false, false));
-                // 分数几何（真实重采样）时：区域外 1px 环带含混入的加密噪声 → 用更外 4px 像素外延替换
-                const gx = Math.round(geo.tx), gy = Math.round(geo.ty);
-                const nearId = Math.abs(geo.sx - 1) < 0.02 && Math.abs(geo.sy - 1) < 0.02 && Math.abs(geo.tx - gx) < 0.4 && Math.abs(geo.ty - gy) < 0.4;
-                if (!nearId) this.jpegBandClean(rd.data, c2.width, c2.height, regions, 2);
+                // 区域边界清理（含 4px 对齐边距与内缘均化）；恒等与分数几何均启用，PNG 路径不经此分支
+                this.jpegBandClean(rd.data, c2.width, c2.height, regions, 2);
                 x2.putImageData(rd, 0, 0);
                 this.fin(c2, t, 'image/png', 1);
             } else {
