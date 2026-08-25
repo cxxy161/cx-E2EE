@@ -713,11 +713,25 @@ const IA = {
         }
         return null;
     },
-    /* 按几何把接收图重采样回原尺寸画布（双线性），供区域逆变换 */
+    /* 按几何把接收图重采样回原尺寸画布（近恒等=精确拷贝，非整数缩放=双线性），供区域逆变换 */
     robustReconstruct(d, cw, ch, w0, h0, geo) {
         const iw = Math.max(1, w0 - 96), ih = Math.max(1, h0 - 96);
         const c2 = document.createElement('canvas'); c2.width = iw; c2.height = ih;
         const x2 = c2.getContext('2d'), id = x2.createImageData(iw, ih), sd = id.data;
+        const xi = Math.round(geo.tx), yi = Math.round(geo.ty);
+        const nearId = Math.abs(geo.sx - 1) < 0.02 && Math.abs(geo.sy - 1) < 0.02 && Math.abs(geo.tx - xi) < 0.4 && Math.abs(geo.ty - yi) < 0.4;
+        if (nearId) {
+            // 精确拷贝：整像素直取，避免双线性把区域外的加密乱码渗入区域边界形成 1px 环
+            for (let y = 0; y < ih; y++) for (let l = 0; l < iw; l++) {
+                const rx = l + 48 + xi, ry = y + 48 + yi, f = (y * iw + l) * 4;
+                if (rx >= 0 && ry >= 0 && rx < cw && ry < ch) {
+                    const s = (ry * cw + rx) * 4;
+                    sd[f] = d[s]; sd[f + 1] = d[s + 1]; sd[f + 2] = d[s + 2]; sd[f + 3] = 255;
+                } else { sd[f] = 0; sd[f + 1] = 0; sd[f + 2] = 0; sd[f + 3] = 255; }
+            }
+            x2.putImageData(id, 0, 0);
+            return c2;
+        }
         const bi = (ox, oy) => {
             const gx = geo.sx * ox + geo.tx, gy = geo.sy * oy + geo.ty;
             if (gx < -1 || gy < -1 || gx >= cw + 1 || gy >= ch + 1) return [0, 0, 0];
