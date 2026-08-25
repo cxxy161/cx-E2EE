@@ -768,6 +768,35 @@ const IA = {
         x2.putImageData(id, 0, 0);
         return c2;
     },
+    /* 分数几何重建后：区域外 band 宽度环带混入加密噪声，用更外 ref 距离的像素外延替换（消除 1px 噪声环） */
+    jpegBandClean(d, w, h, regions, band) {
+        band = band || 2;
+        const ref = band + 2;
+        for (const r of regions) {
+            const y0 = Math.max(0, r.y - band), y1 = Math.min(h, r.y + r.h + band);
+            const x0 = Math.max(0, r.x - band), x1 = Math.min(w, r.x + r.w + band);
+            // 左带
+            for (let x = x0; x < Math.max(0, r.x); x++) {
+                const sx8 = Math.max(0, r.x - ref);
+                for (let y = y0; y < y1; y++) { const f = (y * w + x) * 4, s = (y * w + sx8) * 4; d[f] = d[s]; d[f + 1] = d[s + 1]; d[f + 2] = d[s + 2]; }
+            }
+            // 右带
+            for (let x = Math.min(w, r.x + r.w); x < x1; x++) {
+                const sx8 = Math.min(w - 1, r.x + r.w + ref - 1);
+                for (let y = y0; y < y1; y++) { const f = (y * w + x) * 4, s = (y * w + sx8) * 4; d[f] = d[s]; d[f + 1] = d[s + 1]; d[f + 2] = d[s + 2]; }
+            }
+            // 上带
+            for (let y = y0; y < Math.max(0, r.y); y++) {
+                const sy8 = Math.max(0, r.y - ref);
+                for (let x = x0; x < x1; x++) { const f = (y * w + x) * 4, s = (sy8 * w + x) * 4; d[f] = d[s]; d[f + 1] = d[s + 1]; d[f + 2] = d[s + 2]; }
+            }
+            // 下带
+            for (let y = Math.min(h, r.y + r.h); y < y1; y++) {
+                const sy8 = Math.min(h - 1, r.y + r.h + ref - 1);
+                for (let x = x0; x < x1; x++) { const f = (y * w + x) * 4, s = (sy8 * w + x) * 4; d[f] = d[s]; d[f + 1] = d[s + 1]; d[f + 2] = d[s + 2]; }
+            }
+        }
+    },
     /* 加密：外扩画布，原图居中，边框存元数据；解密：读边框→校验→还原→裁剪回原尺寸 */
     pV3(img, k, t) {
         const c = $('cvs'), x = c.getContext('2d');
@@ -863,6 +892,10 @@ const IA = {
                 const c2 = this.robustReconstruct(d.data, cw, ch, w0, h0, geo), x2 = c2.getContext('2d');
                 const rd = x2.getImageData(0, 0, c2.width, c2.height);
                 regions.slice().reverse().forEach((reg, idx) => this.regionEnc(rd.data, c2.width, c2.height, { x: reg.x, y: reg.y, w: reg.w, h: reg.h }, this.hash(k + '#' + (regions.length - 1 - idx)), false, false));
+                // 分数几何（真实重采样）时：区域外 1px 环带含混入的加密噪声 → 用更外 4px 像素外延替换
+                const gx = Math.round(geo.tx), gy = Math.round(geo.ty);
+                const nearId = Math.abs(geo.sx - 1) < 0.02 && Math.abs(geo.sy - 1) < 0.02 && Math.abs(geo.tx - gx) < 0.4 && Math.abs(geo.ty - gy) < 0.4;
+                if (!nearId) this.jpegBandClean(rd.data, c2.width, c2.height, regions, 2);
                 x2.putImageData(rd, 0, 0);
                 this.fin(c2, t, 'image/png', 1);
             } else {
