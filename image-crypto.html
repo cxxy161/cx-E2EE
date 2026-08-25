@@ -626,7 +626,7 @@ const IA = {
             const difs = []; for (let i = 1; i < cr.length; i++) difs.push(cr[i] - cr[i - 1]);
             difs.sort((a, b2) => a - b2);
             const md = difs[difs.length >> 1];
-            if (md < 3 || md > 40) return null;
+            if (md < 2 || md > 40) return null;
             let s = 0, n = 0;
             for (const d2 of difs) if (Math.abs(d2 - md) <= md * 0.45) { s += d2; n++; }
             const p = n ? s / n : md;
@@ -643,15 +643,15 @@ const IA = {
             const difs = []; for (let i = 1; i < cr.length; i++) difs.push(cr[i] - cr[i - 1]);
             difs.sort((a, b2) => a - b2);
             const md = difs[difs.length >> 1];
-            if (md < 3 || md > 40) return null;
+            if (md < 2 || md > 40) return null;
             let s = 0, n = 0;
             for (const d2 of difs) if (Math.abs(d2 - md) <= md * 0.45) { s += d2; n++; }
             const p = n ? s / n : md;
             const firstDark = lum[bx] < 128 ? 0 : cr[0];
             return { pitch: p, first: firstDark, x: bx };
         };
-        const top = stripH(0, Math.min(192, ch)), bot = stripH(Math.max(0, ch - 192), ch);
-        const left = stripV(0, Math.min(192, cw)), right = stripV(Math.max(0, cw - 192), cw);
+        const top = stripH(0, Math.min(768, ch)), bot = stripH(Math.max(0, ch - 768), ch);
+        const left = stripV(0, Math.min(768, cw)), right = stripV(Math.max(0, cw - 768), cw);
         if (!top && !bot) return null;
         let sx = 0, sy = 0;
         if (top && bot) sx = ((top.pitch + bot.pitch) / 2) / 8; else sx = ((top || bot).pitch) / 8;
@@ -659,27 +659,47 @@ const IA = {
         if (!sy) sy = sx; // 单轴缺失时借用另一轴（保守）
         if (sx < 0.4 || sx > 4 || sy < 0.4 || sy > 4) return null;
         const tx = [], ty = [];
-        if (top) for (let i = 0; i < 4; i++) tx.push(top.first - 2 * top.pitch * i);
-        if (bot) for (let i = 0; i < 4; i++) tx.push(bot.first - 2 * bot.pitch * i);
+        if (top) for (let i = 0; i < 5; i++) tx.push(top.first - 2 * top.pitch * i);
+        if (bot) for (let i = 0; i < 5; i++) tx.push(bot.first - 2 * bot.pitch * i);
         if (!tx.length) return null;
-        if (left) for (let i = 0; i < 4; i++) ty.push(left.first - 2 * left.pitch * i);
-        if (right) for (let i = 0; i < 4; i++) ty.push(right.first - 2 * right.pitch * i);
+        if (left) for (let i = 0; i < 5; i++) ty.push(left.first - 2 * left.pitch * i);
+        if (right) for (let i = 0; i < 5; i++) ty.push(right.first - 2 * right.pitch * i);
         if (!ty.length) ty.push(0);
         return { sx, sy, tx, ty };
     },
+    /* 窗口内按最接近亮度级投票（众数，抑制缩小混叠；平票回退窗口均值最近级）→ {q 级别, n 像素数} */
+    levelPoll(d, cw, ch, cx, cy, hx, hy) {
+        const LV = [16, 80, 176, 240];
+        const x0 = Math.max(0, Math.floor(cx - hx)), x1 = Math.min(cw, Math.ceil(cx + hx));
+        const y0 = Math.max(0, Math.floor(cy - hy)), y1 = Math.min(ch, Math.ceil(cy + hy));
+        let acc = 0, n = 0, votes = [0, 0, 0, 0];
+        for (let y = y0; y < y1; y++) {
+            const o = y * cw;
+            for (let x = x0; x < x1; x++) {
+                const v = d[(o + x) * 4];
+                let qv = 0, bd = 1e9;
+                for (let j = 0; j < 4; j++) { const dd = Math.abs(v - LV[j]); if (dd < bd) { bd = dd; qv = j; } }
+                votes[qv]++; acc += v; n++;
+            }
+        }
+        if (!n) return { q: 0, n: 0 };
+        let q = 0;
+        for (let j = 1; j < 4; j++) if (votes[j] > votes[q]) q = j;
+        let occ = 0; for (let j = 0; j < 4; j++) if (votes[j] === votes[q]) occ++;
+        if (occ > 1) { // 平票 → 均值最近级兜底
+            const mean = acc / n; q = 0; let bd = 1e9;
+            for (let j = 0; j < 4; j++) { const dd = Math.abs(mean - LV[j]); if (dd < bd) { bd = dd; q = j; } }
+        }
+        return { q, n };
+    },
     sampleJpeg(d, cw, ch, mods, sx, sy, tx, ty) {
-        const LV = [16, 80, 176, 240], nMod = mods.length, out = new Uint8Array(Math.ceil(nMod / 4)), eras = new Set();
-        const hx = Math.max(2, Math.round(3 * sx)), hy = Math.max(2, Math.round(3 * sy));
+        const nMod = mods.length, out = new Uint8Array(Math.ceil(nMod / 4)), eras = new Set();
+        const hx = Math.max(1, Math.round(3 * sx)), hy = Math.max(1, Math.round(3 * sy));
         for (let mi = 0; mi < nMod; mi++) {
             const m = mods[mi], cx = sx * (m.x + 4) + tx, cy = sy * (m.y + 4) + ty;
-            const x0 = Math.max(0, Math.floor(cx - hx)), x1 = Math.min(cw, Math.ceil(cx + hx));
-            const y0 = Math.max(0, Math.floor(cy - hy)), y1 = Math.min(ch, Math.ceil(cy + hy));
-            let acc = 0, cnt = 0;
-            for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { acc += d[(y * cw + x) * 4]; cnt++; }
-            if (!cnt) eras.add(mi >> 2); // 模块完全被裁切 → 该字节标记为擦除
-            const mean = cnt ? acc / cnt : 0;
-            let q = 0, bd = 1e9; for (let j = 0; j < 4; j++) { const dd2 = Math.abs(mean - LV[j]); if (dd2 < bd) { bd = dd2; q = j; } }
-            out[mi >> 2] |= q << (6 - 2 * (mi & 3));
+            const r = this.levelPoll(d, cw, ch, cx, cy, hx, hy);
+            if (!r.n) eras.add(mi >> 2); // 模块完全被裁切 → 该字节标记为擦除
+            out[mi >> 2] |= r.q << (6 - 2 * (mi & 3));
         }
         return { bytes: out, eras: Array.from(eras) };
     },
@@ -687,12 +707,11 @@ const IA = {
     readRobustJpeg(d, cw, ch) {
         const geo = this.jpegGeo(d, cw, ch);
         if (!geo) return null;
-        const LV = [16, 80, 176, 240];
         const readFmtRow = (tx, ty, y0) => {
             const fs2 = this.jpegFormat(y0), vals = [];
             for (let b = 0; b < 6; b++) {
                 let Bv = 0;
-                for (let k = 0; k < 4; k++) { const m = fs2[b * 4 + k]; const cx = geo.sx * (m.x + 4) + tx, cy = geo.sy * (y0 + 4) + ty; const x0 = Math.max(0, Math.floor(cx - 3)); const x1 = Math.min(cw, Math.ceil(cx + 3)); const yy0 = Math.max(0, Math.floor(cy - 3)); const yy1 = Math.min(ch, Math.ceil(cy + 3)); let acc = 0, n = 0; for (let y = yy0; y < yy1; y++) for (let x = x0; x < x1; x++) { acc += d[(y * cw + x) * 4]; n++; } if (!n) return null; const mean = n ? acc / n : 0; let q = 0, bd = 1e9; for (let j = 0; j < 4; j++) { const dd2 = Math.abs(mean - LV[j]); if (dd2 < bd) { bd = dd2; q = j; } } Bv |= q << (6 - 2 * k); }
+                for (let k = 0; k < 4; k++) { const m = fs2[b * 4 + k]; const cx = geo.sx * (m.x + 4) + tx, cy = geo.sy * (y0 + 4) + ty; const r = this.levelPoll(d, cw, ch, cx, cy, Math.max(1, Math.round(3 * geo.sx)), Math.max(1, Math.round(3 * geo.sy))); if (!r.n) return null; Bv |= r.q << (6 - 2 * k); }
                 vals.push(Bv);
             }
             return vals;
