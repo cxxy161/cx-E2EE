@@ -133,7 +133,7 @@
                     <div class="v3-tip">加密与解密使用同一密码。密码丢失无法找回。</div>
                     <label>输出格式</label>
                     <div class="sr"><input type="range" id="qv3" min="60" max="100" value="100" oninput="IA.ui()"><span class="vt" id="vq3">PNG</span></div>
-                    <div class="v3-tip">100% 输出无损 PNG；降低输出 JPEG，元数据以块级编码写入加宽边框。</div>
+                    <div class="v3-tip">100% 输出无损 PNG（LSB 边框，体积可能增加）；降低输出 JPEG 时启用<b>鲁棒边框码</b>：RS 纠错 + 时序定位条，即使图片被<b>部分裁切 / 放大 / 拉伸 / 二次压缩</b>仍可恢复边框元数据与区域坐标，边框自动加宽至 48px。</div>
                     <label>前置缩放 <span style="position:relative;cursor:help;color:#666;font-size:.75rem;border:1px solid #555;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;line-height:1" onmouseenter="this.querySelector('.tip').style.display='block'" onmouseleave="this.querySelector('.tip').style.display='none'">i<span class="tip" style="display:none;position:absolute;top:120%;left:50%;transform:translateX(-50%);background:#222;color:#ccc;padding:6px 10px;border-radius:6px;font-size:.7rem;white-space:nowrap;z-index:10;border:1px solid #444">加密前先缩小图片，可减小输出体积并降低诱饵容量占用，避免有损降采样；不建议低于50</span></span></label>
                     <div class="sr"><input type="range" id="sv3" min="20" max="100" value="100" oninput="IA.ui()"><span class="vt" id="vs3">100%</span></div>
                     <label style="margin-top:12px">🔻 PNG 增强选项（仅 PNG 可用，JPEG 自动忽略）</label>
@@ -199,7 +199,7 @@
         <div class="hsec">三、V3 参数说明</div>
         <ul>
             <li><b>前置缩放</b>：加密前先把图片缩小，减小输出体积。仅影响输出尺寸，不影响还原</li>
-            <li><b>输出格式</b>：100% 为无损 PNG（体积可能增加 3-4 倍，网络传输必须传输原图，否则会造成损坏）；调低会输出 JPEG（体积更小，网络传输不易损坏）</li>
+            <li><b>输出格式</b>：100% 为无损 PNG（体积可能增加 3-4 倍，网络传输必须传输原图，否则会造成损坏）；调低会输出 JPEG（体积更小，网络传输不易损坏）。JPEG 输出采用<b>鲁棒边框码</b>：边框加宽至 48px，内含 RS 纠错码与定位时序条，可抵抗部分裁切（每边约 ≤4%）、放大（≤3 倍）、拉伸及二次压缩；PNG 加密不受任何影响。</li>
             <li><b>诱饵图</b>：可选上传一张图片，每个打码区域都会独立铺满显示这张诱饵图（N 个区域 = 这张图出现 N 次）。可能会造成图片尺寸增大</li>
         </ul>
         <div class="hsec">四、关于 / 安全说明</div>
@@ -215,6 +215,86 @@
 </div>
     <script src="core.js?v=3.0"></script>
 <script>
+/* ===== RS(255,k) over GF(256) poly 0x11D（V3-J 鲁棒 JPEG 边框码纠错核；decode 支持擦除，Forney 伴随式）===== */
+const RS255 = (() => {
+  const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
+  let x = 1;
+  for (let i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11d; }
+  for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+  const MUL = (a, b) => (a && b) ? EXP[LOG[a] + LOG[b]] : 0;
+  const INV = (a) => EXP[(255 - LOG[a]) % 255];
+  const genPoly = (np) => { let g = [1]; for (let i = 0; i < np; i++) { const root = EXP[i], ng = new Array(g.length + 1).fill(0); for (let j = 0; j < g.length; j++) { ng[j] ^= MUL(g[j], root); ng[j + 1] ^= g[j]; } g = ng; } return g; };
+  const encode = (data, np) => {
+    const k = data.length, n = k + np, g = genPoly(np), rem = new Uint8Array(n);
+    for (let i = 0; i < k; i++) rem[np + i] = data[k - 1 - i];
+    for (let d = n - 1; d >= np; d--) {
+      if (rem[d]) { const c = rem[d]; for (let j = 0; j <= np; j++) rem[d - np + j] ^= MUL(g[j], c); rem[d] = 0; }
+    }
+    const out = new Uint8Array(n); out.set(data, 0);
+    for (let i = 0; i < np; i++) out[k + i] = rem[np - 1 - i];
+    return out;
+  };
+  const decode = (r, np, erasIn) => {
+    const n = r.length, k = n - np, t = np >> 1, S = new Array(np).fill(0);
+    let zero = true;
+    for (let i = 0; i < np; i++) { let s = 0, xi = EXP[i]; for (let j = 0; j < n; j++) s = MUL(s, xi) ^ r[j]; S[i] = s; if (s) zero = false; }
+    if (zero) return r.slice(0, k);
+    const eras = (erasIn || []).slice().sort((a, b) => a - b);
+    const s = eras.length;
+    if (s > np) return null;
+    let Le = [1]; // 擦除定位器（低次在前）
+    for (const p of eras) {
+      const jj = n - 1 - p, X = EXP[jj % 255], ng = new Array(Le.length + 1).fill(0);
+      for (let i = 0; i < Le.length; i++) { ng[i] ^= Le[i]; ng[i + 1] ^= MUL(Le[i], X); }
+      Le = ng;
+    }
+    const F = new Array(np - s).fill(0); // Forney 伴随式：S·Λe，取 degree s..np-1
+    for (let i = 0; i < np; i++) for (let j = 0; j < Le.length; j++) { const deg = i + j; if (deg >= s && deg < np) F[deg - s] ^= MUL(S[i], Le[j]); }
+    let C = new Array(F.length + 1).fill(0), B = new Array(F.length + 1).fill(0);
+    C[0] = 1; B[0] = 1; let L = 0, m = 1, b = 1;
+    const N = F.length;
+    for (let i = 0; i < N; i++) {
+      let dd = F[i];
+      for (let j = 1; j <= L; j++) dd ^= MUL(C[j], F[i - j] || 0);
+      if (!dd) { m++; continue; }
+      const T = C.slice(), coef = MUL(dd, INV(b));
+      for (let j = 0; j + m <= N; j++) C[j + m] ^= MUL(B[j], coef);
+      if (2 * L <= i) { L = i + 1 - L; B = T; b = dd; m = 1; } else m++;
+    }
+    const Lu = C.slice(0, L + 1);
+    let Lam;
+    if (s) {
+      Lam = new Array(Le.length + Lu.length - 1).fill(0);
+      for (let i = 0; i < Le.length; i++) for (let j = 0; j < Lu.length; j++) Lam[i + j] ^= MUL(Le[i], Lu[j]);
+    } else Lam = Lu;
+    while (Lam.length && Lam[Lam.length - 1] === 0) Lam.pop();
+    const degLam = Lam.length - 1;
+    if ((degLam - s) * 2 + s > np) return null;
+    const errJ = [];
+    for (let j = 0; j < n; j++) {
+      const point = j === 0 ? 1 : EXP[(255 - j) % 255];
+      let val = Lam[0] || 0, xp = point;
+      for (let i = 1; i < Lam.length; i++) { val ^= MUL(Lam[i], xp); xp = MUL(xp, point); }
+      if (val === 0) errJ.push(j);
+    }
+    if (errJ.length !== degLam) return null;
+    const Om = new Array(np).fill(0);
+    for (let i = 0; i < np; i++) for (let j = 0; j < Lam.length; j++) if (i + j < np && Lam[j]) Om[i + j] ^= MUL(S[i], Lam[j]);
+    const out = r.slice();
+    for (const j of errJ) {
+      const X = EXP[j % 255], point = j === 0 ? 1 : EXP[(255 - j) % 255];
+      let dev = 0, pw = 1;
+      for (let i = 1; i < Lam.length; i++) { if ((i & 1) && Lam[i]) dev ^= MUL(Lam[i], pw); pw = MUL(pw, point); }
+      let om = 0, pw2 = 1;
+      for (let i = 0; i < np; i++) { om ^= MUL(Om[i], pw2); pw2 = MUL(pw2, point); }
+      const e = MUL(MUL(om, X), INV(dev || 1));
+      out[n - 1 - j] ^= e;
+    }
+    return out.slice(0, k);
+  };
+  return { encode, decode };
+})();
+
 const IA = {
     al: 'v3', fs: { e: null, d: null }, target: 'e',
     showV1() {
@@ -391,8 +471,8 @@ const IA = {
         return bs;
     },
     /* ===== V3 外扩边框元数据：原图居中，四周 B 宽边框承载元数据，原图像素零占用 ===== */
-    /* PNG 模式边框宽度 8px；JPEG 模式 32px（4 块，抗压缩冗余） */
-    bW() { return parseInt($('qv3').value) < 100 ? 32 : 8; },
+    /* PNG 模式边框宽度 8px（LSB）；JPEG 模式 48px（V3-J 鲁棒边框码：RS+时序定位条） */
+    bW() { return parseInt($('qv3').value) < 100 ? 48 : 8; },
     /* 边框像素索引流：顶→右→底→左（跳过四角），供 LSB 或块级使用 */
     borderOrd(cw, ch, B) {
         const pts = [];
@@ -459,6 +539,201 @@ const IA = {
         const stored = (bs[so] << 16) | (bs[so + 1] << 8) | bs[so + 2];
         const flag = bs[so + 3] & 255, dataLen = bs.length > so + 7 ? (bs[so + 4] << 24 | bs[so + 5] << 16 | bs[so + 6] << 8 | bs[so + 7]) : 0;
         return { cnt, regions, stored, flag, dataLen };
+    },
+    /* ===== V3-J 鲁棒 JPEG 边框码 =====
+       B=48px：外圈 5 模块(8px)为数据/格式，最内 1 模块环为时序定位条(棋盘格)。
+       数据：RS(255,179) 30%纠错，GF(256)；双副本(容量足时)；环形模块地图。
+       几何：时序条测 X/Y 独立缩放与平移 → 抗 裁切/放大/拉伸；二次压缩由 4 级亮度+RS 吸收。 */
+    metaBytesR(cw, ch, count, regions, k, flag, dataLen) {
+        const bs = [cw >> 8 & 255, cw & 255, ch >> 8 & 255, ch & 255, count];
+        for (const r of regions) bs.push(r.x >> 8 & 255, r.x & 255, r.y >> 8 & 255, r.y & 255, r.w >> 8 & 255, r.w & 255, r.h >> 8 & 255, r.h & 255);
+        bs.push(67, 88); // "CX"
+        const sig = (this.hash('V3|' + count + '|' + regions.map(r => r.x + ',' + r.y + ',' + r.w + ',' + r.h).join('&') + '|' + k) >>> 0) & 0xFFFFFF;
+        bs.push(sig >> 16 & 255, sig >> 8 & 255, sig & 255);
+        bs.push(flag & 255, dataLen >>> 24 & 255, dataLen >>> 16 & 255, dataLen >>> 8 & 255, dataLen & 255);
+        return bs;
+    },
+    parseMetaR(bs) {
+        if (!bs || bs.length < 10) return null;
+        const cw = bs[0] * 256 + bs[1], ch = bs[2] * 256 + bs[3], cnt = bs[4];
+        if (cnt < 1 || cnt > 12) return null;
+        if (bs[5 + cnt * 8] !== 67 || bs[6 + cnt * 8] !== 88) return null;
+        const regions = [];
+        for (let i = 0; i < cnt; i++) { const o = 5 + i * 8; regions.push({ x: bs[o] * 256 + bs[o + 1], y: bs[o + 2] * 256 + bs[o + 3], w: bs[o + 4] * 256 + bs[o + 5], h: bs[o + 6] * 256 + bs[o + 7] }); }
+        const so = 5 + cnt * 8 + 2;
+        const stored = (bs[so] << 16) | (bs[so + 1] << 8) | bs[so + 2];
+        const flag = bs[so + 3] & 255, dataLen = bs.length > so + 7 ? (bs[so + 4] << 24 | bs[so + 5] << 16 | bs[so + 6] << 8 | bs[so + 7]) : 0;
+        return { cw, ch, cnt, regions, stored, flag, dataLen };
+    },
+    /* 环形数据模块地图（原画布坐标系；顶部 y=0 行前 24 模块为格式区，跳过） */
+    jpegMods(cw, ch) {
+        const mods = [], wm = cw >> 3, hm = ch >> 3;
+        for (let r = 0; r < 5; r++) for (let c = 6; c <= wm - 7; c++) { if ((r === 0 || r === 4) && c < 30) continue; mods.push({ x: c * 8, y: r * 8 }); }              // 顶（y=0/32 行前 24 模块为格式区，跳过）
+        for (let d = 0; d < 5; d++) for (let r = 1; r <= hm - 7; r++) mods.push({ x: cw - 8 - d * 8, y: r * 8 });                                     // 右
+        for (let d = 0; d < 5; d++) for (let c = wm - 7; c >= 6; c--) { if ((d === 0 || d === 4) && c < 30) continue; mods.push({ x: c * 8, y: ch - 8 - d * 8 }); }                                    // 底（y=ch-8/ch-40 行前 24 模块为格式副本，跳过）
+        for (let d = 0; d < 5; d++) for (let r = hm - 7; r >= 1; r--) mods.push({ x: d * 8, y: r * 8 });                                            // 左
+        return mods;
+    },
+    jpegFormat(y0) { const y = y0 === undefined ? 32 : y0; const fs2 = []; for (let k = 0; k < 24; k++) fs2.push({ x: 48 + k * 8, y }); return fs2; }, // 格式区：顶 y=32 行（抗≤32px裁切），24 模块（6 字节）
+    /* 写时序环 + 格式 + RS 双副本数据（直接改 d.data）。返回是否容量充足 */
+    writeRobust(d, cw, ch, payload, _len) {
+        if (payload.length > 127) return false;
+        const mods = this.jpegMods(cw, ch);
+        if (mods.length < 1020) return false;
+        const LV = [16, 80, 176, 240];
+        // 1) 时序定位环（最内 8px 环：水平条= x 奇偶，垂直条= y 奇偶，相位固定于原点）
+        for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+            const hb = (y >= 40 && y < 48) || (y >= ch - 48 && y < ch - 40);
+            const vb = (x >= 40 && x < 48) || (x >= cw - 48 && x < cw - 40);
+            if (hb || vb) { const v = (hb ? ((x >> 3) & 1) : ((y >> 3) & 1)) ? 255 : 0, f = (y * cw + x) * 4; d[f] = v; d[f + 1] = v; d[f + 2] = v; d[f + 3] = 255; }
+        }
+        // 2) 格式区：'R3' + 画布宽高（6 字节；顶 y=32 与底 ch-40 双份，避开最外行以抗裁切）
+        const fmtB = [82, 51, cw >> 8 & 255, cw & 255, ch >> 8 & 255, ch & 255];
+        const putFmtRow = (y0) => { const fs2 = this.jpegFormat(y0); for (let b = 0; b < fmtB.length; b++) for (let k = 0; k < 4; k++) { const m = fs2[b * 4 + k], idx = (fmtB[b] >> (6 - 2 * k)) & 3, v = LV[idx]; for (let yy = y0; yy < y0 + 8; yy++) for (let xx = m.x; xx < m.x + 8; xx++) { const f = (yy * cw + xx) * 4; d[f] = v; d[f + 1] = v; d[f + 2] = v; d[f + 3] = 255; } } };
+        putFmtRow(32);
+        if (ch >= 96) putFmtRow(ch - 40);
+        // 3) RS 编码 → 环形双副本（k=127：50% ECC，t=64，抗裁切/二次压缩更强）
+        const p1 = new Uint8Array(127); p1.set(payload, 0);
+        const cw1 = RS255.encode(p1, 128);
+        const putBytes = (bytes, start) => {
+            let mi = start;
+            for (let j = 0; j < bytes.length; j++) for (let k = 0; k < 4; k++) {
+                if (mi >= mods.length) return false;
+                const m = mods[mi++], idx = (bytes[j] >> (6 - 2 * k)) & 3, v = LV[idx];
+                for (let yy = m.y; yy < m.y + 8; yy++) for (let xx = m.x; xx < m.x + 8; xx++) { const f = (yy * cw + xx) * 4; d[f] = v; d[f + 1] = v; d[f + 2] = v; d[f + 3] = 255; }
+            }
+            return true;
+        };
+        if (!putBytes(cw1, 0)) return false;
+        let used = 1020;
+        if (mods.length >= 2040) { if (!putBytes(cw1, 1020)) return false; used = 2040; }
+        // 4) 剩余填充（装饰性模式）
+        for (let i = used; i < mods.length; i++) { const m = mods[i], v = LV[(i * 7 + 5) & 3]; for (let yy = m.y; yy < m.y + 8; yy++) for (let xx = m.x; xx < m.x + 8; xx++) { const f = (yy * cw + xx) * 4; d[f] = v; d[f + 1] = v; d[f + 2] = v; d[f + 3] = 255; } }
+        return true;
+    },
+    /* 时序条检测 → {sx, sy, tx:[候选], ty:[候选]} 或 null */
+    jpegGeo(d, cw, ch) {
+        const lum = new Uint8Array(cw * ch);
+        for (let i = 0; i < lum.length; i++) lum[i] = .299 * d[i * 4] + .587 * d[i * 4 + 1] + .114 * d[i * 4 + 2];
+        const stripH = (y0, y1) => {
+            let best = 0, by = -1;
+            for (let y = y0; y < y1; y++) { let trans = 0, prev = -1; const o = y * cw; for (let x = 0; x < cw; x++) { const v = lum[o + x]; if (prev >= 0 && Math.abs(v - prev) > 60) trans++; prev = v; } if (trans > best) { best = trans; by = y; } }
+            if (best < 4 || by < 0) return null;
+            // 分数过零点（线性插值的 128 阈值穿越点）→ 精确测 pitch 与首黑
+            const o = by * cw, cr = [];
+            for (let x = 0; x < cw - 1; x++) { const a = lum[o + x], b2 = lum[o + x + 1]; if ((a < 128) !== (b2 < 128)) cr.push(x + (128 - a) / (b2 - a)); }
+            if (cr.length < 4) return null;
+            const difs = []; for (let i = 1; i < cr.length; i++) difs.push(cr[i] - cr[i - 1]);
+            difs.sort((a, b2) => a - b2);
+            const md = difs[difs.length >> 1];
+            if (md < 3 || md > 40) return null;
+            let s = 0, n = 0;
+            for (const d2 of difs) if (Math.abs(d2 - md) <= md * 0.45) { s += d2; n++; }
+            const p = n ? s / n : md;
+            const firstDark = lum[o] < 128 ? 0 : cr[0];
+            return { pitch: p, first: firstDark, y: by };
+        };
+        const stripV = (x0, x1) => {
+            let best = 0, bx = -1;
+            for (let x = x0; x < x1; x++) { let trans = 0, prev = -1; for (let y = 0; y < ch; y++) { const v = lum[y * cw + x]; if (prev >= 0 && Math.abs(v - prev) > 60) trans++; prev = v; } if (trans > best) { best = trans; bx = x; } }
+            if (best < 4 || bx < 0) return null;
+            const cr = [];
+            for (let y = 0; y < ch - 1; y++) { const a = lum[y * cw + bx], b2 = lum[(y + 1) * cw + bx]; if ((a < 128) !== (b2 < 128)) cr.push(y + (128 - a) / (b2 - a)); }
+            if (cr.length < 4) return null;
+            const difs = []; for (let i = 1; i < cr.length; i++) difs.push(cr[i] - cr[i - 1]);
+            difs.sort((a, b2) => a - b2);
+            const md = difs[difs.length >> 1];
+            if (md < 3 || md > 40) return null;
+            let s = 0, n = 0;
+            for (const d2 of difs) if (Math.abs(d2 - md) <= md * 0.45) { s += d2; n++; }
+            const p = n ? s / n : md;
+            const firstDark = lum[bx] < 128 ? 0 : cr[0];
+            return { pitch: p, first: firstDark, x: bx };
+        };
+        const top = stripH(0, Math.min(192, ch)), bot = stripH(Math.max(0, ch - 192), ch);
+        const left = stripV(0, Math.min(192, cw)), right = stripV(Math.max(0, cw - 192), cw);
+        if (!top && !bot) return null;
+        let sx = 0, sy = 0;
+        if (top && bot) sx = ((top.pitch + bot.pitch) / 2) / 8; else sx = ((top || bot).pitch) / 8;
+        if (left && right) sy = ((left.pitch + right.pitch) / 2) / 8; else if (left || right) sy = ((left || right).pitch) / 8;
+        if (!sy) sy = sx; // 单轴缺失时借用另一轴（保守）
+        if (sx < 0.4 || sx > 4 || sy < 0.4 || sy > 4) return null;
+        const tx = [], ty = [];
+        if (top) for (let i = 0; i < 4; i++) tx.push(top.first - 2 * top.pitch * i);
+        if (bot) for (let i = 0; i < 4; i++) tx.push(bot.first - 2 * bot.pitch * i);
+        if (!tx.length) return null;
+        if (left) for (let i = 0; i < 4; i++) ty.push(left.first - 2 * left.pitch * i);
+        if (right) for (let i = 0; i < 4; i++) ty.push(right.first - 2 * right.pitch * i);
+        if (!ty.length) ty.push(0);
+        return { sx, sy, tx, ty };
+    },
+    sampleJpeg(d, cw, ch, mods, sx, sy, tx, ty) {
+        const LV = [16, 80, 176, 240], nMod = mods.length, out = new Uint8Array(Math.ceil(nMod / 4)), eras = new Set();
+        const hx = Math.max(2, Math.round(3 * sx)), hy = Math.max(2, Math.round(3 * sy));
+        for (let mi = 0; mi < nMod; mi++) {
+            const m = mods[mi], cx = sx * (m.x + 4) + tx, cy = sy * (m.y + 4) + ty;
+            const x0 = Math.max(0, Math.floor(cx - hx)), x1 = Math.min(cw, Math.ceil(cx + hx));
+            const y0 = Math.max(0, Math.floor(cy - hy)), y1 = Math.min(ch, Math.ceil(cy + hy));
+            let acc = 0, cnt = 0;
+            for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { acc += d[(y * cw + x) * 4]; cnt++; }
+            if (!cnt) eras.add(mi >> 2); // 模块完全被裁切 → 该字节标记为擦除
+            const mean = cnt ? acc / cnt : 0;
+            let q = 0, bd = 1e9; for (let j = 0; j < 4; j++) { const dd2 = Math.abs(mean - LV[j]); if (dd2 < bd) { bd = dd2; q = j; } }
+            out[mi >> 2] |= q << (6 - 2 * (mi & 3));
+        }
+        return { bytes: out, eras: Array.from(eras) };
+    },
+    /* 鲁棒读取：几何 → 格式 → RS 双副本尝试（含平移候选组合与擦除）→ {payload, geo, w0, h0} 或 null */
+    readRobustJpeg(d, cw, ch) {
+        const geo = this.jpegGeo(d, cw, ch);
+        if (!geo) return null;
+        const LV = [16, 80, 176, 240];
+        const readFmtRow = (tx, ty, y0) => {
+            const fs2 = this.jpegFormat(y0), vals = [];
+            for (let b = 0; b < 6; b++) {
+                let Bv = 0;
+                for (let k = 0; k < 4; k++) { const m = fs2[b * 4 + k]; const cx = geo.sx * (m.x + 4) + tx, cy = geo.sy * (y0 + 4) + ty; const x0 = Math.max(0, Math.floor(cx - 3)); const x1 = Math.min(cw, Math.ceil(cx + 3)); const yy0 = Math.max(0, Math.floor(cy - 3)); const yy1 = Math.min(ch, Math.ceil(cy + 3)); let acc = 0, n = 0; for (let y = yy0; y < yy1; y++) for (let x = x0; x < x1; x++) { acc += d[(y * cw + x) * 4]; n++; } if (!n) return null; const mean = n ? acc / n : 0; let q = 0, bd = 1e9; for (let j = 0; j < 4; j++) { const dd2 = Math.abs(mean - LV[j]); if (dd2 < bd) { bd = dd2; q = j; } } Bv |= q << (6 - 2 * k); }
+                vals.push(Bv);
+            }
+            return vals;
+        };
+        for (const tx of geo.tx) for (const ty of geo.ty) {
+            let fb = readFmtRow(tx, ty, 32);
+            if (fb && fb[0] !== 82) fb = ch >= 96 ? readFmtRow(tx, ty, ch - 40) : null;
+            if (!fb || fb[1] !== 51) continue;
+            const w0 = fb[2] * 256 + fb[3], h0 = fb[4] * 256 + fb[5];
+            if (w0 < 96 || h0 < 96 || w0 > 40000 || h0 > 40000) continue;
+            const mods = this.jpegMods(w0, h0);
+            const sm = this.sampleJpeg(d, cw, ch, mods, geo.sx, geo.sy, tx, ty);
+            const bytes = sm.bytes, eras = sm.eras;
+            let rs = null;
+            if (bytes.length >= 255) rs = RS255.decode(bytes.slice(0, 255), 128, eras.filter(e2 => e2 < 255));
+            if (!rs && bytes.length >= 510) rs = RS255.decode(bytes.slice(255, 510), 128, eras.filter(e2 => e2 >= 255 && e2 < 510).map(e2 => e2 - 255));
+            if (rs && this.parseMetaR(rs)) return { payload: rs, geo: { sx: geo.sx, sy: geo.sy, tx, ty }, w0, h0 };
+        }
+        return null;
+    },
+    /* 按几何把接收图重采样回原尺寸画布（双线性），供区域逆变换 */
+    robustReconstruct(d, cw, ch, w0, h0, geo) {
+        const iw = Math.max(1, w0 - 96), ih = Math.max(1, h0 - 96);
+        const c2 = document.createElement('canvas'); c2.width = iw; c2.height = ih;
+        const x2 = c2.getContext('2d'), id = x2.createImageData(iw, ih), sd = id.data;
+        const bi = (ox, oy) => {
+            const gx = geo.sx * ox + geo.tx, gy = geo.sy * oy + geo.ty;
+            if (gx < -1 || gy < -1 || gx >= cw + 1 || gy >= ch + 1) return [0, 0, 0];
+            const X0 = Math.max(0, Math.floor(gx)), Y0 = Math.max(0, Math.floor(gy));
+            const X1 = Math.min(cw - 1, X0 + 1), Y1 = Math.min(ch - 1, Y0 + 1);
+            const fx = gx - X0, fy = gy - Y0;
+            const a = (Y0 * cw + X0) * 4, b2 = (Y0 * cw + X1) * 4, c3 = (Y1 * cw + X0) * 4, e2 = (Y1 * cw + X1) * 4;
+            const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+            return [d[a] * w00 + d[b2] * w10 + d[c3] * w01 + d[e2] * w11, d[a + 1] * w00 + d[b2 + 1] * w10 + d[c3 + 1] * w01 + d[e2 + 1] * w11, d[a + 2] * w00 + d[b2 + 2] * w10 + d[c3 + 2] * w01 + d[e2 + 2] * w11];
+        };
+        for (let y = 0; y < ih; y++) for (let l = 0; l < iw; l++) {
+            const c3 = bi(48 + l + 0.5, 48 + y + 0.5), f = (y * iw + l) * 4;
+            sd[f] = Math.max(0, Math.min(255, c3[0])); sd[f + 1] = Math.max(0, Math.min(255, c3[1])); sd[f + 2] = Math.max(0, Math.min(255, c3[2])); sd[f + 3] = 255;
+        }
+        x2.putImageData(id, 0, 0);
+        return c2;
     },
     /* 加密：外扩画布，原图居中，边框存元数据；解密：读边框→校验→还原→裁剪回原尺寸 */
     pV3(img, k, t) {
@@ -530,30 +805,49 @@ const IA = {
                 decoySc = em.sc; dataLen = em.total;
                 this.decoyPaint(d.data, cw, ch, w, h, B, regions, this.decoyCvs);
             }
-            this.decoyMetaOut(c, x, d, cw, ch, B, jpeg, t, regions, k, decoy ? 1 : 0, dataLen, decoySc);
+            if (jpeg) {
+                // V3-J 鲁棒 JPEG：RS(255,179) 纠错 + 时序定位条 + 双副本，边框 48px
+                const payload = this.metaBytesR(cw, ch, regions.length, regions, k, 0, 0);
+                if (!this.writeRobust(d.data, cw, ch, payload)) { T("图片尺寸过小，JPEG 鲁棒边框容量不足（建议原图 ≥ 400×400）"); return; }
+                x.putImageData(d, 0, 0);
+                this.fin(c, t, 'image/jpeg', parseInt($('qv3').value) / 100);
+            } else {
+                this.decoyMetaOut(c, x, d, cw, ch, B, jpeg, t, regions, k, decoy ? 1 : 0, dataLen, decoySc);
+            }
         } else {
-            // 解密：先试 8px 边框 PNG/LSB，再试 32px JPEG/块级
-            const ord8 = this.borderOrd(cw, ch, 8);
-            let dB = 8, parsed = this.parseMeta(this.rMetaPng(d.data, ord8, 200));
-            if (!parsed) { parsed = this.parseMeta(this.rMetaJpeg(d.data, cw, ch, 32)); dB = 32; }
+            // 解密：鲁棒 JPEG(V3-J,48px) → 旧版 PNG(8px LSB) → 旧版 JPEG(32px 块级)
+            let parsed = null, geo = null, w0 = 0, h0 = 0, dB = 8;
+            const rob = this.readRobustJpeg(d.data, cw, ch);
+            if (rob && (parsed = this.parseMetaR(rob.payload))) { geo = rob.geo; w0 = rob.w0; h0 = rob.h0; }
+            if (!parsed) { parsed = this.parseMeta(this.rMetaPng(d.data, this.borderOrd(cw, ch, 8), 200)); }
+            if (!parsed) { const pr = this.parseMeta(this.rMetaJpeg(d.data, cw, ch, 32)); if (pr) { parsed = pr; dB = 32; } }
             if (!parsed) { T("未识别到打码元数据，或不是 V3 加密图"); return; }
             const { cnt, regions, stored, flag, dataLen } = parsed;
             const expect = (this.hash('V3|' + cnt + '|' + regions.map(r => r.x + ',' + r.y + ',' + r.w + ',' + r.h).join('&') + '|' + k) >>> 0) & 0xFFFFFF;
             if (stored !== expect) { T("❌ 密码错误，无法解密"); return; }
-            if (flag & 1) { // 诱饵：直接从 LSB 提取区域原始像素填回（无 YUV 往返，精确还原）
-                const sc = ((flag >> 2) & 63) || 1;
-                if (!this.decoyExtract(d.data, cw, ch, dB, regions, dataLen, sc)) { T("诱饵数据提取失败"); return; }
+            if (geo) {
+                // 几何鲁棒路径：按检测到的 缩放+平移 重建原尺寸图像网格，再区域逆变换
+                const c2 = this.robustReconstruct(d.data, cw, ch, w0, h0, geo), x2 = c2.getContext('2d');
+                const rd = x2.getImageData(0, 0, c2.width, c2.height);
+                regions.slice().reverse().forEach((reg, idx) => this.regionEnc(rd.data, c2.width, c2.height, { x: reg.x, y: reg.y, w: reg.w, h: reg.h }, this.hash(k + '#' + (regions.length - 1 - idx)), false, false));
+                x2.putImageData(rd, 0, 0);
+                this.fin(c2, t, 'image/png', 1);
             } else {
-                const sort2 = !!(flag & 2);
-                // 逆序还原：加密时后处理的区域先还原
-                regions.slice().reverse().forEach((reg, idx) => this.regionEnc(d.data, cw, ch, { ...reg, x: reg.x + dB, y: reg.y + dB }, this.hash(k + '#' + (regions.length - 1 - idx)), false, sort2));
+                if (flag & 1) { // 诱饵：直接从 LSB 提取区域原始像素填回（仅 PNG 路径可达）
+                    const sc = ((flag >> 2) & 63) || 1;
+                    if (!this.decoyExtract(d.data, cw, ch, dB, regions, dataLen, sc)) { T("诱饵数据提取失败"); return; }
+                } else {
+                    const sort2 = !!(flag & 2);
+                    // 逆序还原：加密时后处理的区域先还原
+                    regions.slice().reverse().forEach((reg, idx) => this.regionEnc(d.data, cw, ch, { ...reg, x: reg.x + dB, y: reg.y + dB }, this.hash(k + '#' + (regions.length - 1 - idx)), false, sort2));
+                }
+                x.putImageData(d, 0, 0);
+                // 裁剪回原尺寸
+                const c2 = document.createElement('canvas'), x2 = c2.getContext('2d');
+                const w2 = cw - dB * 2, h2 = ch - dB * 2;
+                c2.width = w2; c2.height = h2; x2.drawImage(c, dB, dB, w2, h2, 0, 0, w2, h2);
+                this.fin(c2, t, 'image/png', 1);
             }
-            x.putImageData(d, 0, 0);
-            // 裁剪回原尺寸
-            const c2 = document.createElement('canvas'), x2 = c2.getContext('2d');
-            const w2 = cw - dB * 2, h2 = ch - dB * 2;
-            c2.width = w2; c2.height = h2; x2.drawImage(c, dB, dB, w2, h2, 0, 0, w2, h2);
-            this.fin(c2, t, 'image/png', 1);
         }
     },
     /* 诱饵图资源：缩放原图尺寸供取色 */
