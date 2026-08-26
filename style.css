@@ -94,11 +94,11 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px
 
 /* ─── 汉字密文开关 ─── */
 .hz-toggle { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: rgba(0,0,0,.3); border-radius: 6px; border: 1px solid var(--b); margin-bottom: 12px; }
-.hz-toggle label { margin: 0 !important; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--ts); }
 .hz-toggle input[type=checkbox] { display: none; }
 .hz-toggle .hz-slider { position: relative; width: 40px; height: 22px; background: #334155; border-radius: 11px; transition: .3s; cursor: pointer; flex-shrink: 0; }
 .hz-toggle .hz-slider::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; background: #64748b; border-radius: 50%; transition: .3s; }
 .hz-toggle input:checked + .hz-slider { background: var(--s); }
 .hz-toggle input:checked + .hz-slider::after { left: 21px; background: #fff; }
+.hz-toggle span:nth-child(3) { font-size: .85rem; color: var(--ts); }
 .hz-toggle .hz-tag { font-size: .7rem; color: var(--s); font-weight: 700; padding: 1px 6px; border-radius: 3px; background: rgba(0,120,255,.15); border: 1px solid rgba(0,120,255,.3); transition: .3s; }
 .hz-toggle input:checked ~ .hz-tag { color: var(--a); background: rgba(0,255,136,.12); border-color: rgba(0,255,136,.3); }
