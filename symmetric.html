@@ -20,10 +20,17 @@
             <textarea id="mw-e" placeholder="输入机密明文..."></textarea>
             <label>安全密钥 (PBKDF2 强化)</label>
             <input type="password" id="my-e" placeholder="设置高强度密码">
-            
+
+            <div class="hz-toggle">
+                <label for="hz-e"><span class="hz-slider"></span></label>
+                <input type="checkbox" id="hz-e">
+                <span>汉字密文</span>
+                <span class="hz-tag">4096字库</span>
+            </div>
+
             <button class="btn" onclick="AES.run(false)">执行高强度加密</button>
             <div id="rx-e" class="res">
-                <div style="color:var(--ts);margin-bottom:5px">AES-256-GCM 密文 (Base64):</div>
+                <div style="color:var(--ts);margin-bottom:5px" id="lbl-e">AES-256-GCM 密文 (Base64):</div>
                 <textarea id="out-e" readonly style="height:100px;font-size:0.8rem;border-color:transparent;"></textarea>
                 <button class="cp" onclick="CP('out-e',1)">一键提取密文</button>
             </div>
@@ -51,32 +58,41 @@ const AES = {
     enc: new TextEncoder(), dec: new TextDecoder(),
     async getK(pw) { return await crypto.subtle.importKey("raw", this.enc.encode(pw), "PBKDF2", false, ["deriveKey"]); },
     async derK(pk, salt) { return await crypto.subtle.deriveKey({ name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" }, pk, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]); },
-    
+
     async run(isDec) {
         const t = isDec ? 'd' : 'e';
         const txt = $(`mw-${t}`).value.trim(), pw = $(`my-${t}`).value;
         if (!txt || !pw) return T("文本与密钥为必填项");
-        
+
         try {
             if (!window.crypto?.subtle) throw "当前环境不支持 Web Crypto API，请使用 HTTPS 或 localhost 访问";
             if (!isDec) {
                 const s = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
                 const pKey = await this.getK(pw), aKey = await this.derK(pKey, s);
                 const encCont = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, aKey, this.enc.encode(txt));
-                
+
                 const eBytes = new Uint8Array(encCont), pl = new Uint8Array(28 + eBytes.byteLength);
                 pl.set(s, 0); pl.set(iv, 16); pl.set(eBytes, 28);
-                
-                $('out-e').value = Util.buf2b64(pl.buffer);
+
+                const useHanzi = $('hz-e').checked;
+                $('out-e').value = useHanzi ? HanziCodec.encode(pl) : Util.buf2b64(pl.buffer);
+                $('lbl-e').innerText = useHanzi ? 'AES-256-GCM 密文 (汉字密文):' : 'AES-256-GCM 密文 (Base64):';
                 $('rx-e').classList.add('on');
             } else {
-                const b = Util.b642buf(txt);
-                if (!b) throw "Base64 解码异常"; const pl = new Uint8Array(b);
+                const useHanzi = HanziCodec.isHanzi(txt);
+                let pl;
+                if (useHanzi) {
+                    pl = HanziCodec.decode(txt);
+                } else {
+                    const b = Util.b642buf(txt);
+                    if (!b) throw "Base64 解码异常";
+                    pl = new Uint8Array(b);
+                }
                 if (pl.byteLength < 44) throw "长度截断";
-                
+
                 const s = pl.slice(0, 16), iv = pl.slice(16, 28), eBytes = pl.slice(28);
                 const pKey = await this.getK(pw), aKey = await this.derK(pKey, s);
-                
+
                 const decCont = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aKey, eBytes);
                 $('out-d').innerText = this.dec.decode(decCont);
                 $('rx-d').classList.add('on');

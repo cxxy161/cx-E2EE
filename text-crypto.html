@@ -40,6 +40,14 @@
             <div class="ht">🔒 加密发送 (ENCRYPT)</div>
             <label>接收方公钥</label><input type="text" id="trk" placeholder="粘贴公钥或从通讯录选择">
             <label>明文内容</label><textarea id="tpt" placeholder="输入机密信息..."></textarea>
+
+            <div class="hz-toggle">
+                <label for="hz-t"><span class="hz-slider"></span></label>
+                <input type="checkbox" id="hz-t">
+                <span>汉字密文</span>
+                <span class="hz-tag">4096字库</span>
+            </div>
+
             <button class="btn" onclick="TA.enc()">执行加密</button>
             <div id="trc" class="res"><div id="tct" style="color:var(--ts)"></div><button class="cp" onclick="CP('tct',1)">复制密文</button></div>
         </div>
@@ -109,8 +117,26 @@ const TA = {
             catch (e) { T(e); b.disabled = false; b.innerText = "初始化身份"; }
         }, 50);
     },
-    async enc() { try { $('tct').innerText = await this.c.run($('trk').value, $('tpt').value, false); $('trc').classList.add('on'); } catch (e) { T("错误:" + e); } },
-    async dec() { try { $('tdt').innerText = await this.c.run(null, $('tci').value, true); $('trd').classList.add('on'); } catch (e) { $('tdt').innerText = "解密失败"; $('trd').classList.add('on'); } }
+    async enc() {
+        try {
+            const raw = await this.c.run($('trk').value, $('tpt').value, false);
+            const useHanzi = $('hz-t').checked;
+            $('tct').innerText = useHanzi ? HanziCodec.encode(Util.b642buf(raw)) : raw;
+            $('trc').classList.add('on');
+        } catch (e) { T("错误:" + e); }
+    },
+    async dec() {
+        try {
+            let input = $('tci').value.trim();
+            // 自动检测：如果是汉字密文，先解码为 Base64
+            if (HanziCodec.isHanzi(input)) {
+                const bytes = HanziCodec.decode(input);
+                input = Util.buf2b64(bytes.buffer);
+            }
+            $('tdt').innerText = await this.c.run(null, input, true);
+            $('trd').classList.add('on');
+        } catch (e) { $('tdt').innerText = "解密失败"; $('trd').classList.add('on'); }
+    }
 };
 
 Directory._onEncFill = function(k) { $('trk').value = k; T('加密公钥已填入'); };
