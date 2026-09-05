@@ -617,7 +617,7 @@ const IA = {
         for (let i = 0; i < lum.length; i++) lum[i] = .299 * d[i * 4] + .587 * d[i * 4 + 1] + .114 * d[i * 4 + 2];
         const stripH = (y0, y1) => {
             let best = 0, by = -1;
-            for (let y = y0; y < y1; y++) { let trans = 0, prev = -1; const o = y * cw; for (let x = 0; x < cw; x++) { const v = lum[o + x]; if (prev >= 0 && Math.abs(v - prev) > 60) trans++; prev = v; } if (trans > best) { best = trans; by = y; } }
+            for (let y = y0; y < y1; y++) { let trans = 0, prev = -1; const o = y * cw; for (let x = 0; x < cw; x++) { const v = lum[o + x]; if (prev >= 0 && Math.abs(v - prev) > 120) trans++; prev = v; } if (trans > best) { best = trans; by = y; } }
             if (best < 4 || by < 0) return null;
             // 分数过零点（线性插值的 128 阈值穿越点）→ 精确测 pitch 与首黑
             const o = by * cw, cr = [];
@@ -635,7 +635,7 @@ const IA = {
         };
         const stripV = (x0, x1) => {
             let best = 0, bx = -1;
-            for (let x = x0; x < x1; x++) { let trans = 0, prev = -1; for (let y = 0; y < ch; y++) { const v = lum[y * cw + x]; if (prev >= 0 && Math.abs(v - prev) > 60) trans++; prev = v; } if (trans > best) { best = trans; bx = x; } }
+            for (let x = x0; x < x1; x++) { let trans = 0, prev = -1; for (let y = 0; y < ch; y++) { const v = lum[y * cw + x]; if (prev >= 0 && Math.abs(v - prev) > 120) trans++; prev = v; } if (trans > best) { best = trans; bx = x; } }
             if (best < 4 || bx < 0) return null;
             const cr = [];
             for (let y = 0; y < ch - 1; y++) { const a = lum[y * cw + bx], b2 = lum[(y + 1) * cw + bx]; if ((a < 128) !== (b2 < 128)) cr.push(y + (128 - a) / (b2 - a)); }
@@ -716,12 +716,12 @@ const IA = {
             }
             return vals;
         };
-        for (const tx of geo.tx) for (const ty of geo.ty) {
+        const fmtTry = (tx, ty) => {
             let fb = readFmtRow(tx, ty, 32);
             if (fb && fb[0] !== 82) fb = ch >= 96 ? readFmtRow(tx, ty, ch - 40) : null;
-            if (!fb || fb[1] !== 51) continue;
+            if (!fb || fb[1] !== 51) return null;
             const w0 = fb[2] * 256 + fb[3], h0 = fb[4] * 256 + fb[5];
-            if (w0 < 96 || h0 < 96 || w0 > 40000 || h0 > 40000) continue;
+            if (w0 < 96 || h0 < 96 || w0 > 40000 || h0 > 40000) return null;
             const mods = this.jpegMods(w0, h0);
             const sm = this.sampleJpeg(d, cw, ch, mods, geo.sx, geo.sy, tx, ty);
             const bytes = sm.bytes, eras = sm.eras;
@@ -729,7 +729,11 @@ const IA = {
             if (bytes.length >= 255) rs = RS255.decode(bytes.slice(0, 255), 128, eras.filter(e2 => e2 < 255));
             if (!rs && bytes.length >= 510) rs = RS255.decode(bytes.slice(255, 510), 128, eras.filter(e2 => e2 >= 255 && e2 < 510).map(e2 => e2 - 255));
             if (rs && this.parseMetaR(rs)) return { payload: rs, geo: { sx: geo.sx, sy: geo.sy, tx, ty }, w0, h0 };
-        }
+            return null;
+        };
+        // 候选顺序：几何启发（无留白快速路径）→ 3px 网格扫描（覆盖截图页面留白/偏移≤384px，命中魔数后停止）
+        for (const tx of geo.tx) for (const ty of geo.ty) { const r = fmtTry(tx, ty); if (r) return r; }
+        for (let ty = 0; ty <= 384; ty += 3) for (let tx = 0; tx <= 384; tx += 3) { const r = fmtTry(tx, ty); if (r) return r; }
         return null;
     },
     /* 按几何把接收图重采样回原尺寸画布（近恒等=精确拷贝，非整数缩放=双线性），供区域逆变换 */
