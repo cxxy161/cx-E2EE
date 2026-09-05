@@ -918,12 +918,14 @@ const IA = {
                     let mad = 0; for (const L of lums) mad += Math.abs(L - medL);
                     mad /= lums.length;
                     // 修正幅度：离散度大→只修小部分(真实梯度)，离散度小→大胆修(块噪声)
-                    const gain = mad > 80 ? 0.15 : (mad > 32 ? 0.5 : 1);
+                    const gain = Math.max(0.08, 0.95 - mad / 100); // MAD 0→0.95(平坦全修), MAD 80→0.15(梯度少修)
                     const med0 = sortN(neigh.map(m => m[0]));
                     const med1 = sortN(neigh.map(m => m[1]));
                     const med2 = sortN(neigh.map(m => m[2]));
-                    const cl = v => { const m = v * gain; return m > 28 ? 28 : (m < -28 ? -28 : m); };
-                    fix[br][bc] = [cl(med0 - means[br][bc][0]), cl(med1 - means[br][bc][1]), cl(med2 - means[br][bc][2])];
+                    // 无钳制，直接按 gain 比例修正：
+                    // gain 高(平坦区,邻域一致) → 修正幅度大(修块噪声)
+                    // gain 低(梯度区,邻域离散) → 修正幅度小(保留内容)
+                    fix[br][bc] = [gain * (med0 - means[br][bc][0]), gain * (med1 - means[br][bc][1]), gain * (med2 - means[br][bc][2])];
                 }
             }
             for (let br = 0; br < rows; br++) for (let bc = 0; bc < cols; bc++) {
