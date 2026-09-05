@@ -382,7 +382,7 @@ const IA = {
     },
     initV3() { MOB.setup(); },
     /* 区域内 8×8 块置换 + YUV 变换；sort=true 时加密末尾按亮度排序（索引写LSB），解密开头逆排 */
-    regionEnc(d, w, h, reg, seed, E, sort) {
+    regionEnc(d, w, h, reg, seed, E, sort, soft) {
         let x0 = Math.floor(reg.x / 8) * 8, y0 = Math.floor(reg.y / 8) * 8;
         let x1 = Math.min(w, Math.ceil((reg.x + reg.w) / 8) * 8), y1 = Math.min(h, Math.ceil((reg.y + reg.h) / 8) * 8);
         if (x1 <= x0 || y1 <= y0) return;
@@ -391,16 +391,19 @@ const IA = {
         for (let i = 0; i < bl; i++) cm[i] = Math.floor(nr() * 1e6);
         if (!E && sort) this.sortRegion(d, w, h, x0, y0, bx, by, bl, false); // 先逆排再逆变换
         const out = new Uint8ClampedArray(d);
+        // soft(JPEG 友好)：亮度映射动态范围加宽(EX增益 1.645→1.186)、扰动减半，
+        // 显著减小 JPEG 逐块量化误差经逆变换放大后在区域内形成的"拼图块"色差
+        const CM = soft ? (v => 20 + (v / 255) * 215) : (v => 50 + (v / 255) * 155);
+        const EX = soft ? (v => { let n = (v - 20) / 215; if (n < 0) n = 0; if (n > 1) n = 1; return n * 255; }) : (v => { let n = (v - 50) / 155; if (n < 0) n = 0; if (n > 1) n = 1; return n * 255; });
         for (let i = 0; i < bl; i++) {
             let si, di; if (E) { si = i; di = p[i]; } else { si = p[i]; di = i; }
             const sCol = si % bx, sRow = Math.floor(si / bx), dCol = di % bx, dRow = Math.floor(di / bx);
             const sx = x0 + sCol * 8, sy = y0 + sRow * 8, dx = x0 + dCol * 8, dy = y0 + dRow * 8;
-            const rw = cm[E ? di : si], ns = (rw % 81) - 40, fU = rw & 0x100, fV = rw & 0x200, sw = rw & 0x400;
+            const rw = cm[E ? di : si], ns = soft ? ((rw % 33) - 16) : ((rw % 81) - 40), fU = rw & 0x100, fV = rw & 0x200, sw = rw & 0x400;
             for (let y = 0; y < 8; y++) for (let l = 0; l < 8; l++) {
                 const sI = ((sy + y) * w + (sx + l)) * 4, dI = ((dy + y) * w + (dx + l)) * 4;
                 let R = d[sI], G = d[sI + 1], B = d[sI + 2];
                 let Y = .299 * R + .587 * G + .114 * B, U = -.147 * R - .289 * G + .436 * B, V = .615 * R - .515 * G - .1 * B;
-                const CM = v => 50 + (v / 255) * 155, EX = v => { let n = (v - 50) / 155; if (n < 0) n = 0; if (n > 1) n = 1; return n * 255; };
                 if (E) { Y = CM(Y) + ns; if (sw) [U, V] = [V, U]; if (fU) U = -U; if (fV) V = -V; }
                 else { if (fV) V = -V; if (fU) U = -U; if (sw) [U, V] = [V, U]; Y -= ns; Y = EX(Y); }
                 out[dI] = Y + 1.14 * V; out[dI + 1] = Y - .395 * U - .581 * V; out[dI + 2] = Y + 2.032 * U; out[dI + 3] = 255;
@@ -839,13 +842,53 @@ const IA = {
             for (let y = y0 + 8; y < y1; y += 8) rampH(y);
         }
     },
-    /* 区域内 3×3 中值平滑：抹平 JPEG 逐块量化造成的"每块一个色调"马赛克贴片感（保留文字等边缘） */
+    /* 块 DC 均衡（2遍）：每 8×8 块均值向 5×5 邻域块均值(排除自身)收敛——对逐块噪声是低通，平坦区摊平、梯度保留，块内细节不动 */
+    jpegDcEqualize(d, w, h, regions) {
+        for (const r of regions) {
+            const x0 = Math.max(0, Math.floor(r.x / 8) * 8), y0 = Math.max(0, Math.floor(r.y / 8) * 8);
+            const x1 = Math.min(w, Math.ceil((r.x + r.w) / 8) * 8), y1 = Math.min(h, Math.ceil((r.y + r.h) / 8) * 8);
+            const cols = (x1 - x0) >> 3, rows = (y1 - y0) >> 3;
+            if (rows < 5 || cols < 5) continue;
+            for (let iter = 0; iter < 2; iter++) {
+                const means = new Array(rows);
+                for (let br = 0; br < rows; br++) {
+                    means[br] = new Array(cols);
+                    for (let bc = 0; bc < cols; bc++) {
+                        let s0 = 0, s1 = 0, s2 = 0;
+                        for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+                            const f = ((y0 + br * 8 + y) * w + (x0 + bc * 8 + x)) * 4;
+                            s0 += d[f]; s1 += d[f + 1]; s2 += d[f + 2];
+                        }
+                        means[br][bc] = [s0 / 64, s1 / 64, s2 / 64];
+                    }
+                }
+                for (let br = 0; br < rows; br++) for (let bc = 0; bc < cols; bc++) {
+                    let a0 = 0, a1 = 0, a2 = 0, n = 0;
+                    for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++) {
+                        const nr = br + dr, nc = bc + dc;
+                        if (nr === br && nc === bc) continue;
+                        if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) { const m = means[nr][nc]; a0 += m[0]; a1 += m[1]; a2 += m[2]; n++; }
+                    }
+                    if (!n) continue;
+                    const d0 = (a0 / n) - means[br][bc][0];
+                    const d1 = (a1 / n) - means[br][bc][1];
+                    const d2 = (a2 / n) - means[br][bc][2];
+                    if (!d0 && !d1 && !d2) continue;
+                    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+                        const f = ((y0 + br * 8 + y) * w + (x0 + bc * 8 + x)) * 4;
+                        d[f] = Math.max(0, Math.min(255, d[f] + d0)); d[f + 1] = Math.max(0, Math.min(255, d[f + 1] + d1)); d[f + 2] = Math.max(0, Math.min(255, d[f + 2] + d2));
+                    }
+                }
+            }
+        }
+    },
+    /* 区域内 5×5 中值平滑：抹平 JPEG 逐块量化造成的"每块一个色调"马赛克贴片感（保留文字等边缘） */
     jpegRegionSmooth(d, w, h, regions) {
         for (const r of regions) {
             const x0 = Math.max(0, Math.floor(r.x / 8) * 8), y0 = Math.max(0, Math.floor(r.y / 8) * 8);
             const x1 = Math.min(w, Math.ceil((r.x + r.w) / 8) * 8), y1 = Math.min(h, Math.ceil((r.y + r.h) / 8) * 8);
             const bw = x1 - x0, bh = y1 - y0;
-            if (bw < 6 || bh < 6) continue;
+            if (bw < 10 || bh < 10) continue;
             const tmp = new Uint8ClampedArray(bw * bh * 4);
             for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
                 const fi = ((y0 + y) * w + (x0 + x)) * 4, ti = (y * bw + x) * 4;
@@ -853,7 +896,7 @@ const IA = {
             }
             for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
                 const r0 = [], g0 = [], b0 = [];
-                for (let yy = -1; yy <= 1; yy++) for (let xx = -1; xx <= 1; xx++) {
+                for (let yy = -2; yy <= 2; yy++) for (let xx = -2; xx <= 2; xx++) {
                     const px = x + xx, py = y + yy;
                     if (px < 0 || py < 0 || px >= bw || py >= bh) continue;
                     const ti = (py * bw + px) * 4;
@@ -902,7 +945,7 @@ const IA = {
             if (MOB.decoyOn && !MOB.decoyImg) { T("请先选择诱饵图"); return; }
             if (jpeg) { T("诱饵图/色块排序仅支持 PNG 输出，当前已自动忽略"); }
             // 区域加密（含排序）——诱饵模式跳过：数据将按原字节存入 LSB
-            if (!decoy) regions.forEach((reg, idx) => this.regionEnc(d.data, cw, ch, { ...reg, x: reg.x + B, y: reg.y + B }, this.hash(k + '#' + idx), true, sort));
+            if (!decoy) regions.forEach((reg, idx) => this.regionEnc(d.data, cw, ch, { ...reg, x: reg.x + B, y: reg.y + B }, this.hash(k + '#' + idx), true, sort, jpeg));
             // 诱饵模式：区域原始像素散布到原图区 LSB，区域本体填诱饵图
             let decoySc = 1, dataLen = 0;
             if (decoy) {
@@ -937,7 +980,7 @@ const IA = {
             }
             if (jpeg) {
                 // V3-J 鲁棒 JPEG：RS(255,179) 纠错 + 时序定位条 + 双副本，边框 48px
-                const payload = this.metaBytesR(cw, ch, regions.length, regions, k, 0, 0);
+                const payload = this.metaBytesR(cw, ch, regions.length, regions, k, 8, 0); // flag bit3=JPEG友好亮度域
                 if (!this.writeRobust(d.data, cw, ch, payload)) { T("图片尺寸过小，JPEG 鲁棒边框容量不足（建议原图 ≥ 400×400）"); return; }
                 x.putImageData(d, 0, 0);
                 this.fin(c, t, 'image/jpeg', parseInt($('qv3').value) / 100);
@@ -959,12 +1002,12 @@ const IA = {
                 // 几何鲁棒路径：按检测到的 缩放+平移 重建原尺寸图像网格，再区域逆变换
                 const c2 = this.robustReconstruct(d.data, cw, ch, w0, h0, geo), x2 = c2.getContext('2d');
                 const rd = x2.getImageData(0, 0, c2.width, c2.height);
-                regions.slice().reverse().forEach((reg, idx) => this.regionEnc(rd.data, c2.width, c2.height, { x: reg.x, y: reg.y, w: reg.w, h: reg.h }, this.hash(k + '#' + (regions.length - 1 - idx)), false, false));
+                regions.slice().reverse().forEach((reg, idx) => this.regionEnc(rd.data, c2.width, c2.height, { x: reg.x, y: reg.y, w: reg.w, h: reg.h }, this.hash(k + '#' + (regions.length - 1 - idx)), false, false, !!(flag & 8)));
                 // 区域边界清理（含 4px 对齐边距与内缘均化）；恒等与分数几何均启用，PNG 路径不经此分支
                 this.jpegBandClean(rd.data, c2.width, c2.height, regions, 2);
-                // JPEG 块效应去块：消除区域内每条 8×8 块界线上的"乱码接缝"
+                // 块 DC 均衡 → 去块 → 中值（顺序：先消除块整体色差，再平滑块界，最后微抛光）
+                this.jpegDcEqualize(rd.data, c2.width, c2.height, regions);
                 this.jpegDeblock(rd.data, c2.width, c2.height, regions);
-                // 区域内中值平滑：抹平逐块色调差（马赛克贴片感）
                 this.jpegRegionSmooth(rd.data, c2.width, c2.height, regions);
                 x2.putImageData(rd, 0, 0);
                 this.fin(c2, t, 'image/png', 1);
@@ -975,8 +1018,8 @@ const IA = {
                 } else {
                     const sort2 = !!(flag & 2);
                     // 逆序还原：加密时后处理的区域先还原
-                    regions.slice().reverse().forEach((reg, idx) => this.regionEnc(d.data, cw, ch, { ...reg, x: reg.x + dB, y: reg.y + dB }, this.hash(k + '#' + (regions.length - 1 - idx)), false, sort2));
-                    if (dB === 32) { this.jpegDeblock(d.data, cw, ch, regions.map(rg => ({ x: rg.x + dB, y: rg.y + dB, w: rg.w, h: rg.h }))); this.jpegRegionSmooth(d.data, cw, ch, regions.map(rg => ({ x: rg.x + dB, y: rg.y + dB, w: rg.w, h: rg.h }))); }
+                    regions.slice().reverse().forEach((reg, idx) => this.regionEnc(d.data, cw, ch, { ...reg, x: reg.x + dB, y: reg.y + dB }, this.hash(k + '#' + (regions.length - 1 - idx)), false, sort2, !!(flag & 8)));
+                    if (dB === 32) { const rg2 = regions.map(rg => ({ x: rg.x + dB, y: rg.y + dB, w: rg.w, h: rg.h })); this.jpegDcEqualize(d.data, cw, ch, rg2); this.jpegDeblock(d.data, cw, ch, rg2); this.jpegRegionSmooth(d.data, cw, ch, rg2); }
                 }
                 x.putImageData(d, 0, 0);
                 // 裁剪回原尺寸
