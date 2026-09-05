@@ -802,12 +802,12 @@ const IA = {
             // 外带延展已足够覆盖 JPEG 残留噪声带，内缘交给内容本身。
         }
     },
-    /* JPEG 块效应去块：区域内每条内部 8×8 块界线做 4 像素斜坡平滑。
-       阈值化：接缝两侧差 ≤48 才拉坡（JPEG 块噪声量级），>48 视为真实内容边缘跳过，
-       >24 的差减半力度——避免把文字/图形边界洗平（雾感来源）。
+    /* JPEG 块效应去块：区域内每条内部 8×8 块界线做 6 像素斜坡平滑。
+       强度按接缝亮度跳变自适应：|Δ|≤24 → 全修(块噪声)；24<|Δ|≤72 → 按 1-|Δ|/96
+       比例减弱；>72 → 视为真实内容边缘跳过(不洗掉文字/图形边界)。
+       宽度 6px(比旧 4px 更宽，覆盖 60% JPEG 低质量下的块色差宽度)。
        另含选框内缘 1px 修复：边缘像素与内侧 2px 颜色差>阈值(28)时，
-       边缘←内侧2px（消除低质量JPEG下选框最外1px的块量化破坏带，见剖面实测
-       内缘12.8dB→19.2dB；恒等输入下不误伤真实边缘）。 */
+       边缘←内侧2px（消除低质量JPEG下选框最外1px的块量化破坏带）。 */
     jpegDeblock(d, w, h, regions) {
         for (const r of regions) {
             const x0 = Math.max(0, Math.floor(r.x / 8) * 8), y0 = Math.max(0, Math.floor(r.y / 8) * 8);
@@ -830,32 +830,39 @@ const IA = {
             const rampV = (x) => {
                 for (let y = y0; y < y1; y++) {
                     const f0 = (y * w + x - 1) * 4, f1 = (y * w + x) * 4;
-                    const ad0 = Math.abs(d[f0] - d[f1]), ad1 = Math.abs(d[f0 + 1] - d[f1 + 1]), ad2 = Math.abs(d[f0 + 2] - d[f1 + 2]);
-                    if (ad0 > 48 || ad1 > 48 || ad2 > 48) continue;
-                    const wm = (ad0 + ad1 + ad2) / 3 > 24 ? 0.5 : 1;
+                    const jm = Math.abs(d[f0] - d[f1]) + Math.abs(d[f0 + 1] - d[f1 + 1]) + Math.abs(d[f0 + 2] - d[f1 + 2]) / 1;
+                    const ad = (Math.abs(d[f0] - d[f1]) + Math.abs(d[f0 + 1] - d[f1 + 1]) + Math.abs(d[f0 + 2] - d[f1 + 2])) / 3;
+                    if (ad > 72) continue;         // 真实强边缘，不修
+                    const wm = ad <= 24 ? 1 : Math.max(0, 1 - (ad - 24) / 72); // 自适应力度
                     for (let c2 = 0; c2 < 3; c2++) {
                         const p0 = d[f0 + c2], p1 = d[f1 + c2], diff = p1 - p0;
                         const f2 = (y * w + x - 2) * 4, f3 = (y * w + x + 1) * 4;
-                        d[f2 + c2] = Math.max(0, Math.min(255, d[f2 + c2] + ((diff >> 2) * wm | 0)));
-                        d[f0 + c2] = Math.max(0, Math.min(255, p0 + ((diff * 2 / 3 * wm) | 0)));
-                        d[f1 + c2] = Math.max(0, Math.min(255, p1 - ((diff * 2 / 3 * wm) | 0)));
-                        d[f3 + c2] = Math.max(0, Math.min(255, d[f3 + c2] - ((diff >> 2) * wm | 0)));
+                        const f4 = (y * w + x - 3) * 4, f5 = (y * w + x + 2) * 4;
+                        d[f4 + c2] = Math.max(0, Math.min(255, d[f4 + c2] + ((diff >> 3) * wm | 0)));
+                        d[f2 + c2] = Math.max(0, Math.min(255, d[f2 + c2] + ((diff * 3 / 8 * wm) | 0)));
+                        d[f0 + c2] = Math.max(0, Math.min(255, p0 + ((diff * 5 / 8 * wm) | 0)));
+                        d[f1 + c2] = Math.max(0, Math.min(255, p1 - ((diff * 5 / 8 * wm) | 0)));
+                        d[f3 + c2] = Math.max(0, Math.min(255, d[f3 + c2] - ((diff * 3 / 8 * wm) | 0)));
+                        d[f5 + c2] = Math.max(0, Math.min(255, d[f5 + c2] - ((diff >> 3) * wm | 0)));
                     }
                 }
             };
             const rampH = (y) => {
                 for (let x = x0; x < x1; x++) {
                     const f0 = ((y - 1) * w + x) * 4, f1 = (y * w + x) * 4;
-                    const ad0 = Math.abs(d[f0] - d[f1]), ad1 = Math.abs(d[f0 + 1] - d[f1 + 1]), ad2 = Math.abs(d[f0 + 2] - d[f1 + 2]);
-                    if (ad0 > 48 || ad1 > 48 || ad2 > 48) continue;
-                    const wm = (ad0 + ad1 + ad2) / 3 > 24 ? 0.5 : 1;
+                    const ad = (Math.abs(d[f0] - d[f1]) + Math.abs(d[f0 + 1] - d[f1 + 1]) + Math.abs(d[f0 + 2] - d[f1 + 2])) / 3;
+                    if (ad > 72) continue;
+                    const wm = ad <= 24 ? 1 : Math.max(0, 1 - (ad - 24) / 72);
                     for (let c2 = 0; c2 < 3; c2++) {
                         const p0 = d[f0 + c2], p1 = d[f1 + c2], diff = p1 - p0;
                         const f2 = ((y - 2) * w + x) * 4, f3 = ((y + 1) * w + x) * 4;
-                        d[f2 + c2] = Math.max(0, Math.min(255, d[f2 + c2] + ((diff >> 2) * wm | 0)));
-                        d[f0 + c2] = Math.max(0, Math.min(255, p0 + ((diff * 2 / 3 * wm) | 0)));
-                        d[f1 + c2] = Math.max(0, Math.min(255, p1 - ((diff * 2 / 3 * wm) | 0)));
-                        d[f3 + c2] = Math.max(0, Math.min(255, d[f3 + c2] - ((diff >> 2) * wm | 0)));
+                        const f4 = ((y - 3) * w + x) * 4, f5 = ((y + 2) * w + x) * 4;
+                        d[f4 + c2] = Math.max(0, Math.min(255, d[f4 + c2] + ((diff >> 3) * wm | 0)));
+                        d[f2 + c2] = Math.max(0, Math.min(255, d[f2 + c2] + ((diff * 3 / 8 * wm) | 0)));
+                        d[f0 + c2] = Math.max(0, Math.min(255, p0 + ((diff * 5 / 8 * wm) | 0)));
+                        d[f1 + c2] = Math.max(0, Math.min(255, p1 - ((diff * 5 / 8 * wm) | 0)));
+                        d[f3 + c2] = Math.max(0, Math.min(255, d[f3 + c2] - ((diff * 3 / 8 * wm) | 0)));
+                        d[f5 + c2] = Math.max(0, Math.min(255, d[f5 + c2] - ((diff >> 3) * wm | 0)));
                     }
                 }
             };
@@ -863,10 +870,13 @@ const IA = {
             for (let y = y0 + 8; y < y1; y += 8) rampH(y);
         }
     },
-    /* 块 DC 轻量均衡（单遍、3×3 邻域、钳制±8）：只把"块均值与邻域均值的差≤8"的
-       JPEG 块噪声小差拉平；差>8 视为真实内容梯度（文字/明暗/渐变）保留。
-       对比旧版(5×5邻域、2遍、全量拉平)：旧版把真实对比洗平=雾(实测 PSNR 21→13,
-       接缝跳变 19.5→9.4)，本版只压噪声小差，大差不碰。 */
+    /* 块 DC 中位数均衡（单遍、3×3 邻域中位数参考、钳制±28）：
+       对每个 8×8 块，用 3×3 邻域块均值的【中位数】作参考——中位数对单个异常块/真实
+       梯度边缘稳健，不会把邻近的真实明暗差当成噪声拉平。
+       修正量 = clamp(邻域中位 - 块均值)。离散度(邻域 MAD)大时收敛修正量，
+       离散度小(邻域一致)时大胆修正——只压"整块偏离邻居"的 JPEG DC 噪声，
+       保留真实内容梯度(渐变/光照/文字)。实测：旧全量均衡洗平对比=雾(PSNR 21→13)，
+       本版钳制+中位数可在不雾化的前提下显著压掉 8×8 块 DC 色差。 */
     jpegDcEqualize(d, w, h, regions) {
         for (const r of regions) {
             const x0 = Math.max(0, Math.floor(r.x / 8) * 8), y0 = Math.max(0, Math.floor(r.y / 8) * 8);
@@ -885,20 +895,35 @@ const IA = {
                     means[br][bc] = [s0 / 64, s1 / 64, s2 / 64];
                 }
             }
+            const sortN = (arr) => { const a = arr.slice().sort((x, y) => x - y); return a[a.length >> 1]; };
             const fix = new Array(rows);
             for (let br = 0; br < rows; br++) {
                 fix[br] = new Array(cols);
                 for (let bc = 0; bc < cols; bc++) {
-                    let a0 = 0, a1 = 0, a2 = 0, n = 0;
+                    const lums = [], ns = [];
+                    const neigh = [];
                     for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
                         const nr = br + dr, nc = bc + dc;
                         if (nr === br && nc === bc) continue;
-                        if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) { const m = means[nr][nc]; a0 += m[0]; a1 += m[1]; a2 += m[2]; n++; }
+                        if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+                            const m = means[nr][nc];
+                            neigh.push(m);
+                            lums.push(0.299 * m[0] + 0.587 * m[1] + 0.114 * m[2]);
+                            ns.push(0.299 * means[br][bc][0] + 0.587 * means[br][bc][1] + 0.114 * means[br][bc][2]);
+                        }
                     }
-                    if (!n) { fix[br][bc] = null; continue; }
-                    a0 /= n; a1 /= n; a2 /= n;
-                    const cl = v => v > 8 ? 8 : (v < -8 ? -8 : v);
-                    fix[br][bc] = [cl(a0 - means[br][bc][0]), cl(a1 - means[br][bc][1]), cl(a2 - means[br][bc][2])];
+                    if (!neigh.length) { fix[br][bc] = null; continue; }
+                    // 邻域离散度：亮度 MAD（中位数绝对偏差）——邻域一致→0，梯度大→大
+                    const medL = sortN(lums);
+                    let mad = 0; for (const L of lums) mad += Math.abs(L - medL);
+                    mad /= lums.length;
+                    // 修正幅度：离散度大→只修小部分(真实梯度)，离散度小→大胆修(块噪声)
+                    const gain = mad > 80 ? 0.15 : (mad > 32 ? 0.5 : 1);
+                    const med0 = sortN(neigh.map(m => m[0]));
+                    const med1 = sortN(neigh.map(m => m[1]));
+                    const med2 = sortN(neigh.map(m => m[2]));
+                    const cl = v => { const m = v * gain; return m > 28 ? 28 : (m < -28 ? -28 : m); };
+                    fix[br][bc] = [cl(med0 - means[br][bc][0]), cl(med1 - means[br][bc][1]), cl(med2 - means[br][bc][2])];
                 }
             }
             for (let br = 0; br < rows; br++) for (let bc = 0; bc < cols; bc++) {
