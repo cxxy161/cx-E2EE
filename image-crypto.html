@@ -791,19 +791,9 @@ const IA = {
             for (let y = yA; y < r.y; y++) { const s8 = Math.max(0, ay0 - ref); for (let x = xA; x < xB; x++) { const f = (y * w + x) * 4, s = (s8 * w + x) * 4; d[f] = d[s]; d[f + 1] = d[s + 1]; d[f + 2] = d[s + 2]; } }
             // 下带 [r.y+r.h, yB)
             for (let y = Math.min(h, r.y + r.h); y < yB; y++) { const s8 = Math.min(h - 1, ay1 + ref - 1); for (let x = xA; x < xB; x++) { const f = (y * w + x) * 4, s = (s8 * w + x) * 4; d[f] = d[s]; d[f + 1] = d[s + 1]; d[f + 2] = d[s + 2]; } }
-            // 选框内缘 1px 均化（左/右缘 ← 内侧 2px；上/下缘 ← 内侧 2px）
-            for (let y = r.y; y < Math.min(h, r.y + r.h); y++) {
-                const X2 = Math.min(w - 1, r.x + 2), X3 = Math.max(0, r.x + r.w - 3);
-                const fL = (y * w + r.x) * 4, sL = (y * w + X2) * 4, fR = (y * w + r.x + r.w - 1) * 4, sR = (y * w + X3) * 4;
-                d[fL] = d[sL]; d[fL + 1] = d[sL + 1]; d[fL + 2] = d[sL + 2];
-                d[fR] = d[sR]; d[fR + 1] = d[sR + 1]; d[fR + 2] = d[sR + 2];
-            }
-            for (let x = r.x; x < Math.min(w, r.x + r.w); x++) {
-                const Y2 = Math.min(h - 1, r.y + 2), Y3 = Math.max(0, r.y + r.h - 3);
-                const fT = (r.y * w + x) * 4, sT = (Y2 * w + x) * 4, fB = ((r.y + r.h - 1) * w + x) * 4, sB = (Y3 * w + x) * 4;
-                d[fT] = d[sT]; d[fT + 1] = d[sT + 1]; d[fT + 2] = d[sT + 2];
-                d[fB] = d[sB]; d[fB + 1] = d[sB + 1]; d[fB + 2] = d[sB + 2];
-            }
+            // 注：曾有的"选框内缘 1px 均化"已移除——实测截图/分数几何下它把选框边缘
+            // 像素向内错位采样，重采样误差放大后形成一圈明显边框(内缘PSNR 22→14dB)；
+            // 外带延展已足够覆盖 JPEG 残留噪声带，内缘交给内容本身。
         }
     },
     /* JPEG 块效应去块：区域内每条内部 8×8 块界线做 4 像素斜坡平滑。
