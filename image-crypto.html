@@ -384,7 +384,13 @@ const IA = {
     /* 区域内 8×8 块置换 + YUV 变换；sort=true 时加密末尾按亮度排序（索引写LSB），解密开头逆排 */
     regionEnc(d, w, h, reg, seed, E, sort, soft) {
         let x0 = Math.floor(reg.x / 8) * 8, y0 = Math.floor(reg.y / 8) * 8;
-        let x1 = Math.min(w, Math.ceil((reg.x + reg.w) / 8) * 8), y1 = Math.min(h, Math.ceil((reg.y + reg.h) / 8) * 8);
+        // 右/下边界：先钳到画布内，再回退到完整 8 块边界——
+        // 若尾巴不足 8px 直接丢弃（保持 bx/by 整数，避免非整数块数导致
+        // 置换表长度截断与循环越界 → 全图打码时整体错位乱码）
+        let x1 = Math.min(w, Math.ceil((reg.x + reg.w) / 8) * 8);
+        let y1 = Math.min(h, Math.ceil((reg.y + reg.h) / 8) * 8);
+        x1 = x0 + Math.floor((x1 - x0) / 8) * 8;
+        y1 = y0 + Math.floor((y1 - y0) / 8) * 8;
         if (x1 <= x0 || y1 <= y0) return;
         const bx = (x1 - x0) / 8, by = (y1 - y0) / 8, bl = bx * by;
         const r = this.rng(seed), p = this.perm(bl, seed), cm = new Int32Array(bl), nr = this.rng(seed + 999);
@@ -959,8 +965,27 @@ const IA = {
         if (E) {
             let regions = MOB.regions.slice();
             if (!regions.length) return T("请先框选要打码的区域");
-            // 区域坐标等比换算到缩放后
-            if (scale !== 1) regions = regions.map(r => ({ x: Math.round(r.x * scale), y: Math.round(r.y * scale), w: Math.max(1, Math.round(r.w * scale)), h: Math.max(1, Math.round(r.h * scale)) }));
+            // 区域坐标换算到缩放后：必须与图像尺寸 Math.floor(w*s) 同取整规则，
+            // 且钳制不超出缩放后图像边界（否则全图打码时区域比图大 1px → 逆变换越界/整体错位乱码）
+            if (scale !== 1) regions = regions.map(r => {
+                const rx = Math.max(0, Math.min(Math.floor(r.x * scale), w - 1));
+                const ry = Math.max(0, Math.min(Math.floor(r.y * scale), h - 1));
+                const rw = Math.max(1, Math.min(Math.floor(r.w * scale), w - rx));
+                const rh = Math.max(1, Math.min(Math.floor(r.h * scale), h - ry));
+                return { x: rx, y: ry, w: rw, h: rh };
+            });
+            // 关键：区域与缩放后图像边界做 8 对齐（ceil 到完整块）后再写入元数据。
+            // 加密传 {x:reg.x+B} 给 regionEnc 时块数必须与解密端 {x:reg.x} 一致
+            // （B=8/48 均整除 8，块网格同源）；否则加密 ceil 到块、解密 floor 到块
+            // → 块数不同 → 置换表不同 → 全图乱码。
+            regions = regions.map(r => {
+                const rx2 = Math.floor(r.x / 8) * 8;
+                const ry2 = Math.floor(r.y / 8) * 8;
+                // 右下边界也要回落完整 8 块：w-rx2 不够 8 的倍数时截断到 8 的倍数
+                const rw2 = Math.max(0, Math.floor((Math.min(w - rx2, Math.ceil(r.w / 8) * 8)) / 8) * 8);
+                const rh2 = Math.max(0, Math.floor((Math.min(h - ry2, Math.ceil(r.h / 8) * 8)) / 8) * 8);
+                return { x: rx2, y: ry2, w: rw2, h: rh2 };
+            });
             const jpeg = parseInt($('qv3').value) < 100;
             const decoy = !jpeg && MOB.decoyOn && MOB.decoyImg;
             const sort = !jpeg && !decoy && MOB.sortOn;
