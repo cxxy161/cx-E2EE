@@ -756,14 +756,12 @@ const IA = {
             return c2;
         }
         const bi = (ox, oy) => {
-            const gx = geo.sx * ox + geo.tx, gy = geo.sy * oy + geo.ty;
-            if (gx < -1 || gy < -1 || gx >= cw + 1 || gy >= ch + 1) return [0, 0, 0];
-            const X0 = Math.max(0, Math.floor(gx)), Y0 = Math.max(0, Math.floor(gy));
-            const X1 = Math.min(cw - 1, X0 + 1), Y1 = Math.min(ch - 1, Y0 + 1);
-            const fx = gx - X0, fy = gy - Y0;
-            const a = (Y0 * cw + X0) * 4, b2 = (Y0 * cw + X1) * 4, c3 = (Y1 * cw + X0) * 4, e2 = (Y1 * cw + X1) * 4;
-            const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
-            return [d[a] * w00 + d[b2] * w10 + d[c3] * w01 + d[e2] * w11, d[a + 1] * w00 + d[b2 + 1] * w10 + d[c3 + 1] * w01 + d[e2 + 1] * w11, d[a + 2] * w00 + d[b2 + 2] * w10 + d[c3 + 2] * w01 + d[e2 + 2] * w11];
+            // 最近邻重采样：几何(相位)已亚像素级准确，直接取单一源像素，
+            // 避免双线性把相邻乱码块混合 → 消除"每个格子一圈乱码边"
+            const gx = Math.round(geo.sx * ox + geo.tx), gy = Math.round(geo.sy * oy + geo.ty);
+            if (gx < 0 || gy < 0 || gx >= cw || gy >= ch) return [0, 0, 0];
+            const s = (gy * cw + gx) * 4;
+            return [d[s], d[s + 1], d[s + 2]];
         };
         for (let y = 0; y < ih; y++) for (let l = 0; l < iw; l++) {
             const c3 = bi(48 + l + 0.5, 48 + y + 0.5), f = (y * iw + l) * 4;
@@ -803,6 +801,42 @@ const IA = {
                 d[fT] = d[sT]; d[fT + 1] = d[sT + 1]; d[fT + 2] = d[sT + 2];
                 d[fB] = d[sB]; d[fB + 1] = d[sB + 1]; d[fB + 2] = d[sB + 2];
             }
+        }
+    },
+    /* JPEG 块效应去块：区域内每条内部 8×8 块界线做 4 像素斜坡平滑（消除逐块 DC 阶跃形成的马赛克接缝） */
+    jpegDeblock(d, w, h, regions) {
+        for (const r of regions) {
+            const x0 = Math.max(0, Math.floor(r.x / 8) * 8), y0 = Math.max(0, Math.floor(r.y / 8) * 8);
+            const x1 = Math.min(w, Math.ceil((r.x + r.w) / 8) * 8), y1 = Math.min(h, Math.ceil((r.y + r.h) / 8) * 8);
+            if (x1 - x0 < 16 || y1 - y0 < 16) continue;
+            const rampV = (x) => {
+                for (let y = y0; y < y1; y++) {
+                    const f0 = (y * w + x - 1) * 4, f1 = (y * w + x) * 4;
+                    for (let c2 = 0; c2 < 3; c2++) {
+                        const p0 = d[f0 + c2], p1 = d[f1 + c2], diff = p1 - p0;
+                        const f2 = (y * w + x - 2) * 4, f3 = (y * w + x + 1) * 4;
+                        d[f2 + c2] = Math.max(0, Math.min(255, d[f2 + c2] + (diff >> 2)));
+                        d[f0 + c2] = Math.max(0, Math.min(255, p0 + ((diff * 2) / 3 | 0)));
+                        d[f1 + c2] = Math.max(0, Math.min(255, p1 - ((diff * 2) / 3 | 0)));
+                        d[f3 + c2] = Math.max(0, Math.min(255, d[f3 + c2] - (diff >> 2)));
+                    }
+                }
+            };
+            const rampH = (y) => {
+                for (let x = x0; x < x1; x++) {
+                    const f0 = ((y - 1) * w + x) * 4, f1 = (y * w + x) * 4;
+                    for (let c2 = 0; c2 < 3; c2++) {
+                        const p0 = d[f0 + c2], p1 = d[f1 + c2], diff = p1 - p0;
+                        const f2 = ((y - 2) * w + x) * 4, f3 = ((y + 1) * w + x) * 4;
+                        d[f2 + c2] = Math.max(0, Math.min(255, d[f2 + c2] + (diff >> 2)));
+                        d[f0 + c2] = Math.max(0, Math.min(255, p0 + ((diff * 2) / 3 | 0)));
+                        d[f1 + c2] = Math.max(0, Math.min(255, p1 - ((diff * 2) / 3 | 0)));
+                        d[f3 + c2] = Math.max(0, Math.min(255, d[f3 + c2] - (diff >> 2)));
+                    }
+                }
+            };
+            for (let x = x0 + 8; x < x1; x += 8) rampV(x);
+            for (let y = y0 + 8; y < y1; y += 8) rampH(y);
         }
     },
     /* 加密：外扩画布，原图居中，边框存元数据；解密：读边框→校验→还原→裁剪回原尺寸 */
@@ -902,6 +936,8 @@ const IA = {
                 regions.slice().reverse().forEach((reg, idx) => this.regionEnc(rd.data, c2.width, c2.height, { x: reg.x, y: reg.y, w: reg.w, h: reg.h }, this.hash(k + '#' + (regions.length - 1 - idx)), false, false));
                 // 区域边界清理（含 4px 对齐边距与内缘均化）；恒等与分数几何均启用，PNG 路径不经此分支
                 this.jpegBandClean(rd.data, c2.width, c2.height, regions, 2);
+                // JPEG 块效应去块：消除区域内每条 8×8 块界线上的"乱码接缝"
+                this.jpegDeblock(rd.data, c2.width, c2.height, regions);
                 x2.putImageData(rd, 0, 0);
                 this.fin(c2, t, 'image/png', 1);
             } else {
@@ -912,6 +948,7 @@ const IA = {
                     const sort2 = !!(flag & 2);
                     // 逆序还原：加密时后处理的区域先还原
                     regions.slice().reverse().forEach((reg, idx) => this.regionEnc(d.data, cw, ch, { ...reg, x: reg.x + dB, y: reg.y + dB }, this.hash(k + '#' + (regions.length - 1 - idx)), false, sort2));
+                    if (dB === 32) this.jpegDeblock(d.data, cw, ch, regions.map(rg => ({ x: rg.x + dB, y: rg.y + dB, w: rg.w, h: rg.h })));
                 }
                 x.putImageData(d, 0, 0);
                 // 裁剪回原尺寸
