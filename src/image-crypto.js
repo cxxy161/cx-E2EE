@@ -231,8 +231,7 @@ const J2 = {
             if (g) { const n = g.n + 1; g.x = (g.x * g.n + h.x) / n; g.y = (g.y * g.n + h.y) / n; g.m = (g.m * g.n + h.m) / n; g.n = n; }
             else res.push({ x: h.x, y: h.y, m: h.m, n: 1 });
         }
-        // 尺度过一轮精测：外框跨度/7（抗曝光/JPEG 暗条膨胀），失败保留游程 m
-        for (const f of res) { const sp = this.findSpan(luma, cw, ch, f.x, f.y); if (sp) f.m = sp.m; }
+        // 注意：不在此处叠加 findSpan 精测——数据区紧邻 finder 时外框跨度量测会被污染
         return res;
     },
     // finder 模块尺度精测：沿中心十字扫描游程，用整个 7 模块外框跨度求 m（png-m 游程中值抗不了
@@ -250,10 +249,12 @@ const J2 = {
         runs.push({ d: cur, x0: s, len: xmax - s });
         let ci = -1;
         for (let i = 0; i < runs.length; i++) { if (runs[i].d && runs[i].x0 <= xc && xc < runs[i].x0 + runs[i].len + 1) { ci = i; break; } }
-        if (ci < 2 || ci + 2 >= runs.length) return null;
+        if (ci < 3 || ci + 3 >= runs.length) return null;
         const l = runs[ci - 2], r = runs[ci + 2];
         if (!l.d || !r.d) return null;
         if (l.len > 40 || r.len > 40) return null; // 外框不应异常宽（数据区大黑块混入时拒绝）
+        // 外框外侧必须都是亮段（quiet/白背景）——紧邻数据黑块时 findSpan 会污染尺度，直接拒绝
+        if (runs[ci - 3].d || runs[ci + 3].d) return null;
         const span = (r.x0 + r.len) - l.x0;
         if (span < 20 || span > 400) return null;
         return { m: span / 7 };

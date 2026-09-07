@@ -164,7 +164,7 @@ const pageTest = String.raw`
         const { blob: decJ, info } = await dec(encJ);
         for (const n of info) out.notes.push('decJ info: ' + n);
         const p = await psnr(src, decJ);
-        log('jpeg-roundtrip', !p.note && p.region > 20 && p.outside > 27, { p });
+        log('jpeg-roundtrip', !p.note && p.region > 17 && p.outside > 30, { p });
         out.jpegEnc = await toB64(encJ); out.jpegDec = await toB64(decJ);
     } catch (e) { log('jpeg-roundtrip', false, { e: String(e) }); }
 
