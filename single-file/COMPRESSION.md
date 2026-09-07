@@ -235,3 +235,13 @@ fs.writeFileSync('index.min.html', result, 'utf8');
 5. **TweetNaCl 仍走 CDN**：`nacl-fast.min.js` 保留 `<script src>` 引用。若需完全离线，需将该库也内联（约 30 KB）。
 
 6. **未使用 `--mangle-props`**：会破坏 DOM 事件绑定和库内部属性名，导致运行时错误。
+
+---
+
+## 更新记录
+
+- **2024 整理**：为达成"双击直开、完全离线"，将 tweetnacl 由
+  `https://cdnjs.cloudflare.com/.../nacl-fast.min.js`（外链）改为**内联**
+  （32KB），产物 `CX秘制安全终端-V6.html` 现无任何外链引用。
+  转换命令（node）：读 nacl-fast.min.js 内容 → 替换 `<script src="cdn">` 为
+  `<script>...</script>`。
