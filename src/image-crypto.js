@@ -547,7 +547,7 @@ const IA = {
         const list = [];
         const b0 = document.querySelector(t === 'e' ? '#sp-e .btn' : '#sp-d .btn');
         if (b0) list.push(b0);
-        if (t === 'e') { const b1 = document.querySelector('#v3-enc'); if (b1) list.push(b1); }
+        if (t === 'e') { const b1 = document.querySelector('.v3-enc'); if (b1) list.push(b1); }
         for (const b of list) {
             if (!b) continue;
             if (on) {
