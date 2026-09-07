@@ -6,13 +6,21 @@ const crypto = require('crypto');
 
 const POW_BITS = 16;
 
+// Project root = parent of this server/ directory → so the same code paths
+// resolve whether run from the repo root or inside the container workdir.
+const APP_ROOT = path.resolve(__dirname, '..');
+const DB_PATH = path.join(APP_ROOT, 'data', 'pubkey_store.json');
+
+function ensureDBDir() {
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+}
+
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
-const DB_PATH = path.join(__dirname, 'pubkey_store.json');
-
 function loadDB() {
     if (!fs.existsSync(DB_PATH)) {
+        ensureDBDir();
         fs.writeFileSync(DB_PATH, '{}', 'utf8');
     }
     return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
@@ -132,7 +140,7 @@ app.get('/api/pubkey/:id', (req, res) => {
     res.json(entry);
 });
 
-app.use(express.static(__dirname));
+app.use(express.static(path.join(APP_ROOT, 'src')));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {

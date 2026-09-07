@@ -1,3 +1,5 @@
 node_modules/
 .shots/
-pubkey_store.json
+data/
+dist/
+archive/

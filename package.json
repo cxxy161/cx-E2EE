@@ -2,9 +2,10 @@
   "name": "cx-pubkey-server",
   "version": "1.0.0",
   "description": "C-X Security Terminal - Public Key Directory API",
-  "main": "server.js",
+  "main": "server/server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server/server.js",
+    "serve:local": "node server/serve.js"
   },
   "dependencies": {
     "express": "^4.18.2",

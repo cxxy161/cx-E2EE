@@ -13,7 +13,8 @@ const MIME = {
     '.svg': 'image/svg+xml'
 };
 
-const ROOT = __dirname;
+// Local static preview server — serves the frontend from ../src.
+const ROOT = path.resolve(__dirname, '..', 'src');
 
 http.createServer((req, res) => {
     let url = req.url.split('?')[0];
