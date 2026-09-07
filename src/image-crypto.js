@@ -608,15 +608,15 @@ const IA = {
                 self.lastT = 0;
                 self.loop();
             }).catch(e => {
-                self.on = false; ov.classList.remove('on');
-                // 自签证书页面多数手机浏览器不发权限弹窗 → NotAllowedError；引导用拍照模式兜底
-                if (e && e.name === 'NotAllowedError') {
-                    T("摄像头被拦截（NotAllowedError）：可在 Chrome 网站设置里把本网站相机设为允许；或直接点下方「拍照识别」");
-                } else if (e && e.name === 'SecurityError') {
-                    T("安全策略拦截（SecurityError）：请确认页面未被嵌入 iframe，并检查是否有 Permissions-Policy 头禁用了摄像头（可点「摄像头诊断」）");
-                } else {
-                    T("摄像头不可用：" + (e && e.name ? e.name : e) + ' — 可用「拍照识别」替代');
-                }
+                self.on = false;
+                self._stop();
+                // 保留浮层：摄像头失败也要让用户看到「拍照识别」「摄像头诊断」兜底按钮
+                const st = $('scan-status');
+                const why = (e && e.name) || String(e);
+                if (st) st.textContent = '摄像头不可用（' + why + '）—— 可直接拍照识别，或点「摄像头诊断」查原因';
+                if (e && e.name === 'NotAllowedError') T("摄像头被拦截（NotAllowedError）：浮层已保留，请用「拍照识别」，或点「摄像头诊断」把结果发我");
+                else if (e && e.name === 'SecurityError') T("安全策略拦截（SecurityError）：请点「摄像头诊断」查看是否被 Permissions-Policy/iframe 限制");
+                else T("摄像头不可用：" + why + ' —— 浮层已保留，可用「拍照识别」');
             });
         },
         // 拍照识别兜底：调起系统相机拍一张 → 自动识别还原（不依赖 getUserMedia 权限，全平台可用）
