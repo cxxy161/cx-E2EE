@@ -104,15 +104,6 @@ const J2 = {
         for (const xc of leftX) for (const yc of col(68, ch - 68)) pts.push({ x: xc, y: yc });
         return pts;
     },
-    // 格式区模块中心（代码空间）：TL 份 = 顶带 x68..212×y12..60（19 列）；BR 份 = 底带 x=cw-212..cw-68（19 列）；各取前 128 模块
-    fmtSet(cw, ch) {
-        const out = [], col = (a, b) => { const r = []; for (let x = a; x <= b; x += 8) r.push(x); return r; };
-        const topY = [12, 20, 28, 36, 44, 52, 60], botY = [];
-        for (let k = 0; k < 7; k++) botY.push(ch - 60 + 8 * k);
-        for (const yc of topY) for (const xc of col(68, 212)) out.push({ x: xc, y: yc });
-        for (const yc of botY) for (const xc of col(cw - 212, cw - 68)) out.push({ x: xc, y: yc });
-        return out;
-    },
     // 四角 Finder 中心（代码空间，左上起顺时针）
     corners(cw, ch) { return [{ x: 36, y: 36 }, { x: cw - 36, y: 36 }, { x: cw - 36, y: ch - 36 }, { x: 36, y: ch - 36 }]; },
     /* --- 写入侧（直接改 d.data；d 为含边框画布像素） --- */
@@ -139,35 +130,23 @@ const J2 = {
     },
     gcd(a, b) { while (b) { const t = a % b; a = b; b = t; } return a; },
     stride(L) { let s = 131; while (this.gcd(s, L) > 1) s++; return s; },
-    // 编码 payload（≤127B）画入边框。返回 true/false（容量不足）
+    // 编码 payload（≤127B）画入边框（整环为数据，无独立格式区——画布尺寸由 payload 头携带自举）。返回 true/false
     writeRing(d, cw, ch, payload) {
-        const mods = this.order(cw, ch), fmt = this.fmtSet(cw, ch);
-        const fmtK = new Set(fmt.map(p => p.x + ',' + p.y));
-        let freeN = 0;
-        for (const p of mods) if (!fmtK.has(p.x + ',' + p.y)) freeN++;
+        const mods = this.order(cw, ch);
+        const freeN = mods.length;
         if (payload.length > 127) return false;
         const np = freeN >= 2040 ? 128 : freeN >= 1528 ? 64 : freeN >= 1272 ? 32 : 0;
         if (!np) return false;
         this.whiteBand(d, cw, ch);
         for (const c of this.corners(cw, ch)) this.paintFinder(d, cw, ch, c.x, c.y);
-        const fmtB = [0x4A, 0x32, cw >> 8 & 255, cw & 255, ch >> 8 & 255, ch & 255, 1, 0];
-        const fCod = RS255.encode(fmtB, 8); // 16B → 128bit（RS(16,8) t=4）
-        const paintFmt = (set) => {
-            const L = 128, S = this.stride(L);
-            for (let i = 0; i < L; i++) { const b = (fCod[i >> 3] >> (7 - (i & 7))) & 1; this.paintMod(d, cw, set[(i * S) % L], b); }
-        };
-        paintFmt(fmt.slice(0, 128));
-        paintFmt(fmt.slice(133, 261));
         const buf = new Uint8Array(127); buf.set(payload, 0);
         const cod = RS255.encode(buf, np), L = cod.length * 8, S = this.stride(L);
-        // 位→槽语义（与读取侧一致）：码字位 p 落到第 (p*S)%L 个自由槽
-        const fm = [];
-        for (const p0 of mods) if (!fmtK.has(p0.x + ',' + p0.y)) fm.push(p0);
-        for (let p = 0; p < L && p < fm.length; p++) {
+        // 位→槽语义（与读取侧一致）：码字位 p 落到第 (p*S)%L 个模块
+        for (let p = 0; p < L && p < mods.length; p++) {
             const b = (cod[p >> 3] >> (7 - (p & 7))) & 1;
-            this.paintMod(d, cw, fm[(p * S) % L], b);
+            this.paintMod(d, cw, mods[(p * S) % L], b);
         }
-        return L <= fm.length;
+        return L <= mods.length;
     },
     /* --- 读取侧 --- */
     luma(d, cw, ch) {
@@ -231,33 +210,8 @@ const J2 = {
             if (g) { const n = g.n + 1; g.x = (g.x * g.n + h.x) / n; g.y = (g.y * g.n + h.y) / n; g.m = (g.m * g.n + h.m) / n; g.n = n; }
             else res.push({ x: h.x, y: h.y, m: h.m, n: 1 });
         }
-        // 注意：不在此处叠加 findSpan 精测——数据区紧邻 finder 时外框跨度量测会被污染
+        // 游程 m 仅作粗估计；精确模块尺由 readRing 的 measureFinder 亚像素边缘测量提供
         return res;
-    },
-    // finder 模块尺度精测：沿中心十字扫描游程，用整个 7 模块外框跨度求 m（png-m 游程中值抗不了
-    // 曝光/JPEG 造成的暗条膨胀；外框跨度/7 对边缘更稳健）。失败返回 null 由调用方保留原 m。
-    findSpan(luma, cw, ch, xc, yc) {
-        const r0 = Math.max(0, Math.min(ch - 1, Math.round(yc)));
-        const o = r0 * cw;
-        const xmin = Math.max(0, Math.round(xc) - 64), xmax = Math.min(cw - 1, Math.round(xc) + 64);
-        let mn = 255, mx = 0;
-        for (let x = xmin; x <= xmax; x++) { const v = luma[o + x]; if (v < mn) mn = v; if (v > mx) mx = v; }
-        if (mx - mn < 80) return null;
-        const th = (mn + mx) / 2;
-        const runs = []; let s = xmin, cur = luma[o + xmin] < th;
-        for (let x = xmin + 1; x <= xmax; x++) { const v = luma[o + x] < th; if (v !== cur) { runs.push({ d: cur, x0: s, len: x - s }); s = x; cur = v; } }
-        runs.push({ d: cur, x0: s, len: xmax - s });
-        let ci = -1;
-        for (let i = 0; i < runs.length; i++) { if (runs[i].d && runs[i].x0 <= xc && xc < runs[i].x0 + runs[i].len + 1) { ci = i; break; } }
-        if (ci < 3 || ci + 3 >= runs.length) return null;
-        const l = runs[ci - 2], r = runs[ci + 2];
-        if (!l.d || !r.d) return null;
-        if (l.len > 40 || r.len > 40) return null; // 外框不应异常宽（数据区大黑块混入时拒绝）
-        // 外框外侧必须都是亮段（quiet/白背景）——紧邻数据黑块时 findSpan 会污染尺度，直接拒绝
-        if (runs[ci - 3].d || runs[ci + 3].d) return null;
-        const span = (r.x0 + r.len) - l.x0;
-        if (span < 20 || span > 400) return null;
-        return { m: span / 7 };
     },
     // 解 8 元线性方程（高斯消元）— DLT 用
     solve8(M, b) {
@@ -287,49 +241,69 @@ const J2 = {
         return this.solve8(M, b);
     },
     applyH(h, x, y) { const den = h[6] * x + h[7] * y + 1; return { x: (h[0] * x + h[1] * y + h[2]) / den, y: (h[3] * x + h[4] * y + h[5]) / den }; },
-    // 由 4 个 finder 建"估计画布尺寸"的单应（用于格式区自举采样）
-    fmtH(quad) {
-        const mAv = (quad[0].m + quad[1].m + quad[2].m + quad[3].m) / 4;
-        if (mAv < 2 || mAv > 60) return null;
-        const W_est = Math.max(96, Math.round(Math.hypot(quad[1].x - quad[0].x, quad[1].y - quad[0].y) / mAv * 8) + 72);
-        const H_est = Math.max(96, Math.round(Math.hypot(quad[3].x - quad[0].x, quad[3].y - quad[0].y) / mAv * 8) + 72);
-        const H = this.dlt(this.corners(W_est, H_est), quad);
-        return H ? { H, W_est, H_est } : null;
+    // —— 亚像素模块尺测量（QR 式）：finder 中心十字 4 方向取亮度线，阈值游程定位中心暗段与外框段，
+    //    边界线性插值亚像素 → mX=(右外框右缘−左外框左缘)/7、mY 同理；抗曝光膨胀/JPEG 振铃。
+    edgeCross(get, g0, th, dir) {
+        for (let i = 1; i <= 10; i++) {
+            const a = get(g0 + dir * (i - 1)), b = get(g0 + dir * i);
+            if ((a < th) !== (b < th)) return g0 + dir * (i - 1) + (th - a) / ((b - a) || 1);
+        }
+        return null;
     },
-    // 格式区自举读取（quad=[TL,TR,BR,BL] 照片坐标）：TL 份（向右）+ BR 份（向左），任一份通过即返回真尺寸
-    readFmtQuad(luma, cw, ch, quad) {
-        const fh = this.fmtH(quad);
-        if (!fh) return null;
-        const readOne = (codeX0, m) => {
-            const vals = new Float64Array(128);
-            let bi = 0, mn = 1e9, mx = -1;
-            for (let k2 = 0; k2 < 7 && bi < 128; k2++) {
-                const cy = 12 + 8 * k2;
-                for (let k = 0; k < 19 && bi < 128; k++) {
-                    const cx = codeX0 + 8 * k; // 与 fmtSet 绝对代码坐标一致：68+8k / (W_est-212)+8k
-                    const p = this.applyH(fh.H, cx, cy);
-                    const v = this.samplePt(luma, cw, ch, p.x, p.y, Math.max(1.5, m * 0.42));
-                    vals[bi++] = v; if (v < mn) mn = v; if (v > mx) mx = v;
-                }
+    measureFinder(luma, cw, ch, cx, cy) {
+        const axis = (dx, dy) => {
+            // 采样范围截断到画布内（边缘 finder 会越界，要求有效长度足够）
+            const lo = Math.max(0, Math.round(cx - dx * 45)), hi = Math.min(cw - 1, Math.round(cx + dx * 45));
+            const lo2 = Math.max(0, Math.round(cy - dy * 45)), hi2 = Math.min(ch - 1, Math.round(cy + dy * 45));
+            const n = (dx !== 0 ? hi - lo + 1 : hi2 - lo2 + 1);
+            if (n < 30) return null;
+            const vals = [];
+            for (let k = 0; k < n; k++) {
+                const x = dx !== 0 ? (lo + k) : Math.round(cx);
+                const y = dy !== 0 ? (lo2 + k) : Math.round(cy);
+                vals.push(luma[y * cw + x]);
             }
-            if (bi < 128) return null;
+            const c0 = dx !== 0 ? (Math.round(cx) - lo) : (Math.round(cy) - lo2);
+            let mn = 255, mx = 0;
+            for (const v of vals) { if (v < mn) mn = v; if (v > mx) mx = v; }
+            if (mx - mn < 60) return null;
             const th = (mn + mx) / 2;
-            const S = this.stride(128);
-            const bytes = new Uint8Array(16);
-            for (let i = 0; i < 16; i++) { let v = 0; for (let j = 0; j < 8; j++) v = v * 2 + (vals[(i * 8 + j) * S % 128] < th ? 1 : 0); bytes[i] = v; }
-            const cod = RS255.decode(bytes, 8);
-            if (!cod || cod.length < 8) return null;
-            if (cod[0] !== 0x4A || cod[1] !== 0x32) return null;
-            const cw0 = cod[2] * 256 + cod[3], ch0 = cod[4] * 256 + cod[5];
-            if (cw0 < 96 || ch0 < 96 || cw0 > 40000 || ch0 > 40000) return null;
-            return { cw0, ch0 };
+            const runs = []; let s = 0, cur = vals[0] < th;
+            for (let i = 1; i <= vals.length; i++) { const v = i < vals.length ? (vals[i] < th) : !cur; if (i === vals.length || v !== cur) { runs.push({ d: cur, x0: s, len: i - s }); s = i; cur = v; } }
+            let ci = -1;
+            for (let i = 0; i < runs.length; i++) { if (runs[i].d && runs[i].x0 <= c0 && c0 < runs[i].x0 + runs[i].len) { ci = i; break; } }
+            if (ci < 2 || ci + 2 >= runs.length) return null;
+            if (runs[ci].len < 6 || runs[ci].len > 60) return null; // 中心 3×3 黑块（曝光膨胀可达 44px）
+            const l = runs[ci - 2], r = runs[ci + 2];
+            if (!l.d || !r.d) return null;
+            if (l.len > 40 || r.len > 40) return null; // 外框应≈1 模块
+            const get = i => (i >= 0 && i < vals.length) ? vals[i] : th;
+            const xL = this.edgeCross(get, l.x0, th, -1); // 外框左缘（暗→背景亮，从暗段内朝外找交叉）
+            const xR = this.edgeCross(get, r.x0 + r.len - 1, th, 1); // 外框右缘（暗→背景亮）
+            if (xL === null || xR === null) return null;
+            const span = xR - xL;
+            if (span < 18 || span > 600) return null;
+            return span;
         };
-        const m = (quad[0].m + quad[3].m) / 2;
-        const a = readOne(68, m);
-        if (a) return a;
-        return readOne(fh.W_est - 212, m);
+        const hSpan = axis(1, 0), vSpan = axis(0, 1);
+        if (!hSpan && !vSpan) return null;
+        return { mX: hSpan ? hSpan / 7 : null, mY: vSpan ? vSpan / 7 : null };
     },
-    norm(dx, dy) { const l = Math.hypot(dx, dy) || 1; return { x: dx / l, y: dy / l }; },
+    // 由 4 个 finder 估计画布尺寸（分轴：水平用 TL/TR 的 mX 平均，垂直用 TL/BL 的 mY 平均）
+    estimateWH(luma, cw, ch, quad) {
+        const xm = [], ym = [];
+        for (const f of quad) {
+            const m = this.measureFinder(luma, cw, ch, f.x, f.y);
+            if (m) { if (m.mX) xm.push(m.mX); if (m.mY) ym.push(m.mY); }
+        }
+        if (!xm.length || !ym.length) return null;
+        const avg = a => a.reduce((p, v) => p + v, 0) / a.length;
+        const TL = quad[0], TR = quad[1], BL = quad[3];
+        const W0 = Math.round(Math.hypot(TR.x - TL.x, TR.y - TL.y) / avg(xm) * 8) + 72;
+        const H0 = Math.round(Math.hypot(BL.x - TL.x, BL.y - TL.y) / avg(ym) * 8) + 72;
+        if (W0 < 96 || H0 < 96 || W0 > 40000 || H0 > 40000) return null;
+        return { W0, H0, mX: avg(xm), mY: avg(ym) };
+    },
     samplePt(luma, cw, ch, px, py, r) {
         const cx0 = Math.round(px), cy0 = Math.round(py), rr = Math.max(1, Math.ceil(r));
         if (cx0 - rr < 0 || cy0 - rr < 0 || cx0 + rr >= cw || cy0 + rr >= ch) {
@@ -339,13 +313,12 @@ const J2 = {
         for (let y = -rr; y <= rr; y++) { const o = (cy0 + y) * cw; for (let x = -rr; x <= rr; x++) { s += luma[o + cx0 + x]; n++; } }
         return s / n;
     },
-    // 照片→代码画布同序采样全部数据模块（跳过格式区）
+    // 照片→代码画布同序采样全部数据模块（无格式区，全部可用）
     stream(luma, cw, ch, H, cw0, ch0) {
-        const mods = this.order(cw0, ch0), fmtK = new Set(this.fmtSet(cw0, ch0).map(p => p.x + ',' + p.y));
+        const mods = this.order(cw0, ch0);
         const vals = [];
         let mn = 1e9, mx = -1;
         for (const mod of mods) {
-            if (fmtK.has(mod.x + ',' + mod.y)) continue;
             const p = this.applyH(H, mod.x, mod.y);
             const q = this.applyH(H, mod.x + 8, mod.y);
             const sm = Math.hypot(q.x - p.x, q.y - p.y);
@@ -375,6 +348,8 @@ const J2 = {
         return null;
     },
     // 主入口：从照片/文件图像像素读 J2 码 → { payload, H, w0, h0 } | null
+    // 流程（QR 式）：4 Finder → 亚像素模块尺分轴测 mX/mY → 估画布尺寸 → DLT → 直读 payload
+    // （payload 头带真实画布尺寸，估尺只用于建采样网格；失败再窄网格兜底）
     readRing(d, cw, ch) {
         const luma = this.luma(d, cw, ch);
         const cand = this.scanFinders(luma, cw, ch);
@@ -391,25 +366,33 @@ const J2 = {
                     if (!H) return null;
                     const bits = this.stream(luma, cw, ch, H, cw0, ch0);
                     const payload = this.decodePayload(bits, bits.length);
-                    return payload ? { payload, H, w0: cw0, h0: ch0 } : null;
+                    if (!payload) return null;
+                    // payload 头携带真实画布尺寸（metaBytesR: [cwH,cwL,chH,chL,count,...]）
+                    const pcw = payload[0] * 256 + payload[1], pch = payload[2] * 256 + payload[3];
+                    if (pcw >= 96 && pch >= 96 && (Math.abs(pcw - cw0) > 2 || Math.abs(pch - ch0) > 2)) {
+                        const H2 = this.dlt(this.corners(pcw, pch), [TL, TR, BR, BL]);
+                        const bits2 = H2 ? this.stream(luma, cw, ch, H2, pcw, pch) : null;
+                        const p2 = bits2 ? this.decodePayload(bits2, bits2.length) : null;
+                        if (p2) return { payload: p2, H: H2, w0: pcw, h0: pch };
+                    }
+                    return { payload, H, w0: pcw, h0: pch };
                 };
-                const fmt = this.readFmtQuad(luma, cw, ch, [TL, TR, BR, BL]);
-                if (fmt) { const hit = tryPayload(fmt.cw0, fmt.ch0); if (hit) return hit; }
-                // 兜底：按 finder 间距/尺度估计画布尺寸，宽范围网格搜索（覆盖强透视/估尺偏差），RS/'CX' 校验裁决
-                const mAv = (TL.m + TR.m + BR.m + BL.m) / 4;
-                if (mAv > 2) {
-                    const W0 = Math.round(Math.hypot(TR.x - TL.x, TR.y - TL.y) / mAv * 8) + 72;
-                    const H0 = Math.round(Math.hypot(BL.x - TL.x, BL.y - TL.y) / mAv * 8) + 72;
-                    if (W0 >= 96 && H0 >= 96) {
-                        for (const sw of [0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3]) for (const sh of [0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3]) {
-                            const hit = tryPayload(Math.round(W0 * sw), Math.round(H0 * sh));
-                            if (hit) return hit;
-                        }
-                        // 细网格：覆盖粗网格间隙
-                        for (const sw of [0.95, 0.98, 1.02, 1.05, 1.08, 1.1, 1.2]) for (const sh of [0.95, 0.98, 1.02, 1.05, 1.08, 1.1, 1.2]) {
-                            const hit = tryPayload(Math.round(W0 * sw), Math.round(H0 * sh));
-                            if (hit) return hit;
-                        }
+                const est = this.estimateWH(luma, cw, ch, [TL, TR, BR, BL]);
+                if (est) {
+                    const hit = tryPayload(est.W0, est.H0);
+                    if (hit) return hit;
+                    // 1% 步长网格（估尺误差 ~1.5%，0.5% 残余偏差→远端模块错位 <2px，RS 可扛）
+                    for (const sw of [0.985, 1, 1.015]) for (const sh of [0.985, 1, 1.015]) {
+                        const h2 = tryPayload(Math.round(est.W0 * sw), Math.round(est.H0 * sh));
+                        if (h2) return h2;
+                    }
+                    for (const sw of [0.97, 0.98, 0.99, 1.01, 1.02, 1.03]) for (const sh of [0.97, 0.98, 0.99, 1.01, 1.02, 1.03]) {
+                        const h2 = tryPayload(Math.round(est.W0 * sw), Math.round(est.H0 * sh));
+                        if (h2) return h2;
+                    }
+                    for (const sw of [0.92, 0.95, 1.05, 1.08, 1.15]) for (const sh of [0.92, 0.95, 1.05, 1.08, 1.15]) {
+                        const h2 = tryPayload(Math.round(est.W0 * sw), Math.round(est.H0 * sh));
+                        if (h2) return h2;
                     }
                 }
             }

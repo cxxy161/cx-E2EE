@@ -54,6 +54,12 @@ const diag = String.raw`
   const cand=J2.scanFinders(lum,cw,ch);
   log.push('finders: '+cand.map(c=>Math.round(c.x)+','+Math.round(c.y)+'(m='+c.m.toFixed(2)+')').join(' | '));
   const t1=performance.now();
+  for (const f of cand) {
+    const m=J2.measureFinder(lum,cw,ch,f.x,f.y);
+    log.push('measure ('+Math.round(f.x)+','+Math.round(f.y)+') => '+JSON.stringify(m));
+  }
+  const est=J2.estimateWH(lum,cw,ch,cand.slice(0,4));
+  log.push('estimateWH => '+JSON.stringify(est));
   const rr=J2.readRing(d.data,cw,ch);
   log.push('readRing '+(performance.now()-t1).toFixed(0)+'ms => '+(rr?('HIT w0='+rr.w0+' h0='+rr.h0):'null'));
   return {log};
