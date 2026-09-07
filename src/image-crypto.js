@@ -104,6 +104,15 @@ const J2 = {
         for (const xc of leftX) for (const yc of col(68, ch - 68)) pts.push({ x: xc, y: yc });
         return pts;
     },
+    // 格式区模块中心（贴 Finder 邻域、尺寸无关）：TL 份 x68..172×y12..60；BR 份 x=cw-172..cw-68（各 14 列，取前 96 模块）
+    fmtSet(cw, ch) {
+        const out = [], col = (a, b) => { const r = []; for (let x = a; x <= b; x += 8) r.push(x); return r; };
+        const topY = [12, 20, 28, 36, 44, 52, 60], botY = [];
+        for (let k = 0; k < 7; k++) botY.push(ch - 60 + 8 * k);
+        for (const yc of topY) for (const xc of col(68, 172)) out.push({ x: xc, y: yc });
+        for (const yc of botY) for (const xc of col(cw - 172, cw - 68)) out.push({ x: xc, y: yc });
+        return out;
+    },
     // 四角 Finder 中心（代码空间，左上起顺时针）
     corners(cw, ch) { return [{ x: 36, y: 36 }, { x: cw - 36, y: 36 }, { x: cw - 36, y: ch - 36 }, { x: 36, y: ch - 36 }]; },
     /* --- 写入侧（直接改 d.data；d 为含边框画布像素） --- */
@@ -130,24 +139,36 @@ const J2 = {
     },
     gcd(a, b) { while (b) { const t = a % b; a = b; b = t; } return a; },
     stride(L) { let s = 131; while (this.gcd(s, L) > 1) s++; return s; },
-    // 编码 payload（≤127B）画入边框（整环为数据，无独立格式区——画布尺寸由 payload 头携带自举）。返回 true/false
+    // 编码 payload（≤127B）画入边框；TL/BR 邻域 19 列留作格式区（贴 Finder、尺寸无关，承载画布尺寸供自举）
     writeRing(d, cw, ch, payload) {
-        const mods = this.order(cw, ch);
-        const freeN = mods.length;
+        const mods = this.order(cw, ch), fmt = this.fmtSet(cw, ch);
+        const fmtK = new Set(fmt.map(p => p.x + ',' + p.y));
+        let freeN = 0;
+        for (const p of mods) if (!fmtK.has(p.x + ',' + p.y)) freeN++;
         if (payload.length > 127) return false;
         const np = freeN >= 2040 ? 128 : freeN >= 1528 ? 64 : freeN >= 1272 ? 32 : 0;
         if (!np) return false;
         this.whiteBand(d, cw, ch);
         for (const c of this.corners(cw, ch)) this.paintFinder(d, cw, ch, c.x, c.y);
+        const fmtB = [0x4A, 0x32, cw >> 8 & 255, cw & 255, ch >> 8 & 255, ch & 255];
+        const fCod = RS255.encode(fmtB, 6); // RS(12,6) t=3 → 12B → 96bit
+        const paintFmt = (set) => {
+            const L = 96, S = this.stride(L);
+            for (let i = 0; i < L; i++) { const b = (fCod[i >> 3] >> (7 - (i & 7))) & 1; this.paintMod(d, cw, set[(i * S) % L], b); }
+        };
+        paintFmt(fmt.slice(0, 96));
+        paintFmt(fmt.slice(98, 194));
         const buf = new Uint8Array(127); buf.set(payload, 0);
         const cod = RS255.encode(buf, np), L = cod.length * 8, S = this.stride(L);
-        // 位→槽语义（与读取侧一致）：码字位 p 落到第 (p*S)%L 个模块
-        for (let p = 0; p < L && p < mods.length; p++) {
+        const fm = [];
+        for (const p0 of mods) if (!fmtK.has(p0.x + ',' + p0.y)) fm.push(p0);
+        for (let p = 0; p < L && p < fm.length; p++) {
             const b = (cod[p >> 3] >> (7 - (p & 7))) & 1;
-            this.paintMod(d, cw, mods[(p * S) % L], b);
+            this.paintMod(d, cw, fm[(p * S) % L], b);
         }
-        return L <= mods.length;
+        return L <= fm.length;
     },
+    /* --- 读取侧 --- */
     /* --- 读取侧 --- */
     luma(d, cw, ch) {
         const L = new Uint8Array(cw * ch);
@@ -241,6 +262,7 @@ const J2 = {
         return this.solve8(M, b);
     },
     applyH(h, x, y) { const den = h[6] * x + h[7] * y + 1; return { x: (h[0] * x + h[1] * y + h[2]) / den, y: (h[3] * x + h[4] * y + h[5]) / den }; },
+    norm(dx, dy) { const l = Math.hypot(dx, dy) || 1; return { x: dx / l, y: dy / l }; },
     // —— 亚像素模块尺测量（QR 式）：finder 中心十字 4 方向取亮度线，阈值游程定位中心暗段与外框段，
     //    边界线性插值亚像素 → mX=(右外框右缘−左外框左缘)/7、mY 同理；抗曝光膨胀/JPEG 振铃。
     edgeCross(get, g0, th, dir) {
@@ -277,6 +299,9 @@ const J2 = {
             const l = runs[ci - 2], r = runs[ci + 2];
             if (!l.d || !r.d) return null;
             if (l.len > 40 || r.len > 40) return null; // 外框应≈1 模块
+            // 外框外侧必须都是亮（quiet/白背景）；紧邻数据/内容时本方向尺度不可靠 → 拒绝
+            if (ci - 3 < 0 || ci + 3 >= runs.length) return null;
+            if (runs[ci - 3].d || runs[ci + 3].d) return null;
             const get = i => (i >= 0 && i < vals.length) ? vals[i] : th;
             const xL = this.edgeCross(get, l.x0, th, -1); // 外框左缘（暗→背景亮，从暗段内朝外找交叉）
             const xR = this.edgeCross(get, r.x0 + r.len - 1, th, 1); // 外框右缘（暗→背景亮）
@@ -313,16 +338,17 @@ const J2 = {
         for (let y = -rr; y <= rr; y++) { const o = (cy0 + y) * cw; for (let x = -rr; x <= rr; x++) { s += luma[o + cx0 + x]; n++; } }
         return s / n;
     },
-    // 照片→代码画布同序采样全部数据模块（无格式区，全部可用）
+    // 照片→代码画布同序采样数据模块（跳过格式区槽，与写端一致）
     stream(luma, cw, ch, H, cw0, ch0) {
-        const mods = this.order(cw0, ch0);
+        const mods = this.order(cw0, ch0), fmtK = new Set(this.fmtSet(cw0, ch0).map(p => p.x + ',' + p.y));
         const vals = [];
         let mn = 1e9, mx = -1;
         for (const mod of mods) {
+            if (fmtK.has(mod.x + ',' + mod.y)) continue;
             const p = this.applyH(H, mod.x, mod.y);
             const q = this.applyH(H, mod.x + 8, mod.y);
             const sm = Math.hypot(q.x - p.x, q.y - p.y);
-            const v = this.samplePt(luma, cw, ch, p.x, p.y, Math.max(1.5, sm * 0.32));
+            const v = this.samplePt(luma, cw, ch, p.x, p.y, Math.max(2, sm * 0.375));
             vals.push(v); if (v < mn) mn = v; if (v > mx) mx = v;
         }
         const th = (mn + mx) / 2;
@@ -347,9 +373,37 @@ const J2 = {
         }
         return null;
     },
+// 局部仿射读 TL 邻域格式区（19 列×7 行，取前 128 模块）：代码偏移相对 TL finder 中心固定，
+    // 照片位置 = TL + (dx/8)*mX*ux + (dy/8)*mY*uy —— 完全尺寸无关（QR format 贴角等价物）
+    readFmtLocal(luma, cw, ch, TL, ux, uy, mX, mY) {
+        if (!mX) return null;
+        mY = mX; // 垂直尺度在内容邻域易被污染（mY 波动 7.8~10.1），格式区垂直跨度仅 ±24px，用水平尺度足够
+        const vals = new Float64Array(96);
+        let bi = 0, mn = 1e9, mx = -1;
+        for (let k2 = 0; k2 < 7 && bi < 96; k2++) {
+            const codeY = 12 + 8 * k2, dy = (codeY - 36);
+            for (let k = 0; k < 14 && bi < 96; k++) {
+                const codeX = 68 + 8 * k, dx = (codeX - 36);
+                const px = TL.x + (dx / 8) * mX * ux.x + (dy / 8) * mY * uy.x;
+                const py = TL.y + (dx / 8) * mX * ux.y + (dy / 8) * mY * uy.y;
+                const v = this.samplePt(luma, cw, ch, px, py, Math.max(1.5, mX * 0.42));
+                vals[bi++] = v; if (v < mn) mn = v; if (v > mx) mx = v;
+            }
+        }
+        if (bi < 96) return null;
+        const th = (mn + mx) / 2;
+        const S = this.stride(96);
+        const bytes = new Uint8Array(12);
+        for (let i = 0; i < 12; i++) { let v = 0; for (let j = 0; j < 8; j++) v = v * 2 + (vals[(i * 8 + j) * S % 96] < th ? 1 : 0); bytes[i] = v; }
+        const cod = RS255.decode(bytes, 6);
+        if (!cod || cod.length < 6) return null;
+        if (cod[0] !== 0x4A || cod[1] !== 0x32) return null;
+        const cw0 = cod[2] * 256 + cod[3], ch0 = cod[4] * 256 + cod[5];
+        if (cw0 < 96 || ch0 < 96 || cw0 > 40000 || ch0 > 40000) return null;
+        return { cw0, ch0 };
+    },
     // 主入口：从照片/文件图像像素读 J2 码 → { payload, H, w0, h0 } | null
-    // 流程（QR 式）：4 Finder → 亚像素模块尺分轴测 mX/mY → 估画布尺寸 → DLT → 直读 payload
-    // （payload 头带真实画布尺寸，估尺只用于建采样网格；失败再窄网格兜底）
+    // QR 式流程：4 Finder → 局部仿射读 TL 格式区(尺寸无关) → 得真画布尺寸 → DLT → 数据网格 → payload
     readRing(d, cw, ch) {
         const luma = this.luma(d, cw, ch);
         const cand = this.scanFinders(luma, cw, ch);
@@ -360,46 +414,40 @@ const J2 = {
             const ph = quad.slice().sort((a, b) => Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx));
             for (let r = 0; r < 4; r++) {
                 const TL = ph[r], TR = ph[(r + 1) & 3], BR = ph[(r + 2) & 3], BL = ph[(r + 3) & 3];
-                const tryPayload = (cw0, ch0) => {
+                const trySize = (cw0, ch0) => {
                     if (cw0 < 96 || ch0 < 96 || cw0 > 40000 || ch0 > 40000) return null;
                     const H = this.dlt(this.corners(cw0, ch0), [TL, TR, BR, BL]);
                     if (!H) return null;
                     const bits = this.stream(luma, cw, ch, H, cw0, ch0);
                     const payload = this.decodePayload(bits, bits.length);
                     if (!payload) return null;
-                    // payload 头携带真实画布尺寸（metaBytesR: [cwH,cwL,chH,chL,count,...]）
                     const pcw = payload[0] * 256 + payload[1], pch = payload[2] * 256 + payload[3];
                     if (pcw >= 96 && pch >= 96 && (Math.abs(pcw - cw0) > 2 || Math.abs(pch - ch0) > 2)) {
                         const H2 = this.dlt(this.corners(pcw, pch), [TL, TR, BR, BL]);
-                        const bits2 = H2 ? this.stream(luma, cw, ch, H2, pcw, pch) : null;
-                        const p2 = bits2 ? this.decodePayload(bits2, bits2.length) : null;
+                        const b2 = H2 ? this.stream(luma, cw, ch, H2, pcw, pch) : null;
+                        const p2 = b2 ? this.decodePayload(b2, b2.length) : null;
                         if (p2) return { payload: p2, H: H2, w0: pcw, h0: pch };
                     }
                     return { payload, H, w0: pcw, h0: pch };
                 };
-                const est = this.estimateWH(luma, cw, ch, [TL, TR, BR, BL]);
-                if (est) {
-                    const hit = tryPayload(est.W0, est.H0);
-                    if (hit) return hit;
-                    // 0.5% 步长网格（估尺残余偏差 → 模块错位 <1.5px，RS 可扛）
-                    for (const sw of [0.98, 0.99, 0.995, 1, 1.005, 1.01, 1.02]) for (const sh of [0.98, 0.99, 0.995, 1, 1.005, 1.01, 1.02]) {
-                        const h2 = tryPayload(Math.round(est.W0 * sw), Math.round(est.H0 * sh));
-                        if (h2) return h2;
-                    }
-                    for (const sw of [0.96, 0.97, 0.98, 1.03, 1.04, 1.05]) for (const sh of [0.96, 0.97, 0.98, 1.03, 1.04, 1.05]) {
-                        const h2 = tryPayload(Math.round(est.W0 * sw), Math.round(est.H0 * sh));
-                        if (h2) return h2;
-                    }
-                    for (const sw of [0.92, 0.95, 1.05, 1.08, 1.15]) for (const sh of [0.92, 0.95, 1.05, 1.08, 1.15]) {
-                        const h2 = tryPayload(Math.round(est.W0 * sw), Math.round(est.H0 * sh));
-                        if (h2) return h2;
-                    }
+                // 局部仿射读格式区（尺寸无关）
+                const m = this.measureFinder(luma, cw, ch, TL.x, TL.y);
+                if (!m) continue;
+                const ux = this.norm(TR.x - TL.x, TR.y - TL.y), uy = this.norm(BL.x - TL.x, BL.y - TL.y);
+                const fmt = this.readFmtLocal(luma, cw, ch, TL, ux, uy, m.mX, m.mY);
+                if (!fmt) continue;
+                const hit = trySize(fmt.cw0, fmt.ch0);
+                if (hit) return hit;
+                // 格式区读到的尺寸直接用于网格，但低质量 JPEG 下格式位可能有少量错 → 附近整数微调
+                for (let dw = -8; dw <= 8; dw += 8) for (let dh = -8; dh <= 8; dh += 8) {
+                    const h2 = trySize(fmt.cw0 + dw, fmt.ch0 + dh);
+                    if (h2) return h2;
                 }
             }
         }
         return null;
     },
-    // finder 候选组合：恰 4 直接；>4 取凸四边形（按质心极角跨度面积）前 6
+        // finder 候选组合：恰 4 直接；>4 取凸四边形（按质心极角跨度面积）前 6
     candQuads(cand) {
         if (cand.length === 4) return [cand];
         const pick = (arr, k) => { const r = []; const rec = (i, acc) => { if (acc.length === k) { r.push(acc.slice()); return; } for (let j = i; j < arr.length; j++) { acc.push(arr[j]); rec(j + 1, acc); acc.pop(); } }; rec(0, []); return r; };

@@ -29,7 +29,7 @@ for (let i = 0; i < 80; i++) { try { if (await evaluate(`document.readyState==='
 const diag = String.raw`
 (async () => {
   const log=[];
-  const res = await fetch('/test/2026-09-07_21-26.png');
+  const res = await fetch('/test/CX_v3_1788784695759.jpg');
   const blob = await res.blob();
   const im = new Image(); im.src = URL.createObjectURL(blob); await im.decode();
   const cw = im.width, ch = im.height;
@@ -47,6 +47,66 @@ const diag = String.raw`
   if (rr) {
     const pm = IA.parseMetaR(rr.payload);
     log.push('meta: '+JSON.stringify(pm));
+  }
+  // 手动：readFmtLocal 诊断
+  {
+    const TL={x:36,y:36}, TR={x:908,y:36}, BL={x:36,y:1308};
+    const m=J2.measureFinder(lum,cw,ch,36,36);
+    log.push('m(TL)='+JSON.stringify(m));
+    const ux=J2.norm(TR.x-TL.x,TR.y-TL.y), uy=J2.norm(BL.x-TL.x,BL.y-TL.y);
+    const f=J2.readFmtLocal(lum,cw,ch,TL,ux,uy,m.mX,m.mY);
+    log.push('readFmtLocal='+JSON.stringify(f));
+    // 直接采样格式区前 8 个模块亮度（代码坐标 68.. 12..）
+    const vals=[];
+    for(let k=0;k<8;k++){
+      const dx=(68+8*k-36), dy=(12-36);
+      const px=TL.x+(dx/8)*m.mX*ux.x+(dy/8)*m.mY*uy.x, py=TL.y+(dx/8)*m.mX*ux.y+(dy/8)*m.mY*uy.y;
+      vals.push('('+Math.round(px)+','+Math.round(py)+')='+Math.round(J2.samplePt(lum,cw,ch,px,py,3)));
+    }
+    log.push('fmt sample: '+vals.join(' | '));
+  }
+  // 手动：readRing 第一候选组合 est + 各比例档
+  {
+    const combos=J2.candQuads(cand);
+    log.push('combos='+combos.length);
+    const q0=combos[0];
+    for (let r=0;r<4;r++){
+      const TL=q0[r],TR=q0[(r+1)&3],BR=q0[(r+2)&3],BL=q0[(r+3)&3];
+      const est=J2.estimateWH(lum,cw,ch,[TL,TR,BR,BL]);
+      if(!est){ log.push('rot'+r+' est=null'); continue; }
+      const tryP=(w0,h0)=>{
+        const H=J2.dlt(J2.corners(w0,h0),[TL,TR,BR,BL]);
+        if(!H) return false;
+        const b=J2.stream(lum,cw,ch,H,w0,h0);
+        return !!J2.decodePayload(b,b.length);
+      };
+      let res=[];
+      for (const s of [0.9825,0.99,1]) res.push(s+':'+tryP(Math.round(est.W0*s),Math.round(est.H0*s)));
+      log.push('rot'+r+' est='+est.W0+'x'+est.H0+' mX='+est.mX.toFixed(2)+' mY='+est.mY.toFixed(2)+' 档:'+res.join(' '));
+    }
+  }
+  // 手动：恒等 H 下模块采样值分布
+  {
+    const W0=944, H0=1344;
+    const H=J2.dlt(J2.corners(W0,H0), J2.corners(W0,H0));
+    const bits=J2.stream(lum,cw,ch,H,W0,H0);
+    let c0=0,c1=0,c2=0;
+    const mods=J2.order(W0,H0);
+    for(let i=0;i<mods.length;i++){
+      const p=J2.applyH(H,mods[i].x,mods[i].y);
+      const q=J2.applyH(H,mods[i].x+8,mods[i].y);
+      const sm=Math.hypot(q.x-p.x,q.y-p.y);
+      const v=J2.samplePt(lum,cw,ch,p.x,p.y,Math.max(2,sm*0.375));
+      if(v<60)c0++; else if(v<160)c1++; else c2++;
+    }
+    log.push('stream val dist: <60='+c0+' 60-160='+c1+' >160='+c2+' of '+mods.length+' payload='+(J2.decodePayload(bits,bits.length)?'HIT':'null'));
+    // 打印几个模块的原始采样
+    const samp=[];
+    for(let i=0;i<mods.length&&samp.length<6;i+=Math.floor(mods.length/6)){
+      const p=J2.applyH(H,mods[i].x,mods[i].y);
+      samp.push('('+mods[i].x+','+mods[i].y+')='+Math.round(J2.samplePt(lum,cw,ch,p.x,p.y,Math.max(2,8*0.375))));
+    }
+    log.push('samples: '+samp.join(' | '));
   }
   // 手动逐步：全部 m>10 候选组合 × 旋转 × 估尺直解
   const big = cand.filter(c => c.m > 10);

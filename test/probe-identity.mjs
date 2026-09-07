@@ -61,7 +61,13 @@ const diag = String.raw`
   const est=J2.estimateWH(lum,cw,ch,cand.slice(0,4));
   log.push('estimateWH => '+JSON.stringify(est));
   const rr=J2.readRing(d.data,cw,ch);
-  log.push('readRing '+(performance.now()-t1).toFixed(0)+'ms => '+(rr?('HIT w0='+rr.w0+' h0='+rr.h0):'null'));
+  log.push('readRing '+(performance.now()-t1).toFixed(0)+'ms => '+(rr?('HIT w0='+rr.w0+' h0='+rr.h0+' pl0='+rr.payload[0].toString(16)+' pl1='+rr.payload[1].toString(16)+' pl4='+rr.payload[4]):'null'));
+  if(rr){
+    const pm=IA.parseMetaR(rr.payload);
+    log.push('parseMetaR='+(pm?('cnt='+pm.cnt+' cw='+pm.cw+' ch='+pm.ch+' regions='+JSON.stringify(pm.regions)):'NULL'));
+    const c2=J2.reconstruct(d.data,cw,ch,rr.H,rr.w0,rr.h0);
+    log.push('reconstruct='+(c2?(c2.width+'x'+c2.height):'null'));
+  }
   return {log};
 })()`;
 const res = await evaluate(diag);
