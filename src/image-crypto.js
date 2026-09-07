@@ -632,6 +632,33 @@ const IA = {
             };
             inp.click();
         },
+        // 摄像头诊断：输出 secure context/camera 权限状态/FeaturePolicy/getUserMedia 原始错误（用 T 逐行展示）
+        diag() {
+            const lines = [];
+            const show = () => { const t = $('tst'); if (t) { t.style.whiteSpace = 'pre-line'; t.innerText = lines.join('\n'); t.className = 'on'; clearTimeout(t.tm); t.tm = setTimeout(() => { t.className = ''; t.style.whiteSpace = ''; }, 15000); } };
+            lines.push('secureContext=' + (window.isSecureContext ? 'yes' : 'NO'));
+            if (document.permissionsPolicy && document.permissionsPolicy.allowsFeature) { lines.push('policy.camera.allowed=' + document.permissionsPolicy.allowsFeature('camera')); }
+            else if (document.featurePolicy && document.featurePolicy.allowsFeature) { lines.push('featurePolicy.camera=' + document.featurePolicy.allowsFeature('camera')); }
+            else { lines.push('policyAPI=n/a'); }
+            const tryPerm = () => {
+                if (navigator.permissions && navigator.permissions.query) {
+                    navigator.permissions.query({ name: 'camera' }).then(s => { lines.push('permissions.camera=' + s.state); show(); })
+                        .catch(e => { lines.push('permissions.query err=' + e.name); show(); });
+                } else { lines.push('permissionsAPI=n/a'); show(); }
+                return;
+            };
+            try {
+                navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(s => {
+                    lines.push('getUserMedia=OK!');
+                    s.getTracks().forEach(t => t.stop());
+                    show();
+                }).catch(e => {
+                    lines.push('gUM fail: name=' + e.name + ' msg=' + (e.message || '') + ' constraint=' + (e.constraint || ''));
+                    tryPerm();
+                });
+            } catch (e) { lines.push('gUM throw=' + e); tryPerm(); }
+            show();
+        },
         hitPhoto(url, img) {
             const k = $('kd') ? $('kd').value : '';
             if (!k) { T("请先在解密框输入密码再拍照识别"); return; }
