@@ -178,6 +178,9 @@ const J2 = {
     // 行/列游程扫描 1:1:3:1:1 回字，双向确认 + 亚像素中心 + 模块尺度估计
     scanFinders(luma, cw, ch) {
         const hits = [];
+        // 工作量预算：大尺寸/噪声图（如 PNG 打码图）的随机图案会产生海量疑似回字命中，
+        // 逐行列确认会让解密卡死。真 Finder 的命中少且稳定，预算截断对识别几乎无损。
+        const ROW_HIT_MAX = 12, TOTAL_HIT_MAX = 320, COL_BUDGET = 900;
         for (let y = 0; y < ch; y += 2) {
             const o = y * cw;
             let mn = 255, mx = 0;
@@ -189,7 +192,9 @@ const J2 = {
                 const v = x < cw ? (luma[o + x] < th) : !cur;
                 if (x === cw || v !== cur) { runs.push({ d: cur, len: x - s, x0: s }); s = x; cur = v; }
             }
+            let rowHits = 0;
             for (let i = 0; i + 4 < runs.length; i++) {
+                if (hits.length >= TOTAL_HIT_MAX) break;
                 const r = runs;
                 if (!r[i].d || r[i + 1].d || !r[i + 2].d || r[i + 3].d || !r[i + 4].d) continue;
                 const base = r[i + 2].len / 3;
@@ -198,10 +203,14 @@ const J2 = {
                 for (const j of [0, 1, 3]) { const l = r[i + j].len; if (Math.abs(l - base) > base * 2 || l < base * 0.5) { ok = false; break; } }
                 if (!ok || r[i + 2].len < base * 2 || r[i + 4].len < base * 0.5) continue; // 第5段(最外黑框)外侧可能紧邻图像内容，仅设下界
                 hits.push({ x: r[i + 2].x0 + r[i + 2].len / 2, y: y, m: base });
+                if (++rowHits >= ROW_HIT_MAX) break;
             }
+            if (hits.length >= TOTAL_HIT_MAX) break;
         }
         const out = [];
+        let colUsed = 0;
         for (const h of hits) {
+            if (colUsed >= COL_BUDGET) break;
             const xci = Math.round(h.x); if (xci < 0 || xci >= cw) continue;
             let mn2 = 255, mx2 = 0;
             for (let yy = 0; yy < ch; yy++) { const v = luma[yy * cw + xci]; if (v < mn2) mn2 = v; if (v > mx2) mx2 = v; }
@@ -212,6 +221,7 @@ const J2 = {
                 const v = yy < ch ? (luma[yy * cw + xci] < th2) : !cur2;
                 if (yy === ch || v !== cur2) { runs2.push({ d: cur2, len: yy - s2, x0: s2 }); s2 = yy; cur2 = v; }
             }
+            colUsed++;
             for (let i = 0; i + 4 < runs2.length; i++) {
                 const r = runs2;
                 if (!r[i].d || r[i + 1].d || !r[i + 2].d || r[i + 3].d || !r[i + 4].d) continue;
