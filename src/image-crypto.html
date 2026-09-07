@@ -93,12 +93,14 @@
 /* 拍照识别 */
 .scan-photo { background:linear-gradient(135deg,#18a058,#34c77b); color:#fff; border:none; border-radius:10px; padding:10px 18px; font-size:.9rem; font-weight:600; cursor:pointer; width:100%; }
 .scan-photo:active { filter:brightness(.92); }
+.scan-diag { background:rgba(255,255,255,.08); color:#9cc4ff; border:1px solid rgba(90,168,255,.45); border-radius:10px; padding:8px 14px; font-size:.78rem; cursor:pointer; width:100%; }
+.scan-diag:active { background:rgba(90,168,255,.2); }
     </style>
 </head>
 <body>
 <div class="box">
     <a href="index.html" class="nav-home">← 返回控制台</a>
-    <h1>图片混淆引擎</h1>
+    <h1 style="display:flex;align-items:baseline;gap:8px">图片混淆引擎 <small id="ver-tag" style="font-size:.72rem;color:var(--ts);font-weight:400"></small></h1>
 
     <!-- V1 隐藏入口 -->
     <div id="v1-toggle" onclick="IA.showV1()" style="position:fixed;top:12px;right:12px;width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#666;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:99;transition:all .3s" onmouseenter="this.style.background='rgba(0,242,255,.15)';this.style.borderColor='var(--p)';this.style.color='var(--p)'" onmouseleave="this.style.background='rgba(255,255,255,.08)';this.style.borderColor='rgba(255,255,255,.15)';this.style.color='#666'" title="切换到 V1 强加密">V1</div>
@@ -179,7 +181,7 @@
             <div class="drop" id="dr-d"><input type="file" accept="image/*" onchange="IA.ld(this,'d')"><div style="font-size:2rem">🔓</div><div id="lb-d">点击或拖拽乱码图<br><span style="font-size:.8rem;color:#888">(支持 Ctrl+V)</span></div><img id="pv-d" class="p-img"></div>
             <label>解密密码</label><input type="text" id="kd" placeholder="输入对应密码">
             <button class="btn green" onclick="IA.run('d')">开始还原</button>
-            <button class="btn" onclick="IA.scan.open()" style="margin-left:8px">📷 扫码识别</button>
+            <button class="btn" id="scan-btn" onclick="IA.scan.open()" style="margin-left:8px">📷 扫码识别</button>
             <div id="rx-d" class="res"><label style="color:var(--a)">还原结果:</label><img id="od" class="p-img on" style="border-color:var(--a)"><button class="cp" onclick="IA.dl('d')">📥 保存原图</button><div style="font-size:.7rem;color:#888;text-align:center;margin-top:4px">若点击下载无响应，请长按图片进行保存</div></div>
         </div>
     </div>
@@ -238,12 +240,12 @@
             <video id="scan-video" playsinline autoplay muted></video>
             <canvas id="scan-canvas" style="display:none"></canvas>
             <div style="margin-top:10px"><button class="scan-photo" onclick="IA.scan.photo()">📷 拍照识别（免权限，全浏览器可用）</button></div>
-            <div style="margin-top:8px;font-size:.72rem"><a href="javascript:IA.scan.diag()" style="color:#5aa8ff">🔍 摄像头诊断（把弹出的内容截图发我）</a></div>
+            <div style="margin-top:8px"><button class="scan-diag" onclick="IA.scan.diag()">🔍 摄像头诊断（点一下，把弹出内容发我）</button></div>
             <input type="file" id="scan-photo-input" accept="image/*" capture="environment" style="display:none">
             <div class="scan-tip">实时扫码需浏览器放行摄像头权限：安卓请用系统 Chrome/Edge 打开并把该站点相机设为允许；若被拦（NotAllowedError），直接点上方「拍照识别」，调起系统相机拍一张即可，效果一样。</div>
         </div>
     </div>
     <script src="core.js?v=3.0"></script>
-    <script src="image-crypto.js?v=3.6"></script>
+    <script src="image-crypto.js?v=3.7"></script>
 </body>
 </html>

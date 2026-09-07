@@ -528,6 +528,9 @@ const IA = {
         if ($('ke')) $('ke').style.display = v === 'v3' ? 'none' : '';
         $('v1-toggle').style.display = v === 'v3' ? 'none' : '';
         document.body.classList.toggle('v3-theme', v === 'v3');
+        // 扫码器只属于 V3（识别 V3-J2 四角回字码），V1/V2 隐藏；切算法时关闭浮层
+        const sb = $('scan-btn'); if (sb) sb.style.display = v === 'v3' ? '' : 'none';
+        if (v !== 'v3' && this.scan && this.scan.on) this.scan.close();
         if (v === 'v3') this.initV3();
     },
     ui() { let v1 = parseInt($('qv1').value), v2 = parseInt($('qv2').value), v3 = parseInt($('qv3').value);
@@ -607,10 +610,12 @@ const IA = {
             }).catch(e => {
                 self.on = false; ov.classList.remove('on');
                 // 自签证书页面多数手机浏览器不发权限弹窗 → NotAllowedError；引导用拍照模式兜底
-                if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
-                    T("摄像头权限被浏览器拦下（自签证书页面常见）— 改用「拍照识别」即可，无需权限弹窗");
+                if (e && e.name === 'NotAllowedError') {
+                    T("摄像头被拦截（NotAllowedError）：可在 Chrome 网站设置里把本网站相机设为允许；或直接点下方「拍照识别」");
+                } else if (e && e.name === 'SecurityError') {
+                    T("安全策略拦截（SecurityError）：请确认页面未被嵌入 iframe，并检查是否有 Permissions-Policy 头禁用了摄像头（可点「摄像头诊断」）");
                 } else {
-                    T("摄像头不可用：" + (e && e.name ? e.name : '请检查权限') + ' — 可用「拍照识别」替代');
+                    T("摄像头不可用：" + (e && e.name ? e.name : e) + ' — 可用「拍照识别」替代');
                 }
             });
         },
@@ -1720,6 +1725,10 @@ const IA = {
         }
     }
 };
+
+const APP_VER = '3.7';
+
+try { var vt = document.getElementById('ver-tag'); if (vt) vt.textContent = 'v' + APP_VER; } catch (e) {}
 
 /* ===== V3 打码编辑器 ===== */
 const MOB = {
