@@ -133,7 +133,7 @@
                     <div class="v3-tip">加密与解密使用同一密码。密码丢失无法找回。</div>
                     <label>输出格式</label>
                     <div class="sr"><input type="range" id="qv3" min="60" max="100" value="100" oninput="IA.ui()"><span class="vt" id="vq3">PNG</span></div>
-                    <div class="v3-tip">100% 输出无损 PNG（LSB 边框，体积可能增加）；降低输出 JPEG 时启用<b>鲁棒边框码</b>：RS 纠错 + 时序定位条，即使图片被<b>部分裁切 / 放大 / 拉伸 / 二次压缩</b>仍可恢复边框元数据与区域坐标，边框自动加宽至 48px。</div>
+                    <div class="v3-tip">100% 输出无损 PNG（LSB 边框，体积可能增加）；降低输出 JPEG 时启用<b>J2 拍屏鲁棒码</b>：四角定位符 + 黑白环带码 + RS 纠错，可抵抗<b>二次压缩 / 缩放 / 旋转透视（含手机拍屏）</b>，边框自动加宽至 64px；拍屏解码请让整图占满画面并避开反光。</div>
                     <label>前置缩放 <span style="position:relative;cursor:help;color:#666;font-size:.75rem;border:1px solid #555;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;line-height:1" onmouseenter="this.querySelector('.tip').style.display='block'" onmouseleave="this.querySelector('.tip').style.display='none'">i<span class="tip" style="display:none;position:absolute;top:120%;left:50%;transform:translateX(-50%);background:#222;color:#ccc;padding:6px 10px;border-radius:6px;font-size:.7rem;white-space:nowrap;z-index:10;border:1px solid #444">加密前先缩小图片，可减小输出体积并降低诱饵容量占用，避免有损降采样；不建议低于50</span></span></label>
                     <div class="sr"><input type="range" id="sv3" min="20" max="100" value="100" oninput="IA.ui()"><span class="vt" id="vs3">100%</span></div>
                     <label style="margin-top:12px">🔻 PNG 增强选项（仅 PNG 可用，JPEG 自动忽略）</label>
@@ -199,7 +199,7 @@
         <div class="hsec">三、V3 参数说明</div>
         <ul>
             <li><b>前置缩放</b>：加密前先把图片缩小，减小输出体积。仅影响输出尺寸，不影响还原</li>
-            <li><b>输出格式</b>：100% 为无损 PNG（体积可能增加 3-4 倍，网络传输必须传输原图，否则会造成损坏）；调低会输出 JPEG（体积更小，网络传输不易损坏）。JPEG 输出采用<b>鲁棒边框码</b>：边框加宽至 48px，内含 RS 纠错码与定位时序条，可抵抗部分裁切（每边约 ≤4%）、放大（≤3 倍）、拉伸及二次压缩；PNG 加密不受任何影响。</li>
+            <li><b>输出格式</b>：100% 为无损 PNG（体积可能增加 3-4 倍，网络传输必须传输原图，否则会造成损坏）；调低会输出 JPEG（体积更小，网络传输不易损坏）。JPEG 输出采用<b>J2 拍屏鲁棒码</b>：边框加宽至 64px，四角 QR 式定位符 + 黑白二值环带码（RS 自适应纠错 + 位级交错），可抵抗二次压缩、均匀缩放与旋转透视（含手机拍屏，建议整图占满画面、避开反光）、部分裁切；PNG 加密不受任何影响。</li>
             <li><b>诱饵图</b>：可选上传一张图片，每个打码区域都会独立铺满显示这张诱饵图（N 个区域 = 这张图出现 N 次）。可能会造成图片尺寸增大</li>
         </ul>
         <div class="hsec">四、关于 / 安全说明</div>
