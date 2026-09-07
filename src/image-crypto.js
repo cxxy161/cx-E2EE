@@ -231,7 +231,32 @@ const J2 = {
             if (g) { const n = g.n + 1; g.x = (g.x * g.n + h.x) / n; g.y = (g.y * g.n + h.y) / n; g.m = (g.m * g.n + h.m) / n; g.n = n; }
             else res.push({ x: h.x, y: h.y, m: h.m, n: 1 });
         }
+        // 尺度过一轮精测：外框跨度/7（抗曝光/JPEG 暗条膨胀），失败保留游程 m
+        for (const f of res) { const sp = this.findSpan(luma, cw, ch, f.x, f.y); if (sp) f.m = sp.m; }
         return res;
+    },
+    // finder 模块尺度精测：沿中心十字扫描游程，用整个 7 模块外框跨度求 m（png-m 游程中值抗不了
+    // 曝光/JPEG 造成的暗条膨胀；外框跨度/7 对边缘更稳健）。失败返回 null 由调用方保留原 m。
+    findSpan(luma, cw, ch, xc, yc) {
+        const r0 = Math.max(0, Math.min(ch - 1, Math.round(yc)));
+        const o = r0 * cw;
+        const xmin = Math.max(0, Math.round(xc) - 64), xmax = Math.min(cw - 1, Math.round(xc) + 64);
+        let mn = 255, mx = 0;
+        for (let x = xmin; x <= xmax; x++) { const v = luma[o + x]; if (v < mn) mn = v; if (v > mx) mx = v; }
+        if (mx - mn < 80) return null;
+        const th = (mn + mx) / 2;
+        const runs = []; let s = xmin, cur = luma[o + xmin] < th;
+        for (let x = xmin + 1; x <= xmax; x++) { const v = luma[o + x] < th; if (v !== cur) { runs.push({ d: cur, x0: s, len: x - s }); s = x; cur = v; } }
+        runs.push({ d: cur, x0: s, len: xmax - s });
+        let ci = -1;
+        for (let i = 0; i < runs.length; i++) { if (runs[i].d && runs[i].x0 <= xc && xc < runs[i].x0 + runs[i].len + 1) { ci = i; break; } }
+        if (ci < 2 || ci + 2 >= runs.length) return null;
+        const l = runs[ci - 2], r = runs[ci + 2];
+        if (!l.d || !r.d) return null;
+        if (l.len > 40 || r.len > 40) return null; // 外框不应异常宽（数据区大黑块混入时拒绝）
+        const span = (r.x0 + r.len) - l.x0;
+        if (span < 20 || span > 400) return null;
+        return { m: span / 7 };
     },
     // 解 8 元线性方程（高斯消元）— DLT 用
     solve8(M, b) {
@@ -369,13 +394,18 @@ const J2 = {
                 };
                 const fmt = this.readFmtQuad(luma, cw, ch, [TL, TR, BR, BL]);
                 if (fmt) { const hit = tryPayload(fmt.cw0, fmt.ch0); if (hit) return hit; }
-                // 兜底：按 finder 间距/尺度估计画布尺寸，±8% 网格搜索，RS/'CX' 校验裁决
+                // 兜底：按 finder 间距/尺度估计画布尺寸，宽范围网格搜索（覆盖强透视/估尺偏差），RS/'CX' 校验裁决
                 const mAv = (TL.m + TR.m + BR.m + BL.m) / 4;
                 if (mAv > 2) {
                     const W0 = Math.round(Math.hypot(TR.x - TL.x, TR.y - TL.y) / mAv * 8) + 72;
                     const H0 = Math.round(Math.hypot(BL.x - TL.x, BL.y - TL.y) / mAv * 8) + 72;
                     if (W0 >= 96 && H0 >= 96) {
-                        for (const sw of [0.92, 0.96, 1, 1.04, 1.08]) for (const sh of [0.92, 0.96, 1, 1.04, 1.08]) {
+                        for (const sw of [0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3]) for (const sh of [0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3]) {
+                            const hit = tryPayload(Math.round(W0 * sw), Math.round(H0 * sh));
+                            if (hit) return hit;
+                        }
+                        // 细网格：覆盖粗网格间隙
+                        for (const sw of [0.95, 0.98, 1.02, 1.05, 1.08, 1.1, 1.2]) for (const sh of [0.95, 0.98, 1.02, 1.05, 1.08, 1.1, 1.2]) {
                             const hit = tryPayload(Math.round(W0 * sw), Math.round(H0 * sh));
                             if (hit) return hit;
                         }
@@ -401,6 +431,8 @@ const J2 = {
         return scored.slice(0, 12).map(s => s.o);
     },
     // 内容重建：照片→原内容坐标画布（最近邻，H 映射），界外白
+    // 取整用 floor：内容像素中心 +0.5 落在源像素内核（round 会整体 +1px 偏移，
+    // 导致区域 16px 单元边缘 1px 未还原，且底部/右侧残留 1px 边框像素）
     reconstruct(d, cw, ch, H, w0, h0) {
         const iw = w0 - 128, ih = h0 - 128;
         if (iw < 8 || ih < 8) return null;
@@ -409,7 +441,7 @@ const J2 = {
         for (let y = 0; y < ih; y++) {
             for (let x = 0; x < iw; x++) {
                 const p = this.applyH(H, 64 + x + 0.5, 64 + y + 0.5);
-                const px = Math.round(p.x), py = Math.round(p.y), f = (y * iw + x) * 4;
+                const px = Math.floor(p.x), py = Math.floor(p.y), f = (y * iw + x) * 4;
                 if (px >= 0 && py >= 0 && px < cw && py < ch) {
                     const s = (py * cw + px) * 4;
                     sd[f] = d[s]; sd[f + 1] = d[s + 1]; sd[f + 2] = d[s + 2];
