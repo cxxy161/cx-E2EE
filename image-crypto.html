@@ -1074,6 +1074,46 @@ const IA = {
             if (stored !== expect) { T("❌ 密码错误，无法解密"); return; }
             if (geo) {
                 // 几何鲁棒路径：按检测到的 缩放+平移 重建原尺寸图像网格，再区域逆变换
+                // 先精修：对 tx/ty 做 ±2px 半像素扫描，选块缝最平的对齐
+                const refine = () => {
+                    const sw = Math.min(160, w0 - 96), sh = Math.min(120, h0 - 96);
+                    if (sw < 32 || sh < 32) return;
+                    const sx0 = geo.sx, sy0 = geo.sy;
+                    const baseTx = geo.tx, baseTy = geo.ty;
+                    let bestTx = baseTx, bestTy = baseTy, bestS = Infinity;
+                    for (let dtx = -2; dtx <= 2; dtx += 0.5) for (let dty = -2; dty <= 2; dty += 0.5) {
+                        const tx2 = baseTx + dtx, ty2 = baseTy + dty;
+                        let score = 0, n = 0;
+                        for (let ox = 8; ox < sw; ox += 8) {
+                            for (let oy = 0; oy < sh; oy += 3) {
+                                const gx0 = Math.round(sx0 * (48 + ox - 0.5) + tx2);
+                                const gx1 = Math.round(sx0 * (48 + ox + 0.5) + tx2);
+                                const gy = Math.round(sy0 * (48 + oy + 0.5) + ty2);
+                                if (gx0 >= 0 && gx1 < cw && gy >= 0 && gy < ch) {
+                                    const s0 = (gy * cw + gx0) * 4, s1 = (gy * cw + gx1) * 4;
+                                    score += Math.abs(d[s0] - d[s1]) + Math.abs(d[s0 + 1] - d[s1 + 1]) + Math.abs(d[s0 + 2] - d[s1 + 2]);
+                                    n++;
+                                }
+                            }
+                        }
+                        for (let oy = 8; oy < sh; oy += 8) {
+                            for (let ox = 0; ox < sw; ox += 3) {
+                                const gy0 = Math.round(sy0 * (48 + oy - 0.5) + ty2);
+                                const gy1 = Math.round(sy0 * (48 + oy + 0.5) + ty2);
+                                const gx = Math.round(sx0 * (48 + ox + 0.5) + tx2);
+                                if (gx >= 0 && gx < cw && gy0 >= 0 && gy1 < ch) {
+                                    const s0 = (gy0 * cw + gx) * 4, s1 = (gy1 * cw + gx) * 4;
+                                    score += Math.abs(d[s0] - d[s1]) + Math.abs(d[s0 + 1] - d[s1 + 1]) + Math.abs(d[s0 + 2] - d[s1 + 2]);
+                                    n++;
+                                }
+                            }
+                        }
+                        score = n ? score / n : Infinity;
+                        if (score < bestS) { bestS = score; bestTx = tx2; bestTy = ty2; }
+                    }
+                    geo.tx = bestTx; geo.ty = bestTy;
+                };
+                try { refine(); } catch (e) { /* refinement failed, use original */ }
                 const c2 = this.robustReconstruct(d.data, cw, ch, w0, h0, geo), x2 = c2.getContext('2d');
                 const rd = x2.getImageData(0, 0, c2.width, c2.height);
                 regions.slice().reverse().forEach((reg, idx) => this.regionEnc(rd.data, c2.width, c2.height, { x: reg.x, y: reg.y, w: reg.w, h: reg.h }, this.hash(k + '#' + (regions.length - 1 - idx)), false, false, !!(flag & 8)));
