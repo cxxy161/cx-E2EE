@@ -29,7 +29,7 @@ for (let i = 0; i < 80; i++) { try { if (await evaluate(`document.readyState==='
 const diag = String.raw`
 (async () => {
   const log=[];
-  const res = await fetch('/test/c8d2d9ce38c22b933f297a3b7010de4f_720.jpg');
+  const res = await fetch('/test/2026-09-07_21-26.png');
   const blob = await res.blob();
   const im = new Image(); im.src = URL.createObjectURL(blob); await im.decode();
   const cw = im.width, ch = im.height;

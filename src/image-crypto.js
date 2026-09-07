@@ -381,12 +381,12 @@ const J2 = {
                 if (est) {
                     const hit = tryPayload(est.W0, est.H0);
                     if (hit) return hit;
-                    // 1% 步长网格（估尺误差 ~1.5%，0.5% 残余偏差→远端模块错位 <2px，RS 可扛）
-                    for (const sw of [0.985, 1, 1.015]) for (const sh of [0.985, 1, 1.015]) {
+                    // 0.5% 步长网格（估尺残余偏差 → 模块错位 <1.5px，RS 可扛）
+                    for (const sw of [0.98, 0.99, 0.995, 1, 1.005, 1.01, 1.02]) for (const sh of [0.98, 0.99, 0.995, 1, 1.005, 1.01, 1.02]) {
                         const h2 = tryPayload(Math.round(est.W0 * sw), Math.round(est.H0 * sh));
                         if (h2) return h2;
                     }
-                    for (const sw of [0.97, 0.98, 0.99, 1.01, 1.02, 1.03]) for (const sh of [0.97, 0.98, 0.99, 1.01, 1.02, 1.03]) {
+                    for (const sw of [0.96, 0.97, 0.98, 1.03, 1.04, 1.05]) for (const sh of [0.96, 0.97, 0.98, 1.03, 1.04, 1.05]) {
                         const h2 = tryPayload(Math.round(est.W0 * sw), Math.round(est.H0 * sh));
                         if (h2) return h2;
                     }
