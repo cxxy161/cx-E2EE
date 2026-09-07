@@ -587,39 +587,54 @@ const IA = {
     },
     /* ===== 手机摄像头扫码器：帧循环 readRing 识别，命中即自动还原（扫码器需要 secure context 才能调摄像头） ===== */
     scan: {
-        on: false, stream: null, raf: 0, lastT: 0, busyHit: false,
+        on: false, stream: null, raf: 0, lastT: 0,
         open() {
             if (this.on) return;
             const ov = $('scan-overlay');
             if (!ov) return T("扫码器组件缺失");
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { T("当前浏览器/环境不支持摄像头（手机需用 https 或 localhost 访问）"); return; }
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { T("当前浏览器不支持摄像头（可用「拍照识别」）"); return; }
             this.on = true;
             ov.classList.add('on');
             const st = $('scan-status'); if (st) st.textContent = '正在启动摄像头…';
             const self = this;
-            navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-                audio: false
-            }).then(stream => {
-                if (!self.on) { stream.getTracks().forEach(t => t.stop()); return; }
-                self.stream = stream;
-                const v = $('scan-video'); v.srcObject = stream; v.play().catch(() => {});
-                if (st) st.textContent = '对准打码图…';
-                self.lastT = 0;
-                self.loop();
-            }).catch(e => {
-                self.on = false;
-                self._stop();
-                // 保留浮层：摄像头失败也要让用户看到「拍照识别」「摄像头诊断」兜底按钮
-                const st = $('scan-status');
-                const why = (e && e.name) || String(e);
-                if (st) st.textContent = '摄像头不可用（' + why + '）—— 可直接拍照识别，或点「摄像头诊断」查原因';
-                if (e && e.name === 'NotAllowedError') T("摄像头被拦截（NotAllowedError）：浮层已保留，请用「拍照识别」，或点「摄像头诊断」把结果发我");
-                else if (e && e.name === 'SecurityError') T("安全策略拦截（SecurityError）：请点「摄像头诊断」查看是否被 Permissions-Policy/iframe 限制");
-                else T("摄像头不可用：" + why + ' —— 浮层已保留，可用「拍照识别」');
-            });
+            let tries = 0;
+            const ask = () => {
+                tries++;
+                navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                }).then(stream => {
+                    if (!self.on) { stream.getTracks().forEach(t => t.stop()); return; }
+                    self.stream = stream;
+                    const v = $('scan-video'); v.srcObject = stream; v.play().catch(() => {});
+                    if (st) st.textContent = '对准打码图…';
+                    self.lastT = 0;
+                    self.loop();
+                }).catch(e => {
+                    // 安卓怪象：首次 getUserMedia 被系统静默拒绝（权限状态仍为 prompt），重试一次常能弹出授权框
+                    if (e && e.name === 'NotAllowedError' && tries < 2 && navigator.permissions && navigator.permissions.query) {
+                        navigator.permissions.query({ name: 'camera' }).then(ps => {
+                            if (ps.state === 'prompt') { setTimeout(ask, 700); return; }
+                            self._fail(e);
+                        }).catch(() => self._fail(e));
+                        return;
+                    }
+                    self._fail(e);
+                });
+            };
+            ask();
         },
-        // 拍照识别兜底：调起系统相机拍一张 → 自动识别还原（不依赖 getUserMedia 权限，全平台可用）
+        _fail(e) {
+            // 保留浮层：摄像头失败也要让用户看到「拍照识别」「摄像头诊断」兜底按钮
+            this.on = false; this._stop();
+            const st = $('scan-status');
+            const why = (e && e.name) || String(e);
+            if (st) st.textContent = '摄像头不可用（' + why + '）——可直接拍照识别，或点「摄像头诊断」查原因';
+            if (e && e.name === 'NotAllowedError') T("摄像头被拦截（NotAllowedError）：浮层已保留，可点「拍照识别」或用「摄像头诊断」查原因");
+            else if (e && e.name === 'SecurityError') T("安全策略拦截（SecurityError）：点「摄像头诊断」查看");
+            else T("摄像头不可用：" + why + ' —— 浮层已保留，可用「拍照识别」');
+        },
+        // 拍照识别兜底：调起系统相机拍一张 → 自动识别还原（不依赖 getUserMedia 权限）
         photo() {
             const inp = $('scan-photo-input');
             if (!inp) return T("拍照组件缺失");
@@ -637,7 +652,7 @@ const IA = {
             };
             inp.click();
         },
-        // 摄像头诊断：输出 secure context/camera 权限状态/FeaturePolicy/getUserMedia 原始错误（用 T 逐行展示）
+        // 摄像头诊断：secureContext / FeaturePolicy / permissions / getUserMedia 原始错误
         diag() {
             const lines = [];
             const show = () => { const t = $('tst'); if (t) { t.style.whiteSpace = 'pre-line'; t.innerText = lines.join('\n'); t.className = 'on'; clearTimeout(t.tm); t.tm = setTimeout(() => { t.className = ''; t.style.whiteSpace = ''; }, 15000); } };
@@ -650,7 +665,6 @@ const IA = {
                     navigator.permissions.query({ name: 'camera' }).then(s => { lines.push('permissions.camera=' + s.state); show(); })
                         .catch(e => { lines.push('permissions.query err=' + e.name); show(); });
                 } else { lines.push('permissionsAPI=n/a'); show(); }
-                return;
             };
             try {
                 navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(s => {
@@ -664,7 +678,8 @@ const IA = {
             } catch (e) { lines.push('gUM throw=' + e); tryPerm(); }
             show();
         },
-        hitPhoto(url, img) {
+    
+                hitPhoto(url, img) {
             const k = $('kd') ? $('kd').value : '';
             if (!k) { T("请先在解密框输入密码再拍照识别"); return; }
             URL.revokeObjectURL(url);
