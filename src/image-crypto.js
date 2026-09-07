@@ -584,8 +584,8 @@ const IA = {
         return bs;
     },
     /* ===== V3 外扩边框元数据：原图居中，四周 B 宽边框承载元数据，原图像素零占用 ===== */
-    /* PNG 模式边框宽度 8px（LSB）；JPEG 模式 48px（V3-J 鲁棒边框码：RS+时序定位条） */
-    bW() { return parseInt($('qv3').value) < 100 ? 48 : 8; },
+    /* PNG 模式边框宽度 8px（LSB）；JPEG 模式 64px（J2 拍屏鲁棒码：Finder 定位 + 二值环带） */
+    bW() { return parseInt($('qv3').value) < 100 ? 64 : 8; },
     /* 边框像素索引流：顶→右→底→左（跳过四角），供 LSB 或块级使用 */
     borderOrd(cw, ch, B) {
         const pts = [];
@@ -641,6 +641,8 @@ const IA = {
         const bytes = []; for (let i = 0; i < qs.length; i += 4) { let b = 0; for (let j = 0; j < 4; j++) b = b * 4 + (qs[i + j] || 0); bytes.push(b); }
         return bytes;
     },
+    /* J2 拍屏鲁棒码委托（实现体在顶部 J2 对象）：Finder 定位 + 单应校正 + RS 环带解码 */
+    readRing(d, cw, ch) { return J2.readRing(d, cw, ch); },
     /* 解析字节流 → {cnt, regions, stored, flag, dataLen}，魔数不对返回 null */
     parseMeta(bs) {
         if (!bs || bs.length < 5) return null;
@@ -1105,25 +1107,28 @@ const IA = {
                 const rh = Math.max(1, Math.min(Math.floor(r.h * scale), h - ry));
                 return { x: rx, y: ry, w: rw, h: rh };
             });
-            // 关键：区域与缩放后图像边界做 8 对齐（ceil 到完整块）后再写入元数据。
+            const jpeg = parseInt($('qv3').value) < 100;
+            // J2（JPEG 鲁棒）用 16px 置换单元——单元在拍屏照片中可分辨、块定位更稳；
+            // PNG 保持 8px 逐位不变。
+            const unit = jpeg ? 16 : 8;
+            // 关键：区域与缩放后图像边界做 unit 对齐（ceil 到完整块）后再写入元数据。
             // 加密传 {x:reg.x+B} 给 regionEnc 时块数必须与解密端 {x:reg.x} 一致
-            // （B=8/48 均整除 8，块网格同源）；否则加密 ceil 到块、解密 floor 到块
+            // （B=8/64 均整除 unit，块网格同源）；否则加密 ceil 到块、解密 floor 到块
             // → 块数不同 → 置换表不同 → 全图乱码。
             regions = regions.map(r => {
-                const rx2 = Math.floor(r.x / 8) * 8;
-                const ry2 = Math.floor(r.y / 8) * 8;
-                // 右下边界也要回落完整 8 块：w-rx2 不够 8 的倍数时截断到 8 的倍数
-                const rw2 = Math.max(0, Math.floor((Math.min(w - rx2, Math.ceil(r.w / 8) * 8)) / 8) * 8);
-                const rh2 = Math.max(0, Math.floor((Math.min(h - ry2, Math.ceil(r.h / 8) * 8)) / 8) * 8);
+                const rx2 = Math.floor(r.x / unit) * unit;
+                const ry2 = Math.floor(r.y / unit) * unit;
+                // 右下边界也要回落完整单元：w-rx2 不够倍数时截断到倍数
+                const rw2 = Math.max(0, Math.floor((Math.min(w - rx2, Math.ceil(r.w / unit) * unit)) / unit) * unit);
+                const rh2 = Math.max(0, Math.floor((Math.min(h - ry2, Math.ceil(r.h / unit) * unit)) / unit) * unit);
                 return { x: rx2, y: ry2, w: rw2, h: rh2 };
             });
-            const jpeg = parseInt($('qv3').value) < 100;
             const decoy = !jpeg && MOB.decoyOn && MOB.decoyImg;
             const sort = !jpeg && !decoy && MOB.sortOn;
             if (MOB.decoyOn && !MOB.decoyImg) { T("请先选择诱饵图"); return; }
             if (jpeg) { T("诱饵图/色块排序仅支持 PNG 输出，当前已自动忽略"); }
             // 区域加密（含排序）——诱饵模式跳过：数据将按原字节存入 LSB
-            if (!decoy) regions.forEach((reg, idx) => this.regionEnc(d.data, cw, ch, { ...reg, x: reg.x + B, y: reg.y + B }, this.hash(k + '#' + idx), true, sort, jpeg));
+            if (!decoy) regions.forEach((reg, idx) => this.regionEnc(d.data, cw, ch, { ...reg, x: reg.x + B, y: reg.y + B }, this.hash(k + '#' + idx), true, sort, jpeg, unit));
             // 诱饵模式：区域原始像素散布到原图区 LSB，区域本体填诱饵图
             let decoySc = 1, dataLen = 0;
             if (decoy) {
@@ -1157,25 +1162,42 @@ const IA = {
                 this.decoyPaint(d.data, cw, ch, w, h, B, regions, this.decoyCvs);
             }
             if (jpeg) {
-                // V3-J 鲁棒 JPEG：RS(255,179) 纠错 + 时序定位条 + 双副本，边框 48px
+                // J2 拍屏鲁棒 JPEG：四角 Finder 定位 + 二值环带码 + RS(255,127) 自适应，边框 64px
+                // 区域内容（16px 置换+扰动）不入边框，只存坐标与签名 → 密码反推即可
                 const payload = this.metaBytesR(cw, ch, regions.length, regions, k, 8, 0); // flag bit3=JPEG友好亮度域
-                if (!this.writeRobust(d.data, cw, ch, payload)) { T("图片尺寸过小，JPEG 鲁棒边框容量不足（建议原图 ≥ 400×400）"); return; }
+                if (!J2.writeRing(d.data, cw, ch, payload)) { T("图片尺寸过小，JPEG 鲁棒边框容量不足（建议原图 ≥ 512×512）"); return; }
                 x.putImageData(d, 0, 0);
                 this.fin(c, t, 'image/jpeg', parseInt($('qv3').value) / 100);
             } else {
                 this.decoyMetaOut(c, x, d, cw, ch, B, jpeg, t, regions, k, decoy ? 1 : 0, dataLen, decoySc);
             }
         } else {
-            // 解密：鲁棒 JPEG(V3-J,48px) → 旧版 PNG(8px LSB) → 旧版 JPEG(32px 块级)
-            let parsed = null, geo = null, w0 = 0, h0 = 0, dB = 8;
+            // 解密：J2 拍屏鲁棒码(64px Finder) → 旧 V3-J(48px 时序条) → PNG(8px LSB) → 旧 JPEG(32px 块级)
+            let parsed = null, geo = null, w0 = 0, h0 = 0, dB = 8, ring = null;
+            const rr = this.readRing(d.data, cw, ch); // 优先尝试 J2（Finder + homography，支持拍屏透视）
+            if (rr && (parsed = this.parseMetaR(rr.payload))) { ring = rr; w0 = rr.w0; h0 = rr.h0; }
             const rob = this.readRobustJpeg(d.data, cw, ch);
-            if (rob && (parsed = this.parseMetaR(rob.payload))) { geo = rob.geo; w0 = rob.w0; h0 = rob.h0; }
+            if (!parsed && rob && (parsed = this.parseMetaR(rob.payload))) { geo = rob.geo; w0 = rob.w0; h0 = rob.h0; }
             if (!parsed) { parsed = this.parseMeta(this.rMetaPng(d.data, this.borderOrd(cw, ch, 8), 200)); }
             if (!parsed) { const pr = this.parseMeta(this.rMetaJpeg(d.data, cw, ch, 32)); if (pr) { parsed = pr; dB = 32; } }
             if (!parsed) { T("未识别到打码元数据，或不是 V3 加密图"); return; }
             const { cnt, regions, stored, flag, dataLen } = parsed;
             const expect = (this.hash('V3|' + cnt + '|' + regions.map(r => r.x + ',' + r.y + ',' + r.w + ',' + r.h).join('&') + '|' + k) >>> 0) & 0xFFFFFF;
             if (stored !== expect) { T("❌ 密码错误，无法解密"); return; }
+            if (ring) {
+                // J2 路径：按单应 H 把照片/文件重采样回原内容网格 → 16px 置换+扰动逆变换 → JPEG 后处理
+                const c2 = J2.reconstruct(d.data, cw, ch, ring.H, ring.w0, ring.h0);
+                if (!c2) { T("还原失败：图像几何异常"); return; }
+                const x2 = c2.getContext('2d'), rd = x2.getImageData(0, 0, c2.width, c2.height);
+                const soft = !!(flag & 8);
+                regions.slice().reverse().forEach((reg, idx) => this.regionEnc(rd.data, c2.width, c2.height, { x: reg.x, y: reg.y, w: reg.w, h: reg.h }, this.hash(k + '#' + (regions.length - 1 - idx)), false, false, soft, 16));
+                this.jpegBandClean(rd.data, c2.width, c2.height, regions, 2);
+                this.jpegDcEqualize(rd.data, c2.width, c2.height, regions);
+                this.jpegDeblock(rd.data, c2.width, c2.height, regions);
+                x2.putImageData(rd, 0, 0);
+                this.fin(c2, t, 'image/png', 1);
+                return;
+            }
             if (geo) {
                 // 几何鲁棒路径：按检测到的 缩放+平移 重建原尺寸图像网格，再区域逆变换
                 // 先精修：对 tx/ty 做 ±2px 半像素扫描，选块缝最平的对齐
