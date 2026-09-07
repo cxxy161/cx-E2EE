@@ -164,18 +164,20 @@ const IA = {
         let q = 1.0, m = 'image/png'; if (E) { const v = parseInt($('qv2').value); if (v < 100) { m = 'image/jpeg'; q = v / 100; } } this.fin(c, t, m, q);
     },
     initV3() { MOB.setup(); },
-    /* 区域内 8×8 块置换 + YUV 变换；sort=true 时加密末尾按亮度排序（索引写LSB），解密开头逆排 */
-    regionEnc(d, w, h, reg, seed, E, sort, soft) {
-        let x0 = Math.floor(reg.x / 8) * 8, y0 = Math.floor(reg.y / 8) * 8;
-        // 右/下边界：先钳到画布内，再回退到完整 8 块边界——
-        // 若尾巴不足 8px 直接丢弃（保持 bx/by 整数，避免非整数块数导致
+    /* 区域内 N×N 块置换 + 块级 YUV 变换（unit=置换单元边长，PNG=8，JPEG 鲁棒=16）；
+       sort=true 时加密末尾按亮度排序（索引写LSB），解密开头逆排（仅 PNG 路径使用，unit 恒 8） */
+    regionEnc(d, w, h, reg, seed, E, sort, soft, unit) {
+        unit = unit || 8;
+        let x0 = Math.floor(reg.x / unit) * unit, y0 = Math.floor(reg.y / unit) * unit;
+        // 右/下边界：先钳到画布内，再回退到完整块边界——
+        // 若尾巴不足 unit px 直接丢弃（保持 bx/by 整数，避免非整数块数导致
         // 置换表长度截断与循环越界 → 全图打码时整体错位乱码）
-        let x1 = Math.min(w, Math.ceil((reg.x + reg.w) / 8) * 8);
-        let y1 = Math.min(h, Math.ceil((reg.y + reg.h) / 8) * 8);
-        x1 = x0 + Math.floor((x1 - x0) / 8) * 8;
-        y1 = y0 + Math.floor((y1 - y0) / 8) * 8;
+        let x1 = Math.min(w, Math.ceil((reg.x + reg.w) / unit) * unit);
+        let y1 = Math.min(h, Math.ceil((reg.y + reg.h) / unit) * unit);
+        x1 = x0 + Math.floor((x1 - x0) / unit) * unit;
+        y1 = y0 + Math.floor((y1 - y0) / unit) * unit;
         if (x1 <= x0 || y1 <= y0) return;
-        const bx = (x1 - x0) / 8, by = (y1 - y0) / 8, bl = bx * by;
+        const bx = (x1 - x0) / unit, by = (y1 - y0) / unit, bl = bx * by;
         const r = this.rng(seed), p = this.perm(bl, seed), cm = new Int32Array(bl), nr = this.rng(seed + 999);
         for (let i = 0; i < bl; i++) cm[i] = Math.floor(nr() * 1e6);
         if (!E && sort) this.sortRegion(d, w, h, x0, y0, bx, by, bl, false); // 先逆排再逆变换
@@ -187,9 +189,9 @@ const IA = {
         for (let i = 0; i < bl; i++) {
             let si, di; if (E) { si = i; di = p[i]; } else { si = p[i]; di = i; }
             const sCol = si % bx, sRow = Math.floor(si / bx), dCol = di % bx, dRow = Math.floor(di / bx);
-            const sx = x0 + sCol * 8, sy = y0 + sRow * 8, dx = x0 + dCol * 8, dy = y0 + dRow * 8;
+            const sx = x0 + sCol * unit, sy = y0 + sRow * unit, dx = x0 + dCol * unit, dy = y0 + dRow * unit;
             const rw = cm[E ? di : si], ns = soft ? ((rw % 33) - 16) : ((rw % 81) - 40), fU = rw & 0x100, fV = rw & 0x200, sw = rw & 0x400;
-            for (let y = 0; y < 8; y++) for (let l = 0; l < 8; l++) {
+            for (let y = 0; y < unit; y++) for (let l = 0; l < unit; l++) {
                 const sI = ((sy + y) * w + (sx + l)) * 4, dI = ((dy + y) * w + (dx + l)) * 4;
                 let R = d[sI], G = d[sI + 1], B = d[sI + 2];
                 let Y = .299 * R + .587 * G + .114 * B, U = -.147 * R - .289 * G + .436 * B, V = .615 * R - .515 * G - .1 * B;
