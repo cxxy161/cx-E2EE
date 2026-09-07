@@ -240,12 +240,12 @@
             <video id="scan-video" playsinline autoplay muted></video>
             <canvas id="scan-canvas" style="display:none"></canvas>
             <div style="margin-top:10px"><button class="scan-photo" onclick="IA.scan.photo()">📷 拍照识别（免权限，全浏览器可用）</button></div>
-            <div style="margin-top:8px"><button class="scan-diag" onclick="IA.scan.diag()">🔍 摄像头诊断（点一下，把弹出内容发我）</button></div>
+            <div style="margin-top:8px"><button class="scan-diag" onclick="IA.scan.diag()">🔍 摄像头诊断</button></div>
             <input type="file" id="scan-photo-input" accept="image/*" capture="environment" style="display:none">
             <div class="scan-tip">实时扫码需浏览器放行摄像头权限：安卓请用系统 Chrome/Edge 打开并把该站点相机设为允许；若被拦（NotAllowedError），直接点上方「拍照识别」，调起系统相机拍一张即可，效果一样。</div>
         </div>
     </div>
     <script src="core.js?v=3.0"></script>
-    <script src="image-crypto.js?v=3.9"></script>
+    <script src="image-crypto.js?v=3.10"></script>
 </body>
 </html>

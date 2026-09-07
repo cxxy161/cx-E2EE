@@ -655,7 +655,7 @@ const IA = {
         // 摄像头诊断：secureContext / FeaturePolicy / permissions / getUserMedia 原始错误
         diag() {
             const lines = [];
-            const show = () => { const t = $('tst'); if (t) { t.style.whiteSpace = 'pre-line'; t.innerText = lines.join('\n'); t.className = 'on'; clearTimeout(t.tm); t.tm = setTimeout(() => { t.className = ''; t.style.whiteSpace = ''; }, 15000); } };
+            const show = () => { try { alert(lines.join('\n')); } catch (e) { const t = $('tst'); if (t) t.innerText = lines.join('\n'); } };
             lines.push('secureContext=' + (window.isSecureContext ? 'yes' : 'NO'));
             if (document.permissionsPolicy && document.permissionsPolicy.allowsFeature) { lines.push('policy.camera.allowed=' + document.permissionsPolicy.allowsFeature('camera')); }
             else if (document.featurePolicy && document.featurePolicy.allowsFeature) { lines.push('featurePolicy.camera=' + document.featurePolicy.allowsFeature('camera')); }
@@ -1741,7 +1741,7 @@ const IA = {
     }
 };
 
-const APP_VER = '3.7';
+const APP_VER = '3.10';
 
 try { var vt = document.getElementById('ver-tag'); if (vt) vt.textContent = 'v' + APP_VER; } catch (e) {}
 
