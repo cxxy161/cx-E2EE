@@ -75,6 +75,21 @@
     .v3-help-box .hlp-warn { background:#fff7e6; border:1px solid #ffd591; color:#8a5a00; border-radius:8px; padding:8px 10px; font-size:.78rem; line-height:1.6; margin-top:10px; }
     .v3-help-box .close { display:block; width:100%; margin-top:16px; padding:10px; background:linear-gradient(135deg,#1f6feb,#5aa8ff); color:#fff; border:none; border-radius:10px; font-size:.9rem; font-weight:600; cursor:pointer; }
     body.v3-theme #v3-help-box { background:#fff; }
+/* 计算中状态 */
+.btn.busy, .v3-b2.busy { opacity:.72; cursor:wait; }
+.btn.busy::after { content:''; display:inline-block; width:.8em; height:.8em; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; margin-left:.5em; vertical-align:-1px; animation:spin .9s linear infinite; }
+.v3-b2.busy::after { content:''; display:inline-block; width:.8em; height:.8em; border:2px solid rgba(31,111,235,.35); border-top-color:#1f6feb; border-radius:50%; margin-left:.5em; vertical-align:-1px; animation:spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* 扫码器浮层 */
+#scan-overlay { position:fixed; inset:0; z-index:300; background:rgba(8,14,26,.92); display:none; align-items:center; justify-content:center; flex-direction:column; }
+#scan-overlay.on { display:flex; }
+.scan-box { width:min(560px,94vw); text-align:center; }
+.scan-head { display:flex; align-items:center; gap:10px; color:#cfe3ff; font-size:.95rem; margin-bottom:10px; }
+.scan-head b { flex:1; text-align:left; }
+#scan-status { color:#5aa8ff; font-size:.8rem; }
+.scan-close { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.25); color:#fff; border-radius:8px; padding:4px 10px; cursor:pointer; font-size:.8rem; }
+#scan-video { width:100%; border-radius:14px; background:#000; border:2px solid rgba(90,168,255,.6); max-height:70vh; object-fit:contain; }
+.scan-tip { color:#7d9ac0; font-size:.75rem; margin-top:10px; }
     </style>
 </head>
 <body>
@@ -161,6 +176,7 @@
             <div class="drop" id="dr-d"><input type="file" accept="image/*" onchange="IA.ld(this,'d')"><div style="font-size:2rem">🔓</div><div id="lb-d">点击或拖拽乱码图<br><span style="font-size:.8rem;color:#888">(支持 Ctrl+V)</span></div><img id="pv-d" class="p-img"></div>
             <label>解密密码</label><input type="text" id="kd" placeholder="输入对应密码">
             <button class="btn green" onclick="IA.run('d')">开始还原</button>
+            <button class="btn" onclick="IA.scan.open()" style="margin-left:8px">📷 扫码识别</button>
             <div id="rx-d" class="res"><label style="color:var(--a)">还原结果:</label><img id="od" class="p-img on" style="border-color:var(--a)"><button class="cp" onclick="IA.dl('d')">📥 保存原图</button><div style="font-size:.7rem;color:#888;text-align:center;margin-top:4px">若点击下载无响应，请长按图片进行保存</div></div>
         </div>
     </div>
@@ -213,6 +229,14 @@
         <button class="close" onclick="IA.hideHelp()">关闭</button>
     </div>
 </div>
+    <div id="scan-overlay">
+        <div class="scan-box">
+            <div class="scan-head"><b>📷 扫码识别</b><span id="scan-status">对准打码图…</span><button class="scan-close" onclick="IA.scan.close()">✕</button></div>
+            <video id="scan-video" playsinline autoplay muted></video>
+            <canvas id="scan-canvas" style="display:none"></canvas>
+            <div class="scan-tip">把屏幕上含四角回字的打码图完整放入取景框；识别成功后自动用解密框中的密码还原。请先在上方输入密码。</div>
+        </div>
+    </div>
     <script src="core.js?v=3.0"></script>
     <script src="image-crypto.js?v=3.2"></script>
 </body>

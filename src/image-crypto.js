@@ -532,11 +532,128 @@ const IA = {
         // 仅加密区载入时同步打码编辑器；解密载入不影响编辑状态
         if (this.al === 'v3' && t === 'e') MOB.loadFrom(this.u[t], t);
     },
+    // 计算中状态：按钮禁用+文案，先让出一帧再执行同步计算（否则 busy 样式来不及渲染）
+    setBusy(t, on) {
+        const list = [];
+        const b0 = document.querySelector(t === 'e' ? '#sp-e .btn' : '#sp-d .btn');
+        if (b0) list.push(b0);
+        if (t === 'e') { const b1 = document.querySelector('#v3-enc'); if (b1) list.push(b1); }
+        for (const b of list) {
+            if (!b) continue;
+            if (on) {
+                if (!b.dataset.busyTxt) b.dataset.busyTxt = b.textContent;
+                b.textContent = '⏳ 计算中…'; b.disabled = true; b.classList.add('busy');
+            } else {
+                if (b.dataset.busyTxt) b.textContent = b.dataset.busyTxt;
+                b.disabled = false; b.classList.remove('busy');
+            }
+        }
+    },
     run(t) {
+        if (this.busy && this.busy[t]) return;
         const f = this.fs[t]; if (!f && !$('pv-' + t).src) return T("请先载入图片");
         const k = (t === 'e' ? ($('ke3') ? $('ke3').value : $('ke').value) : $('kd').value) || '';
         if (!k) return T("请输入密码");
-        const img = new Image(); img.onload = () => { if (this.al === 'v1') this.pV1(img, k, t); else if (this.al === 'v2') this.pV2(img, k, t); else this.pV3(img, k, t); }; img.src = $('pv-' + t).src;
+        if (!this.busy) this.busy = {};
+        this.busy[t] = true;
+        this.setBusy(t, true);
+        const self = this;
+        setTimeout(() => {
+            const img = new Image();
+            const finish = () => { self.busy[t] = false; self.setBusy(t, false); };
+            img.onload = () => {
+                try {
+                    if (self.al === 'v1') self.pV1(img, k, t);
+                    else if (self.al === 'v2') self.pV2(img, k, t);
+                    else self.pV3(img, k, t);
+                } finally { finish(); }
+            };
+            img.onerror = () => { finish(); T("图片加载失败"); };
+            img.src = $('pv-' + t).src;
+        }, 40);
+    },
+    /* ===== 手机摄像头扫码器：帧循环 readRing 识别，命中即自动还原（扫码器需要 secure context 才能调摄像头） ===== */
+    scan: {
+        on: false, stream: null, raf: 0, lastT: 0, busyHit: false,
+        open() {
+            if (this.on) return;
+            const ov = $('scan-overlay');
+            if (!ov) return T("扫码器组件缺失");
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { T("当前浏览器/环境不支持摄像头（手机需用 https 或 localhost 访问）"); return; }
+            this.on = true;
+            ov.classList.add('on');
+            const st = $('scan-status'); if (st) st.textContent = '正在启动摄像头…';
+            const self = this;
+            navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: false
+            }).then(stream => {
+                if (!self.on) { stream.getTracks().forEach(t => t.stop()); return; }
+                self.stream = stream;
+                const v = $('scan-video'); v.srcObject = stream; v.play().catch(() => {});
+                if (st) st.textContent = '对准打码图…';
+                self.lastT = 0;
+                self.loop();
+            }).catch(e => {
+                self.on = false; ov.classList.remove('on');
+                T("摄像头不可用：" + (e && e.name ? e.name : '请检查权限'));
+            });
+        },
+        close() {
+            this.on = false;
+            this._stop();
+            if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.stream = null; }
+            const ov = $('scan-overlay'); if (ov) ov.classList.remove('on');
+        },
+        _stop() { if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; } },
+        loop() {
+            if (!this.on) return;
+            const self = this;
+            this.raf = requestAnimationFrame(() => self.tick());
+        },
+        tick() {
+            if (!this.on) return;
+            const now = performance.now();
+            if (now - this.lastT > 150) { // ≈6fps
+                this.lastT = now;
+                const hit = this.detect();
+                if (hit) { this.hit(hit); return; }
+            }
+            this.loop();
+        },
+        detect() {
+            const vd = $('scan-video'); if (!vd || !vd.videoWidth) return null;
+            const cv = $('scan-canvas'); if (!cv) return null;
+            const x = cv.getContext('2d');
+            const scale = Math.min(1, 1280 / vd.videoWidth);
+            const w = Math.max(8, Math.round(vd.videoWidth * scale)), h = Math.max(8, Math.round(vd.videoHeight * scale));
+            cv.width = w; cv.height = h;
+            x.drawImage(vd, 0, 0, w, h);
+            const d = x.getImageData(0, 0, w, h);
+            const rr = J2.readRing(d.data, w, h);
+            if (rr) return { rr, d, w, h };
+            return null;
+        },
+        hit(res) {
+            this._stop();
+            const st = $('scan-status'); if (st) st.textContent = '识别成功，正在还原…';
+            const k = $('kd') ? $('kd').value : '';
+            if (!k) { T("请先在解密框输入密码再扫码"); this.close(); return; }
+            const self = this;
+            const cv = $('scan-canvas');
+            const onImg = (img) => {
+                IA.setBusy('d', true);
+                try { IA.pV3(img, k, 'd'); } finally { IA.setBusy('d', false); }
+                self.close();
+            };
+            try {
+                const url = cv.toDataURL('image/jpeg', 0.92);
+                const img = new Image();
+                img.onload = () => onImg(img);
+                img.onerror = () => { T("画面转码失败"); self.close(); };
+                img.src = url;
+            } catch (e) { T("画面转码失败：" + e); self.close(); }
+        }
     },
     pV1(img, k, t) {
         const c = $('cvs'), x = c.getContext('2d'), w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
