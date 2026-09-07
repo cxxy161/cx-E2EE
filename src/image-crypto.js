@@ -606,8 +606,45 @@ const IA = {
                 self.loop();
             }).catch(e => {
                 self.on = false; ov.classList.remove('on');
-                T("摄像头不可用：" + (e && e.name ? e.name : '请检查权限'));
+                // 自签证书页面多数手机浏览器不发权限弹窗 → NotAllowedError；引导用拍照模式兜底
+                if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
+                    T("摄像头权限被浏览器拦下（自签证书页面常见）— 改用「拍照识别」即可，无需权限弹窗");
+                } else {
+                    T("摄像头不可用：" + (e && e.name ? e.name : '请检查权限') + ' — 可用「拍照识别」替代');
+                }
             });
+        },
+        // 拍照识别兜底：调起系统相机拍一张 → 自动识别还原（不依赖 getUserMedia 权限，全平台可用）
+        photo() {
+            const inp = $('scan-photo-input');
+            if (!inp) return T("拍照组件缺失");
+            const st = $('scan-status'); if (st) st.textContent = '拍照后将自动识别…';
+            const self = this;
+            inp.onchange = () => {
+                const f = inp.files[0];
+                inp.value = '';
+                if (!f) return;
+                const url = URL.createObjectURL(f);
+                const img = new Image();
+                img.onload = () => { self.hitPhoto(url, img); };
+                img.onerror = () => T("照片读取失败");
+                img.src = url;
+            };
+            inp.click();
+        },
+        hitPhoto(url, img) {
+            const k = $('kd') ? $('kd').value : '';
+            if (!k) { T("请先在解密框输入密码再拍照识别"); return; }
+            URL.revokeObjectURL(url);
+            IA.setBusy('d', true);
+            const finish = () => IA.setBusy('d', false);
+            try { IA.pV3(img, k, 'd'); } catch (e) { finish(); T("识别失败：" + e); return; }
+            finish();
+            // 若 pV3 未识别（pV3 内部报 T），延时提示重拍
+            setTimeout(() => {
+                const t = $('tst') ? $('tst').innerText : '';
+                if (t.includes('未识别')) T("没拍好：请把打码图完整放入取景框后重拍");
+            }, 1200);
         },
         close() {
             this.on = false;
