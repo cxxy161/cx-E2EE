@@ -1,5 +1,15 @@
+# Docker build context = repo root (compose: context: ..)
 node_modules
 .git
+data
+dist
+archive
+sin
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
 server.log
 nginx-cx-e2ee.conf
 cx-pubkey.service

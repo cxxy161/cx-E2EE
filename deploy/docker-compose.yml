@@ -1,0 +1,16 @@
+# C-X Security Terminal — production compose
+# Whole site in one container: frontend static + PKI API.
+# Run from repo root:  docker compose -f deploy/docker-compose.yml up -d --build
+services:
+  cx-e2ee:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: cx-e2ee
+    ports:
+      - "1211:3000"   # host:container — nginx/caddy in front for TLS if needed
+    volumes:
+      - ../data/pubkey_store.json:/app/data/pubkey_store.json  # PKI DB persists
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
