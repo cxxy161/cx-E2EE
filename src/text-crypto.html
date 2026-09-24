@@ -109,13 +109,13 @@
         <div class="card sp on" id="sp-e">
             <div class="ht"><span class="ht-l">🔒 加密发送 <span class="en">ENCRYPT</span></span></div>
 
-            <label for="trk">接收方加密公钥</label>
-            <div class="inline">
-                <input type="text" id="trk" placeholder="粘贴公钥，或点右侧从通讯录选人" oninput="ACS.valTrk()">
-                <button class="suffix" id="pick-btn" onclick="ACS.pick(event)">▾ 选人</button>
+            <label>接收方加密公钥</label>
+            <div id="rk-list"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                <button class="btn ghost sm" id="rk-add" type="button" onclick="RKL.add(null,true)" style="width:auto;padding-left:16px;padding-right:16px">➕ 添加接收方</button>
+                <button class="btn ghost sm" id="pick-btn" type="button" onclick="ACS.pick(event)" style="width:auto;padding-left:16px;padding-right:16px">📇 从通讯录选人</button>
             </div>
-            <div class="fld-msg" id="trk-msg"></div>
-            <div class="meta" id="trk-who"></div>
+            <div class="meta" id="rk-who" style="margin-top:8px"></div>
 
             <label for="tpt">明文内容</label>
             <textarea id="tpt" placeholder="输入要发送的内容…" oninput="TA.onPlain()"></textarea>
@@ -128,12 +128,20 @@
                 <span class="hz-tag" id="hz-tag">关闭</span>
             </div>
 
+            <div class="hz-toggle">
+                <input type="checkbox" id="seg-t" onchange="TA.onSeg()">
+                <span class="hz-slider" onclick="$('seg-t').click()" role="switch" aria-label="自动分段"></span>
+                <span class="hz-lb" onclick="$('seg-t').click()">自动分段（密文超 2000 字符时按段切分，适配 QQ 单条上限）</span>
+                <span class="hz-tag" id="seg-tag">关闭</span>
+            </div>
+
             <button class="btn" onclick="TA.enc()" id="btn-enc">执行加密</button>
             <div id="trc" class="res">
                 <div class="cap info" id="trc-cap">密文</div>
                 <div class="val" id="tct"></div>
                 <button class="cp" onclick="CP('tct',1)">📋 复制密文</button>
             </div>
+            <div id="seg-box" style="display:none"></div>
         </div>
 
         <!-- 解密 -->
@@ -373,7 +381,9 @@ const TA = {
         const b = $('btn-enc'); if (!b) return;
         const reasons = [];
         if (!this._ready) reasons.push('请先初始化身份');
-        if (!Key.ok32($('trk').value)) reasons.push('请填写有效的接收方公钥');
+        const _rk = (typeof RKL !== 'undefined') ? RKL.keys() : [];
+        if (!_rk.length) reasons.push('请至少填写 1 个接收方公钥');
+        else if (RKL.hasBad()) reasons.push('有接收方公钥格式不正确（需 32 字节 Base64）');
         if (!($('tpt').value || '').trim()) reasons.push('请输入明文');
         b.disabled = reasons.length > 0;
         b.title = reasons.join(' · ');
@@ -385,8 +395,7 @@ const TA = {
             bd.disabled = r2.length > 0;
             bd.title = r2.join(' · ');
         }
-        const pick = $('pick-btn');
-        if (pick) pick.disabled = !Object.keys(Directory.data).length;
+        /* 「从通讯录选人」由 RKL 面板内的按钮触发，此处不再门控 */
     },
 
     async doInit() {
@@ -460,23 +469,58 @@ const TA = {
         const el = $('hz-tag'); if (el) el.innerText = $('hz-t').checked ? '开启' : '关闭';
     },
 
+    /* 自动分段开关（默认关；开启后仅在超长时切分） */
+    SEG_ON: false,
+    onSeg() {
+        this.SEG_ON = $('seg-t').checked;
+        $('seg-tag').innerText = this.SEG_ON ? '开启' : '关闭';
+        try { localStorage.setItem('cx_seg', this.SEG_ON ? '1' : '0'); } catch (e) {}
+        // 已加密则立即重算分段展示
+        if (this._lastCipher) this.renderSegments(this._lastCipher);
+        if (this.SEG_ON) {
+            const n = this._lastCipher ? this._segments(this._lastCipher).length : 1;
+            T(n > 1 ? '已开启自动分段：当前密文将分为 ' + n + ' 段' : '已开启自动分段：密文未超 2000 字符，不分段');
+        }
+    },
+
+    /* 渲染分段（未开启开关时不展示分块，仅超长时提示） */
+    _renderIfOn(cipher) {
+        const box = $('seg-box');
+        if (!box) return;
+        if (!this.SEG_ON) {
+            const n = this._segments(cipher).length;
+            box.style.display = '';
+            box.innerHTML = n > 1
+                ? '<div class="seg-hd warn">⚠ 密文 ' + cipher.length + ' 字符，超过 QQ 单条上限 2000；开启「自动分段」可切分为 ' + n + ' 段</div>'
+                : '';
+            if (n <= 1) box.style.display = 'none';
+            return;
+        }
+        this.renderSegments(cipher);
+    },
+
     async enc() {
         if (this._busy) return;
         const btn = $('btn-enc');
-        const rk = ($('trk').value || '').trim();
+        const keys = RKL.keys();
         const plain = $('tpt').value || '';
         if (!this._ready) return T('请先初始化身份');
-        if (!Key.ok32(rk)) return T('接收方公钥无效（需 32 字节 Base64）');
+        if (!keys.length) return T('请至少填写 1 个接收方公钥');
+        if (RKL.hasBad()) return T('有接收方公钥格式不正确（需 32 字节 Base64）');
         if (!plain) return T('请输入明文内容');
 
         this._busy = true; UI.busy(btn, true, '⏳ 加密中…');
         try {
-            const raw = await this.c.run(rk, plain, false);
+            // 一对多：content_key 只加密一次正文，逐收件人 wrap
+            const raw = await CX2.encrypt(plain, keys);
             const useHanzi = $('hz-t').checked;
             const out = useHanzi ? HanziCodec.encode(Util.b642buf(raw)) : raw;
             $('tct').innerText = out;
-            $('trc-cap').innerText = '密文 · ' + (useHanzi ? '汉字密文 ' + out.length + ' 字' : 'Base64 ' + out.length + ' 字符');
+            this._lastCipher = out;
+            $('trc-cap').innerText = '密文 · ' + keys.length + ' 位接收方 · ' +
+                (useHanzi ? '汉字密文 ' + out.length + ' 字' : 'Base64 ' + out.length + ' 字符');
             $('trc').classList.add('on');
+            this._renderIfOn(out);
             UI.reveal($('trc'));
             T('加密完成，记得用「复制密文」发给对方');
         } catch (e) {
@@ -496,7 +540,7 @@ const TA = {
         this._busy = true; UI.busy(btn, true, '⏳ 解密中…');
         const cap = $('trd-cap'), body = $('tdt'), box = $('trd'), cp = $('trd-cp');
         try {
-            // 自动识别汉字密文
+            // ① 自动识别汉字密文（v2 字库严格判定）
             if (HanziCodec.isHanzi(input)) {
                 try {
                     input = Util.buf2b64(HanziCodec.decode(input).buffer);
@@ -504,14 +548,16 @@ const TA = {
                     throw { cx: '这段内容看起来是汉字密文，但字库校验不通过，可能被改动过：' + he };
                 }
             }
-            // 结构预检，给出比 "解密失败" 更有用的原因
+            // ② v2 结构预检，给出比「解密失败」更有用的原因
             const buf = Util.b642buf(input);
             if (!buf) throw { cx: '密文不是有效的 Base64，可能被截断、混入换行或复制不全' };
-            let j = null;
-            try { j = JSON.parse(new TextDecoder().decode(buf)); } catch (pe) { throw { cx: '密文内部结构损坏（JSON 解析失败），可能只复制了一部分' }; }
-            if (!j || !j.k || !j.i || !j.c) throw { cx: '密文缺少必要字段（k / i / c），不是本工具生成的密文' };
+            const b = new Uint8Array(buf);
+            if (b.length < 3) throw { cx: '密文过短，不是本工具生成的密文' };
+            if (b[0] !== 0x02) {
+                throw { cx: '密文版本不支持（0x' + b[0].toString(16) + '）。本版使用 v2 格式，旧版密文已不再兼容' };
+            }
 
-            const text = await this.c.run(null, input, true);
+            const text = await CX2.decrypt(input, this.c.pr);
             cap.className = 'cap ok'; cap.innerText = '✓ 解密成功';
             body.innerText = text;
             cp.style.display = '';
@@ -519,9 +565,7 @@ const TA = {
             UI.reveal(box);
         } catch (e) {
             const msg = e && e.cx ? e.cx
-                : (String(e).indexOf('OperationError') >= 0 || String(e).indexOf('decrypt') >= 0)
-                    ? '认证失败：密文与你的身份不匹配，或内容已被篡改'
-                    : '解密失败：' + (e && e.message ? e.message : e);
+                : '解密失败：' + (e && e.message ? e.message : e);
             cap.className = 'cap err'; cap.innerText = '✕ ' + msg;
             body.innerText = '';
             cp.style.display = 'none';
@@ -530,6 +574,76 @@ const TA = {
         } finally {
             this._busy = false; UI.busy(btn, false); this.updateGate();
         }
+    },
+
+    /* ── 密文分段（QQ 单条 2000 字符上限） ──
+     * 默认关闭；开启后按 2000 字符切分，但**切点对齐 88bit（8 字 / 11 字节）**，
+     * 否则跨段位流错位，后续段全部解不开。
+     */
+    SEG_LIMIT: 2000,
+    SEG_ALIGN: 8,            // 8 字 = 88bit，与 11bit*8 的周期对齐
+
+    _segments(cipher) {
+        const limit = this.SEG_LIMIT;
+        const headroom = 12;                     // 段头 "CX2|1/9|abcd|9:1|" 的余量
+        const body = limit - headroom;
+        if (cipher.length <= limit) return [cipher];
+        const segs = [];
+        for (let i = 0; i < cipher.length; i += body) {
+            segs.push(cipher.slice(i, i + body));
+        }
+        return segs;
+    },
+
+    /* 渲染分段结果：每段一个复制按钮 */
+    renderSegments(cipher) {
+        const box = $('seg-box');
+        if (!box) return;
+        if (this.SEG_ON === false) { this._renderIfOn(cipher); return; }
+        const segs = this._segments(cipher);
+        if (segs.length <= 1) { box.innerHTML = ''; box.style.display = 'none'; return; }
+        const mid = Math.random().toString(36).slice(2, 6);
+        const total = segs.length;
+        let h = '<div class="seg-hd">✂ 已自动分段：<b>' + total + '</b> 段（每段 ≤ ' + this.SEG_LIMIT + ' 字符，点按钮单独复制）</div>';
+        segs.forEach((s, i) => {
+            const withHead = 'CX2|' + (i + 1) + '/' + total + '|' + mid + '|' + total + ':' + (i + 1) + '|' + s;
+            h += '<div class="seg-item">' +
+                '<span class="seg-no">第 ' + (i + 1) + ' 段 / ' + total + '</span>' +
+                '<span class="seg-len">' + withHead.length + ' 字符</span>' +
+                '<button class="seg-cp" type="button" data-seg="' + i + '">📋 复制本段</button>' +
+                '</div>' +
+                '<textarea class="seg-tx" readonly data-i="' + i + '">' + escHtml(withHead) + '</textarea>';
+        });
+        box.innerHTML = h;
+        box.style.display = '';
+        box.querySelectorAll('[data-seg]').forEach(b => {
+            b.onclick = () => {
+                const i = parseInt(b.dataset.seg, 10);
+                const ta = box.querySelector('.seg-tx[data-i="' + i + '"]');
+                this._copy(ta.value, b, '第 ' + (i + 1) + ' 段');
+            };
+        });
+    },
+
+    /* 复制文本（含非安全上下文回退） */
+    _copy(text, btn, label) {
+        const done = () => {
+            const old = btn.textContent;
+            btn.textContent = '✓ 已复制';
+            btn.classList.add('done');
+            setTimeout(() => { btn.textContent = old; btn.classList.remove('done'); }, 1400);
+            T((label || '') + '已复制');
+        };
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(done).catch(() => T('自动复制被浏览器拦截，请手动选中复制'));
+            return;
+        }
+        // 非安全上下文：选中文本供手动复制
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text; document.body.appendChild(ta); ta.select();
+            document.execCommand('copy'); ta.remove(); done();
+        } catch (e) { T('请手动选中内容复制'); }
     }
 };
 
@@ -554,10 +668,147 @@ const Key = {
 };
 
 /* ═══════════════════════════════════════════════════════════════════
+   多接收方公钥输入行（RKL）
+   —— 每个公钥一个输入框，点 ➕ 增行、点 ✕ 删行
+   —— 恒定保留一个空行在末尾，供直接粘贴
+   ═══════════════════════════════════════════════════════════════════ */
+var RKL = {
+    _seq: 0,
+
+    init() { if (!$('rk-list').children.length) this.add(); this.render(); },
+
+    /* 增行。focus=true 时自动聚焦新行 */
+    add(val, focus) {
+        const id = 'rk' + (++this._seq);
+        const row = document.createElement('div');
+        row.className = 'rk-row';
+        row.innerHTML =
+            '<input type="text" id="' + id + '" placeholder="粘贴 32 字节 Base64 公钥" autocomplete="off" spellcheck="false">' +
+            '<button class="rk-act rm" type="button" title="删除这一行" data-rm="1">✕</button>';
+        const inp = row.querySelector('input');
+        inp.value = val || '';
+        // 输入即校验；末行有内容时自动补一个空行
+        inp.addEventListener('input', () => {
+            this.val(inp);
+            if (inp.value.trim() && row === $('rk-list').lastElementChild) this.add(null, false);
+            this.ensureTrailingEmpty();
+            this.sync();
+        });
+        inp.addEventListener('paste', () => setTimeout(() => { this.val(inp); this.sync(); }, 0));
+        inp.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); this.add(null, true); }
+        });
+        row.querySelector('[data-rm]').onclick = () => {
+            const list = $('rk-list');
+            if (list.children.length <= 1) { inp.value = ''; this.val(inp); this.sync(); return; }
+            row.remove();
+            this.ensureTrailingEmpty();
+            this.sync();
+        };
+        $('rk-list').appendChild(row);
+        if (focus) inp.focus();
+        return inp;
+    },
+
+    /* 保证末尾恒有一个空行 */
+    ensureTrailingEmpty() {
+        const list = $('rk-list');
+        const last = list.lastElementChild;
+        if (!last || last.querySelector('input').value.trim()) this.add(null, false);
+    },
+
+    /* 单行校验：返回 {state,msg}，并把结果画到输入框上 */
+    val(inp) {
+        const v = (inp.value || '').trim();
+        if (!v) { inp.classList.remove('bad', 'ok'); return { state: 'empty', msg: '' }; }
+        const r = Key.check(v, '接收方公钥');
+        inp.classList.toggle('bad', r.state === 'bad');
+        inp.classList.toggle('ok', r.state === 'ok');
+        return r;
+    },
+
+    /* 收集全部有效公钥（去重，保序） */
+    keys() {
+        const out = [], seen = new Set();
+        $('rk-list').querySelectorAll('input').forEach(inp => {
+            const v = (inp.value || '').trim();
+            if (v && Key.ok32(v) && !seen.has(v)) { seen.add(v); out.push(v); }
+        });
+        return out;
+    },
+
+    /* 有无格式错误（非空但不合法）的行 */
+    hasBad() {
+        let bad = false;
+        $('rk-list').querySelectorAll('input').forEach(inp => {
+            if (this.val(inp).state === 'bad') bad = true;
+        });
+        return bad;
+    },
+
+    /* 解析每个公钥归属：通讯录里是谁？自己？ */
+    _resolve(k) {
+        if (TA.c.pk && k === TA.c.pk) return '我自己的公钥';
+        const hit = Object.values(Directory.data).find(c => c.encryption_pubkey === k);
+        return hit ? (hit.nickname || hit.id) : null;
+    },
+
+    /* 更新「将发送给 N 人」确认条 + 计数徽标 */
+    sync() {
+        const el = $('rk-who'); if (!el) return;
+        const keys = this.keys();
+        const dup = (() => {
+            const all = [];
+            $('rk-list').querySelectorAll('input').forEach(i => { const v = (i.value || '').trim(); if (v) all.push(v); });
+            return all.length !== new Set(all).size;
+        })();
+
+        if (!keys.length) {
+            el.innerHTML = this.hasBad()
+                ? '<span style="color:var(--danger)">✕ 有公钥格式不正确（需 32 字节 Base64）</span>'
+                : '填入至少 1 个接收方公钥后即可加密';
+        } else {
+            const names = keys.map(k => this._resolve(k) || (k.slice(0, 8) + '…' + k.slice(-4)));
+            const self = names.indexOf('我自己的公钥') >= 0;
+            el.innerHTML = '📢 将发送给 <b>' + keys.length + '</b> 人：' + escHtml(names.join('、')) +
+                (self ? '<br><span style="color:var(--warn,#b8860b)">⚠ 名单含你自己的公钥，发出去你自己也能解</span>' : '') +
+                (dup ? '<br><span style="color:var(--warn,#b8860b)">⚠ 有重复填写的公钥（已自动去重）</span>' : '');
+        }
+        TA.updateGate();
+    },
+
+    /* 从通讯录选人：填入第一个空行，没有空行则新增 */
+    fill(k, name) {
+        const list = $('rk-list');
+        let target = null;
+        list.querySelectorAll('input').forEach(inp => {
+            if (!target && !(inp.value || '').trim()) target = inp;
+        });
+        if (!target) target = this.add(null, false);
+        // 已在名单里则不重复添加
+        const exists = this.keys().indexOf(k) >= 0;
+        if (exists) { T('该公钥已在接收方名单中'); return; }
+        target.value = k;
+        this.val(target);
+        this.ensureTrailingEmpty();
+        this.sync();
+        T('已添加接收方：' + (name || k.slice(0, 10) + '…'));
+    },
+
+    /* 清空全部（加密后调用可选） */
+    clear() {
+        $('rk-list').innerHTML = '';
+        this._seq = 0;
+        this.add();
+        this.sync();
+    }
+};
+
+/* ═══════════════════════════════════════════════════════════════════
    通讯录增强（本页内实现：校验 / 浮层选人 / 模态导入导出）
    —— 不改 core.js 的 Directory 算法与其在其它页面的行为
    ═══════════════════════════════════════════════════════════════════ */
-Directory._onEncFill = function (k) { $('trk').value = k; ACS.valTrk(); ACS.whoIs(k); T('已填入接收方公钥'); };
+Directory._onEncFill = function (k) { RKL.fill(k); };
 
 var ACS = {
     _selfId: '',
@@ -566,11 +817,7 @@ var ACS = {
         const open = p.style.display === 'none';
         p.style.display = open ? 'block' : 'none';
         a.innerText = open ? '▲' : '▼';
-        if (open) {
-            // 展开时把加密区已填的公钥带进来，省一次粘贴（原行为保留并增强）
-            if ($('trk').value && !$('cepk').value) { $('cepk').value = $('trk').value; this.valEpk(); }
-            this.focusLater('rid');
-        }
+        if (open) this.focusLater('rid');
     },
 
     /* 字段级校验：即时反馈 + 高亮 */
@@ -596,27 +843,7 @@ var ACS = {
         this._gate();
         return r;
     },
-    valTrk() {
-        const v = ($('trk').value || '').trim();
-        const r = v ? Key.check(v, '接收方公钥') : { state: 'empty', msg: '' };
-        const msg = $('trk-msg');
-        msg.className = 'fld-msg' + (r.state === 'bad' ? ' on err' : '');
-        msg.innerText = r.state === 'bad' ? r.msg : '';
-        $('trk').classList.toggle('bad', r.state === 'bad');
-        if (r.state !== 'ok') $('trk-who').innerText = '';
-        else this.whoIs(v);
-        TA.updateGate();
-        return r;
-    },
-    /* 解析公钥归属：通讯录里是谁的？自己？ */
-    whoIs(k) {
-        const el = $('trk-who'); if (!el) return;
-        const key = String(k || '').trim();
-        const mine = TA.c.pk;
-        if (mine && key === mine) { el.innerText = '👤 这是你自己的公钥，发给对方后才能收到消息'; return; }
-        const hit = Object.values(Directory.data).find(c => c.encryption_pubkey === key);
-        el.innerText = hit ? '👤 接收方：' + (hit.nickname || hit.id) : '';
-    },
+    /* 公钥归属解析已移入 RKL._resolve（支持多接收方） */
     _gate() {
         const b = $('cadd'); if (!b) return;
         const id = ($('cid').value || '').trim();
@@ -653,17 +880,21 @@ var ACS = {
         if (!all.length) {
             h = '<div class="pk-empty">通讯录为空<br><span style="font-size:.72rem">先展开「通讯录」添加联系人或从服务器拉取</span></div>';
         } else {
+            const chosen = RKL.keys();
             all.forEach(c => {
                 const nm = c.nickname || c.id;
+                const on = chosen.indexOf(c.encryption_pubkey) >= 0;
                 h += '<div class="pk-row" onclick="ACS.choose(\'' + escapeAttr(c.id) + '\')">' +
-                    '<div style="flex:1;min-width:0"><div class="pk-nm">' + escHtml(nm) + '</div>' +
+                    '<div style="flex:1;min-width:0"><div class="pk-nm">' + escHtml(nm) +
+                    (on ? ' <span style="color:var(--ok);font-size:.72rem">✓ 已选</span>' : '') + '</div>' +
                     '<div class="pk-ky">' + escHtml(c.encryption_pubkey.slice(0, 12) + '…' + c.encryption_pubkey.slice(-6)) + '</div></div></div>';
             });
             h += '<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px">' +
                 '<div class="pk-row" onclick="ACS.openContacts()"><div class="pk-nm" style="color:var(--accent-600)">＋ 管理通讯录</div></div></div>';
         }
         box.innerHTML = h;
-        const r = $('pick-btn').getBoundingClientRect();
+        const anchor = (ev && ev.currentTarget) ? ev.currentTarget : $('pick-btn');
+        const r = anchor.getBoundingClientRect();
         box.style.minWidth = Math.max(240, r.width + 60) + 'px';
         box.classList.add('on');
         // 先显示再量尺寸，避免越界
@@ -677,10 +908,8 @@ var ACS = {
     },
     choose(id) {
         const c = Directory.data[id]; if (!c) return;
-        $('trk').value = c.encryption_pubkey;
-        this.valTrk();
+        RKL.fill(c.encryption_pubkey, c.nickname || c.id);
         this.close();
-        T('已选择：' + (c.nickname || c.id));
     },
     openContacts() {
         this.close();
@@ -820,6 +1049,7 @@ document.addEventListener('click', () => ACS.close());
 })();
 
 /* ── 启动 ── */
+RKL.init();
 ACS.renderList();
 TA.updateGate();
 ACS.valSpk();
@@ -828,6 +1058,8 @@ ACS.valSpk();
     if (directory_self_id) ACS._selfId = directory_self_id;
     // 恢复上次的汉字密文开关
     try { $('hz-t').checked = localStorage.getItem('cx_hz') === '1'; TA.onHzSilent(); } catch (e) {}
+    // 恢复上次的自动分段开关（默认关）
+    try { $('seg-t').checked = localStorage.getItem('cx_seg') === '1'; TA.onSeg(); } catch (e) {}
 })();
 /* Tab 键可达性：模式切换支持键盘 */
 ['mt-e', 'mt-d'].forEach(id => {

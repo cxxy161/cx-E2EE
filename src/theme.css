@@ -335,6 +335,53 @@ textarea { min-height: 96px; resize: vertical; line-height: 1.55; }
 .cdel:hover { opacity: 1; background: var(--danger-soft); }
 .empty { text-align: center; color: var(--text-dim); font-size: .8rem; padding: 16px; }
 
+/* ── 多接收方公钥输入行 ──────────────────────────────── */
+.rk-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.rk-row input {
+    flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: var(--r); background: var(--surface); color: var(--text);
+    font-size: .8rem; font-family: var(--fm); transition: .15s;
+}
+.rk-row input:focus { outline: none; border-color: var(--brand-500); }
+.rk-row input.bad { border-color: var(--danger); }
+.rk-row input.ok { border-color: var(--ok); }
+.rk-act {
+    flex: 0 0 auto; width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-dim); cursor: pointer; font-size: .95rem;
+    display: flex; align-items: center; justify-content: center; transition: .15s; padding: 0;
+}
+.rk-act:hover { background: var(--surface-2); color: var(--text); }
+.rk-act.rm:hover { border-color: var(--danger); color: var(--danger); }
+.rk-msg { font-size: .72rem; color: var(--danger); margin: -4px 0 8px 2px; }
+.rk-msg.ok { color: var(--ok); }
+.rk-who { font-size: .78rem; color: var(--text-dim); margin-top: 8px; }
+.rk-who b { color: var(--brand-600); }
+
+/* ── 密文分段（QQ 2000 字符上限） ─────────────────────── */
+#seg-box { margin-top: 14px; }
+.seg-hd {
+    font-size: .78rem; color: var(--text-dim); margin-bottom: 10px;
+    padding: 9px 11px; background: var(--surface-2); border-radius: var(--r); line-height: 1.5;
+}
+.seg-hd b { color: var(--brand-600); }
+.seg-hd.warn { color: var(--danger); background: var(--danger-soft, rgba(200,60,50,.08)); }
+.seg-item { display: flex; align-items: center; gap: 8px; margin: 10px 0 5px; flex-wrap: wrap; }
+.seg-no { font-size: .76rem; font-weight: 700; color: var(--text); }
+.seg-len { font-size: .72rem; color: var(--text-dim); font-family: var(--fm); }
+.seg-cp {
+    margin-left: auto; padding: 6px 12px; font-size: .74rem; font-weight: 600;
+    border: 1px solid var(--brand-500); background: var(--surface); color: var(--brand-600);
+    border-radius: 8px; cursor: pointer; transition: .15s;
+}
+.seg-cp:hover { background: var(--brand-500); color: #fff; }
+.seg-cp.done { background: var(--ok); border-color: var(--ok); color: #fff; }
+.seg-tx {
+    width: 100%; min-height: 62px; font-size: .68rem; font-family: var(--fm);
+    padding: 9px; border: 1px solid var(--border); border-radius: var(--r);
+    background: var(--surface-2); color: var(--text-dim); resize: vertical;
+    word-break: break-all; line-height: 1.5;
+}
+
 /* ── 联系人浮层选择器 ────────────────────────────────── */
 .picker {
     position: fixed; z-index: 150; background: var(--surface); border: 1px solid var(--border);
