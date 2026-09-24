@@ -25,7 +25,7 @@
                 <input type="checkbox" id="hz-e">
                 <span class="hz-slider" onclick="$('hz-e').click()"></span>
                 <span>汉字密文</span>
-                <span class="hz-tag">4096字库</span>
+                <span class="hz-tag">2048字库</span>
             </div>
 
             <button class="btn" onclick="AES.run(false)">执行高强度加密</button>
@@ -52,7 +52,8 @@
     </div>
 </div>
 
-    <script src="core.js?v=3.0"></script>
+    <script src="hanzi-table-v2.js?v=2.0"></script>
+<script src="core.js?v=3.1"></script>
 <script>
 const AES = {
     enc: new TextEncoder(), dec: new TextDecoder(),
