@@ -7,15 +7,10 @@ window.addEventListener('unhandledrejection', (e) => {
 
 const $ = (i) => document.getElementById(i);
 
-// 动态注入全局 Toast 和 Modal
+// 动态注入全局 Toast（复制失败不再弹回退框：内容本就在页面输出框里，用户可直接选中复制）
 document.addEventListener("DOMContentLoaded", () => {
     if (!$('tst')) {
         let t = document.createElement('div'); t.id = 'tst'; document.body.appendChild(t);
-    }
-    if (!$('pop')) {
-        let p = document.createElement('div'); p.id = 'pop';
-        p.innerHTML = `<div class="pbox"><div class="ht">📝 手动复制数据</div><textarea id="ptx" style="height:150px;margin-bottom:10px"></textarea><button class="btn" onclick="document.getElementById('pop').classList.remove('on')">关闭</button></div>`;
-        document.body.appendChild(p);
     }
 });
 
@@ -26,19 +21,25 @@ const T = (m) => {
 };
 
 const CP = (i, isId) => {
-    let el = $(i);
-    let t = isId ? (el.value || el.innerText) : i;
+    let t;
+    if (isId) {
+        // 传的是元素 id：元素不存在时直接返回，不再抛异常
+        let el = $(i);
+        if (!el) return;
+        t = el.value || el.innerText;
+    } else {
+        t = i;
+    }
     if (!t) return;
     if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(t).then(() => T("已复制")).catch(() => fallbackCP(t));
-    } else {
-        fallbackCP(t);
+        navigator.clipboard.writeText(t)
+            .then(() => T("已复制"))
+            .catch(() => T("自动复制被浏览器拦截，请手动选中内容复制"));
+        return;
     }
-};
-
-const fallbackCP = (t) => {
-    let p = $('pop'), x = $('ptx');
-    if (p && x) { x.value = t; p.classList.add('on'); x.select(); T("请手动复制"); }
+    // 非安全上下文（如手机经局域网 http 访问）没有剪贴板权限：
+    // 内容本来就在页面输出框里可见，直接提示用户手动复制即可
+    T("当前环境不支持自动复制，请手动选中内容复制");
 };
 
 function TS(t) {
