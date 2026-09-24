@@ -39,7 +39,7 @@
 
         <label for="tp">助记句 · 用于派生私钥（相同口令永远得到相同身份）</label>
         <div class="inline">
-            <input type="text" id="tp" class="masked" placeholder="输入您的专属口令" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="TA.onPassInput()">
+            <input type="text" id="tp" class="masked" placeholder="输入您的专属口令" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="TA.onPassInput(event)" oncompositionstart="TA._composing=true" oncompositionend="TA._composing=false; TA.onPassInput(event)">
             <button class="suffix" id="tp-eye" type="button" onclick="TA.togglePass()" aria-label="显示或隐藏助记句" title="显示 / 隐藏">👁 显示</button>
         </div>
         <div class="fld-msg hint on">口令不会上传，仅在本机内存中派生密钥。改口令需重新初始化。</div>
@@ -363,7 +363,16 @@ const TA = {
         $('led-t').innerText = text;
     },
     /* 口令输入：只在"值确实变化"时降级状态，且不清空已生成的公钥 */
+    _composing: false,
+    /* 口令输入
+     *
+     * ⚠️ 中文输入法组字期间（_composing）必须直接返回：
+     * 此前每次 oninput 都会走 updateGate -> RKL.keys -> Key.check -> atob，
+     * 组字过程中反复做同步 DOM 写入与 atob，会打断候选框，导致中文打不出来。
+     * 组字结束后由 oncompositionend 再补跑一次。
+     */
     onPassInput() {
+        if (this._composing) return;
         const v = $('tp').value || '';
         if (!this._ready) return;                 // 尚未初始化，无需提示
         if (v === this._oldPass) {               // 改回原口令 → 恢复
@@ -381,9 +390,12 @@ const TA = {
         const b = $('btn-enc'); if (!b) return;
         const reasons = [];
         if (!this._ready) reasons.push('请先初始化身份');
-        const _rk = (typeof RKL !== 'undefined') ? RKL.keys() : [];
-        if (!_rk.length) reasons.push('请至少填写 1 个接收方公钥');
-        else if (RKL.hasBad()) reasons.push('有接收方公钥格式不正确（需 32 字节 Base64）');
+        // 用 RKL 维护的缓存结果，避免每次按键都重跑 atob/校验
+        if (typeof RKL !== 'undefined') {
+            const st = RKL._state || { n: 0, bad: false };
+            if (!st.n) reasons.push('请至少填写 1 个接收方公钥');
+            else if (st.bad) reasons.push('有接收方公钥格式不正确（需 32 字节 Base64）');
+        }
         if (!($('tpt').value || '').trim()) reasons.push('请输入明文');
         b.disabled = reasons.length > 0;
         b.title = reasons.join(' · ');
@@ -578,6 +590,14 @@ const TA = {
                 throw { cx: '密文版本不支持（0x' + b[0].toString(16) + '）。本版使用 v2 格式，旧版密文已不再兼容' };
             }
 
+            // ③ 环境自检：把「没初始化身份」「浏览器不支持」等
+            //    与真正的解密失败区分开，避免统统报成「认证失败」
+            if (!this._ready || !this.c.pr) {
+                throw { cx: '请先在顶部「初始化身份」——解密需要本机私钥' };
+            }
+            if (!window.crypto || !window.crypto.subtle) {
+                throw { cx: '当前页面无 Web Crypto（crypto.subtle 不可用）。请用 localhost / HTTPS 访问，且清一次浏览器缓存' };
+            }
             const text = await CX2.decrypt(input, this.c.pr);
             cap.className = 'cap ok'; cap.innerText = '✓ 解密成功';
             body.innerText = text;
@@ -763,6 +783,7 @@ const Key = {
    ═══════════════════════════════════════════════════════════════════ */
 var RKL = {
     _seq: 0,
+    _composing: false,      // 中文输入法组字中（此时不碰 DOM）
 
     init() { if (!$('rk-list').children.length) this.add(); this.sync(); },
 
@@ -776,8 +797,14 @@ var RKL = {
             '<button class="rk-act rm" type="button" title="删除这一行" data-rm="1">✕</button>';
         const inp = row.querySelector('input');
         inp.value = val || '';
-        // 输入即校验；末行有内容时自动补一个空行
+        // 输入即校验（组字期间跳过，避免打断中文输入法）
+        inp.addEventListener('compositionstart', () => { this._composing = true; });
+        inp.addEventListener('compositionend', () => {
+            this._composing = false;
+            this.val(inp); this.ensureTrailingEmpty(); this.sync();
+        });
         inp.addEventListener('input', () => {
+            if (this._composing) return;          // 组字中不碰 DOM
             this.val(inp);
             if (inp.value.trim() && row === $('rk-list').lastElementChild) this.add(null, false);
             this.ensureTrailingEmpty();
@@ -806,6 +833,11 @@ var RKL = {
         if (!last || last.querySelector('input').value.trim()) this.add(null, false);
     },
 
+    /* 校验状态缓存：{n: 有效公钥数, bad: 是否有格式错误的行}
+     * 由 sync() 在「输入稳定后」统一刷新，updateGate 只读它，
+     * 避免每次按键都遍历 DOM + atob。 */
+    _state: { n: 0, bad: false },
+
     /* 单行校验：返回 {state,msg}，并把结果画到输入框上 */
     val(inp) {
         const v = (inp.value || '').trim();
@@ -816,7 +848,13 @@ var RKL = {
         return r;
     },
 
-    /* 收集全部有效公钥（去重，保序） */
+    /* 只读缓存：有效公钥数 / 是否有错行（不触发校验） */
+    get _n() { return this._state.n; },
+    get _bad() { return this._state.bad; },
+
+    /* 收集全部有效公钥（去重，保序）
+     * 注意：这是**主动校验**，只在真正需要时调用（加密/解密/渲染），
+     * 不要放进按键路径。 */
     keys() {
         const out = [], seen = new Set();
         $('rk-list').querySelectorAll('input').forEach(inp => {
@@ -826,7 +864,7 @@ var RKL = {
         return out;
     },
 
-    /* 有无格式错误（非空但不合法）的行 */
+    /* 有无格式错误（非空但不合法）的行 —— 主动校验版 */
     hasBad() {
         let bad = false;
         $('rk-list').querySelectorAll('input').forEach(inp => {
@@ -845,7 +883,15 @@ var RKL = {
     /* 更新「将发送给 N 人」确认条 + 计数徽标 */
     sync() {
         const el = $('rk-who'); if (!el) return;
+        // 组字期间跳过：中文输入法需要稳定 DOM，避免候选框被重置
+        if (this._composing) return;
         const keys = this.keys();
+        // 刷新供 updateGate 读取的缓存
+        this._state = {
+            n: keys.length,
+            bad: Array.prototype.some.call($('rk-list').querySelectorAll('input'),
+                i => this.val(i).state === 'bad')
+        };
         const dup = (() => {
             const all = [];
             $('rk-list').querySelectorAll('input').forEach(i => { const v = (i.value || '').trim(); if (v) all.push(v); });

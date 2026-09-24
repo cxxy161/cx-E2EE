@@ -140,7 +140,22 @@ app.get('/api/pubkey/:id', (req, res) => {
     res.json(entry);
 });
 
-app.use(express.static(path.join(APP_ROOT, 'src')));
+// 静态资源必须禁用缓存。
+//
+// 为什么不能交给 express 默认策略：默认会带 ETag 并返回 304，
+// 于是浏览器可能拿「新的 text-crypto.html + 旧的 core.js/cx2.js」混搭运行。
+// 一旦线格式或函数签名不匹配，解密就会失败并报成
+// 「认证失败：正文密文与密钥不匹配」——指向完全错误的原因，极难排查。
+// 这是本地开发/自托管场景，禁用缓存比省这点流量重要得多。
+app.use(express.static(path.join(APP_ROOT, 'src'), {
+    etag: false,
+    lastModified: false,
+    setHeaders(res) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+    }
+}));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {

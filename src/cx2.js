@@ -147,6 +147,11 @@ const CX2 = (function () {
      * 找不到自己那一份时抛错（不是本消息的接收方 / 密文损坏）
      */
     async function decrypt(cipherB64, mySk) {
+        // 先把「环境/加载问题」与「真正的解密失败」分开报，避免都变成
+        // 「认证失败」这种指向错误原因的提示
+        if (!mySk || mySk.length !== 32) {
+            throw new Error('本机私钥不可用（请先点「初始化身份」）');
+        }
         if (!window.crypto?.subtle) throw new Error('当前环境不支持 Web Crypto API，请使用 HTTPS 或 localhost 访问');
         let buf;
         try { buf = unb64(cipherB64); }
