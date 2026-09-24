@@ -39,7 +39,7 @@
 
         <label for="tp">助记句 · 用于派生私钥（相同口令永远得到相同身份）</label>
         <div class="inline">
-            <input type="password" id="tp" placeholder="输入您的专属口令" autocomplete="new-password" oninput="TA.onPassInput()">
+            <input type="text" id="tp" class="masked" placeholder="输入您的专属口令" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="TA.onPassInput()">
             <button class="suffix" id="tp-eye" type="button" onclick="TA.togglePass()" aria-label="显示或隐藏助记句" title="显示 / 隐藏">👁 显示</button>
         </div>
         <div class="fld-msg hint on">口令不会上传，仅在本机内存中派生密钥。改口令需重新初始化。</div>
@@ -425,12 +425,22 @@ const TA = {
 
 
     /* 助记句 明文/密文 切换 */
+    /* 助记句显隐
+     *
+     * 输入框固定为 type="text"（不能用 password）：部分中文输入法在
+     * password 字段下无法正常唤起候选框，导致中文助记句打不出来。
+     * 因此改为用 CSS 掩码（-webkit-text-security）实现遮蔽，
+     * 既保留「默认看不见」的隐私效果，又不影响输入法。
+     */
+    _passMasked: true,
     togglePass() {
         const el = $('tp'), btn = $('tp-eye');
-        const showing = el.type === 'text';
-        el.type = showing ? 'password' : 'text';
-        if (btn) btn.textContent = showing ? '👁 显示' : '🙈 隐藏';
+        this._passMasked = !this._passMasked;
+        el.classList.toggle('masked', this._passMasked);
+        if (btn) btn.textContent = this._passMasked ? '👁 显示' : '🙈 隐藏';
         el.focus();
+        // 光标移到末尾，方便继续输入
+        try { const n = el.value.length; el.setSelectionRange(n, n); } catch (e) {}
     },
 
     clear() {
@@ -540,12 +550,17 @@ const TA = {
         this._busy = true; UI.busy(btn, true, '⏳ 解密中…');
         const cap = $('trd-cap'), body = $('tdt'), box = $('trd'), cp = $('trd-cp');
         try {
-            // ⓪ 若粘的是带段头的多段文本，先还原成完整密文
-            if (/CX2\|\d+\//.test(input)) {
-                const mg = this._mergeSegments(input);
-                input = mg.cipher;
-                if (mg.total) T('已合并 ' + mg.total + ' 段密文');
+            // ⓪ 先解析段头（可能是一整段、也可能被切成多段）
+            const mg = this._mergeSegments(input);
+            if (mg.incomplete) {
+                // 段不全时给出精确缺口，而不是让它掉进「认证失败」
+                throw {
+                    cx: '收到第 ' + mg.got + '/' + mg.total + ' 段，还缺第 ' +
+                        mg.missing.join('、') + ' 段。请把这条消息的全部段都粘贴进来（顺序不限）'
+                };
             }
+            input = mg.cipher;
+            if (mg.total > 1) T('已合并 ' + mg.total + ' 段密文');
             // ① 自动识别汉字密文（v2 字库严格判定）
             if (HanziCodec.isHanzi(input)) {
                 try {
@@ -607,29 +622,36 @@ const TA = {
         return segs;
     },
 
-    /* ── 接收侧：把带段头的多段文本还原成完整密文 ──
-     * 支持：用户把收到的多段全粘进来（任意顺序、含换行），
-     *       或只粘了部分（缺段时明确报出缺哪一段）。
-     * 返回 {cipher} 或抛 {cx: 原因}
+    /* ── 接收侧：把带段头的文本还原成密文 ──
+     *
+     * 三种输入都要能处理：
+     *   ① 完整单段（total=1 或无段头）→ 直接当密文用
+     *   ② 多段齐全（任意顺序、含换行）→ 按序号拼回完整密文
+     *   ③ 多段不全 → 返回已拼出的部分，并标记 incomplete，
+     *      由调用方给出「收到第 N/M 段，还缺第 x、y 段」的明确提示。
+     *      （旧实现直接抛错，用户看到的却是「认证失败」，指向完全错误）
+     *
+     * 返回 {cipher, total, got, missing, incomplete}
      */
     _mergeSegments(text) {
         const s = String(text || '');
-        // 匹配所有段头 CX2|seq/total|msgid|total:seq|
+        // 段头格式：CX2|seq/total|msgid|total:seq|
         const re = /CX2\|(\d+)\/(\d+)\|([A-Za-z0-9]+)\|(\d+):(\d+)\|/g;
         const found = [];
         let m;
         while ((m = re.exec(s)) !== null) {
-            found.push({ at: m.index, end: re.lastIndex, seq: +m[1], total: +m[2], mid: m[3], i: +m[5] });
+            found.push({ at: m.index, end: re.lastIndex, total: +m[2], mid: m[3], i: +m[5] });
         }
-        if (!found.length) return { cipher: s.replace(/\s+/g, '') };
+        // 无段头：整段当密文（单段消息就是这种形态）
+        if (!found.length) return { cipher: s.replace(/\s+/g, ''), total: 1, got: 1, missing: [], incomplete: false };
 
-        // 按 msgid 分组（一次可能粘了多条消息）
+        // 按 msgid 分组（用户可能一次粘了多条消息）
         const groups = new Map();
         for (const f of found) {
             if (!groups.has(f.mid)) groups.set(f.mid, []);
             groups.get(f.mid).push(f);
         }
-        // 取段数最多的那组（用户多数情况下只粘一条）
+        // 取段数最多的一组作为本次要处理的消息
         let best = null;
         for (const [mid, list] of groups) if (!best || list.length > best.list.length) best = { mid, list };
         const { list } = best;
@@ -638,21 +660,20 @@ const TA = {
         const have = new Map(list.map(x => [x.i, x]));
         const missing = [];
         for (let i = 1; i <= total; i++) if (!have.has(i)) missing.push(i);
-        if (missing.length) {
-            throw { cx: '分段密文不完整：共 ' + total + ' 段，缺少第 ' + missing.join('、') + ' 段。请把全部段都粘贴进来' };
-        }
-        // 按序号拼接段体（段体到下一个段头之前为止）
+
+        // 按序号拼接已收到的段体（段体从段头结束到下一个段头之前）
         let out = '';
         for (let i = 1; i <= total; i++) {
             const f = have.get(i);
+            if (!f) continue;
             const next = list.find(x => x.at > f.at);
             const bodyEnd = next ? next.at : s.length;
             out += s.slice(f.end, bodyEnd).replace(/\s+/g, '');
         }
-        return { cipher: out, total };
+        return { cipher: out, total, got: list.length, missing, incomplete: missing.length > 0 };
     },
 
-    /* 渲染分段结果：每段一个复制按钮 */
+    /* 渲染分段结果：每段一个复制按钮 + 一个「复制全部」 */
     renderSegments(cipher) {
         const box = $('seg-box');
         if (!box) return;
@@ -661,9 +682,16 @@ const TA = {
         if (segs.length <= 1) { box.innerHTML = ''; box.style.display = 'none'; return; }
         const mid = Math.random().toString(36).slice(2, 6);
         const total = segs.length;
-        let h = '<div class="seg-hd">✂ 已自动分段：<b>' + total + '</b> 段（每段 ≤ ' + this.SEG_LIMIT + ' 字符，点按钮单独复制）</div>';
-        segs.forEach((s, i) => {
-            const withHead = 'CX2|' + (i + 1) + '/' + total + '|' + mid + '|' + total + ':' + (i + 1) + '|' + s;
+
+        // 先算出每段的完整文本（含段头），供单独复制与「复制全部」共用
+        this._segTexts = segs.map((s, i) =>
+            'CX2|' + (i + 1) + '/' + total + '|' + mid + '|' + total + ':' + (i + 1) + '|' + s);
+
+        let h = '<div class="seg-hd">✂ 已自动分段：<b>' + total + '</b> 段（每段 ≤ ' + this.SEG_LIMIT +
+            ' 字符）。接收方把全部段一起粘贴即可解密，顺序不限。' +
+            '<button class="seg-cp seg-all" type="button" data-all="1" style="margin-left:8px">📋 复制全部 ' + total + ' 段</button>' +
+            '</div>';
+        this._segTexts.forEach((withHead, i) => {
             h += '<div class="seg-item">' +
                 '<span class="seg-no">第 ' + (i + 1) + ' 段 / ' + total + '</span>' +
                 '<span class="seg-len">' + withHead.length + ' 字符</span>' +
@@ -673,13 +701,17 @@ const TA = {
         });
         box.innerHTML = h;
         box.style.display = '';
+
         box.querySelectorAll('[data-seg]').forEach(b => {
             b.onclick = () => {
                 const i = parseInt(b.dataset.seg, 10);
-                const ta = box.querySelector('.seg-tx[data-i="' + i + '"]');
-                this._copy(ta.value, b, '第 ' + (i + 1) + ' 段');
+                this._copy(this._segTexts[i], b, '第 ' + (i + 1) + ' 段');
             };
         });
+        const allBtn = box.querySelector('[data-all]');
+        if (allBtn) {
+            allBtn.onclick = () => this._copy(this._segTexts.join('\n\n'), allBtn, '全部 ' + total + ' 段');
+        }
     },
 
     /* 复制文本（含非安全上下文回退） */
