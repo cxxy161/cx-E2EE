@@ -38,7 +38,10 @@
         </div>
 
         <label for="tp">助记句 · 用于派生私钥（相同口令永远得到相同身份）</label>
-        <input type="password" id="tp" placeholder="输入您的专属口令" autocomplete="new-password" oninput="TA.onPassInput()">
+        <div class="inline">
+            <input type="password" id="tp" placeholder="输入您的专属口令" autocomplete="new-password" oninput="TA.onPassInput()">
+            <button class="suffix" id="tp-eye" type="button" onclick="TA.togglePass()" aria-label="显示或隐藏助记句" title="显示 / 隐藏">👁 显示</button>
+        </div>
         <div class="fld-msg hint on">口令不会上传，仅在本机内存中派生密钥。改口令需重新初始化。</div>
         <div class="inline" style="margin-top:12px">
             <button class="btn sm" id="tb" onclick="TA.init()" style="flex:1">初始化身份</button>
@@ -47,17 +50,10 @@
 
         <!-- 我的公钥：常驻，不再随口令输入而消失 -->
         <div id="idbox" style="display:none;margin-top:16px">
-            <label style="margin-top:0">我的加密公钥（把它给对方，对方才能发消息给你）</label>
+            <label style="margin-top:0">我的加密公钥（把它发给对方，对方才能发消息给你）</label>
             <div class="secret">
                 <code id="tpk" data-secret></code>
-                <button class="mini" id="tpk-eye" onclick="UI.toggleSecret('tpk',this)" title="显示/隐藏">👁</button>
-                <button class="mini" onclick="CP('tpk')">复制</button>
-                <button class="mini" onclick="ACS.saveSelf()">存入通讯录</button>
-            </div>
-            <div class="fingerprint">
-                <span>指纹</span><span class="fp" id="fp-t">—</span>
-                <span>· 短码</span><span class="fp" id="fp-s">—</span>
-                <span>· 核对时可口头比对</span>
+                <button class="mini" onclick="CP('tpk',1)">复制</button>
             </div>
         </div>
 
@@ -136,7 +132,7 @@
             <div id="trc" class="res">
                 <div class="cap info" id="trc-cap">密文</div>
                 <div class="val" id="tct"></div>
-                <button class="cp" onclick="CP('tct')">📋 复制密文</button>
+                <button class="cp" onclick="CP('tct',1)">📋 复制密文</button>
             </div>
         </div>
 
@@ -152,7 +148,7 @@
             <div id="trd" class="res">
                 <div class="cap" id="trd-cap"></div>
                 <div class="val plain" id="tdt"></div>
-                <button class="cp" id="trd-cp" style="display:none" onclick="CP('tdt')">📋 复制明文</button>
+                <button class="cp" id="trd-cp" style="display:none" onclick="CP('tdt',1)">📋 复制明文</button>
             </div>
         </div>
     </div>
@@ -195,13 +191,6 @@ const UI = {
         document.querySelectorAll('.theme-sw button').forEach(b => b.classList.toggle('on', b.dataset.th === m));
     },
 
-    /* — 密钥显隐 — */
-    toggleSecret(id, btn) {
-        const el = $(id); if (!el) return;
-        const wasMasked = el.dataset.masked === '1';   // 当前是否折叠
-        this.render(el, !wasMasked);                   // 取反：折叠 → 展开，反之亦然
-        if (btn) btn.textContent = wasMasked ? '🙈' : '👁';
-    },
     render(el, hidden) {
         const full = el.dataset.full || '';
         // 用 textContent 赋值，避免 innerText 触发的重排/转换干扰
@@ -213,12 +202,11 @@ const UI = {
             el.dataset.masked = '0';
         }
     },
-    /* 写入密钥（长串默认折叠显示） */
+    /* 写入密钥（mask=false 时直接明文展示，公钥无隐藏必要） */
     setSecret(id, value, mask) {
         const el = $(id); if (!el) return;
         el.dataset.full = value;
         this.render(el, !!mask);
-        const eye = $(id + '-eye'); if (eye) eye.textContent = '👁';
     },
 
     /* — busy 按钮态 — */
@@ -407,11 +395,9 @@ const TA = {
         try {
             const pk = await this.c.init(pass);
             this._pass = pass; this._oldPass = pass; this._ready = true;
-            UI.setSecret('tpk', pk, true);
+            UI.setSecret('tpk', pk, false);
             $('idbox').style.display = 'block';
             $('idwarn').style.display = 'none';
-            $('fp-t').innerText = await this.fingerprint(pk);
-            $('fp-s').innerText = pk.slice(0, 6) + '…' + pk.slice(-6);
             this.setState('ok', '身份已激活');
             T('身份已激活');
             UI.reveal($('idbox'));
@@ -426,15 +412,14 @@ const TA = {
     },
     init() { this.doInit(); },
 
-    /* 公钥指纹：SHA-256(公钥) 前 8 字节大写十六进制，分组显示 */
-    async fingerprint(pk) {
-        try {
-            const buf = Util.b642buf(pk);
-            if (!buf) return '—';
-            const h = await crypto.subtle.digest('SHA-256', buf);
-            const hex = Util.buf2hex(h).toUpperCase().slice(0, 16);
-            return hex.match(/.{1,4}/g).join(' ');
-        } catch (e) { return '—'; }
+
+    /* 助记句 明文/密文 切换 */
+    togglePass() {
+        const el = $('tp'), btn = $('tp-eye');
+        const showing = el.type === 'text';
+        el.type = showing ? 'password' : 'text';
+        if (btn) btn.textContent = showing ? '👁 显示' : '🙈 隐藏';
+        el.focus();
     },
 
     clear() {
@@ -656,32 +641,6 @@ var ACS = {
         this.renderList();
         T('已添加联系人：' + (nn || id));
     },
-    /* 把"我的公钥"存入通讯录，省去手动粘贴 */
-    async saveSelf() {
-        const pk = TA.c.pk;
-        if (!pk) return T('请先初始化身份');
-        const mine = Object.values(Directory.data).find(c => c.encryption_pubkey === pk);
-        if (mine) { T('通讯录里已有你的公钥（' + (mine.nickname || mine.id) + '）'); return; }
-        Modal.open(
-            '<h3>存入我的公钥</h3>' +
-            '<div class="mdesc">给自己起一个 ID，方便在通讯录里识别。对方拉取到你的公钥后才能发消息给你。</div>' +
-            '<label for="self-id">我的 ID</label><input type="text" id="self-id" placeholder="例如：cx-zhangsan" value="' + escapeAttr(this._selfId || '') + '">' +
-            '<div class="macts" style="margin-top:16px"><button class="btn ghost" onclick="Modal.close(false)">取消</button>' +
-            '<button class="btn" id="self-ok">保存</button></div>'
-        );
-        this.focusLater('self-id');
-        const selfOk = $('self-ok');
-        if (selfOk) selfOk.onclick = () => {
-            const id = ($('self-id').value || '').trim();
-            if (!id) { T('请输入 ID'); return; }
-            this._selfId = id;
-            try { localStorage.setItem('cx_self_id', id); } catch (e) {}
-            Directory.add(id, '', pk, '我自己');
-            Modal.close(true);
-            this.renderList();
-            T('已存入通讯录');
-        };
-    },
 
     /* ── 浮层选人：不必展开通讯录就能选 ── */
     pick(ev) {
@@ -748,7 +707,7 @@ var ACS = {
             '<button class="btn" id="exp-cp">📋 复制</button></div>'
         );
         const expCp = $('exp-cp'), expDl = $('exp-dl');
-        if (expCp) expCp.onclick = () => { CP('exp-txt'); };
+        if (expCp) expCp.onclick = () => { CP('exp-txt', 1); };
         if (expDl) expDl.onclick = () => {
             const blob = new Blob([json], { type: 'application/json' });
             const a = document.createElement('a');
