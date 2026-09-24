@@ -1,70 +1,316 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>文本信道 - C-X 安全终端</title>
-    <link rel="stylesheet" href="style.css?v=3.0">
+    <link rel="stylesheet" href="theme.css?v=4.0">
+    <script>
+    /* 提前应用主题，避免刷新闪白（必须在 CSS 之后、body 之前） */
+    (function () {
+        try {
+            var m = localStorage.getItem('cx_theme') || 'auto';
+            var d = m === 'dark' || (m === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+            document.documentElement.setAttribute('data-theme', d ? 'dark' : 'light');
+        } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+    })();
+    </script>
 </head>
 
 <body>
 <div class="box">
-    <a href="index.html" class="nav-home">← 返回控制台</a>
-    <h1>文本通信协议</h1>
-
-    <div class="card">
-        <div class="ht"><span>身份凭证 (IDENTITY)</span><span id="led" style="color:#555">●</span></div>
-        <label>助记句 (输入唯一口令生成身份)</label>
-        <input type="text" id="tp" placeholder="在此输入您的专属口令，用于生成私钥" oninput="TA.rst()">
-        <button class="btn" onclick="TA.init()" id="tb">初始化身份</button>
-        <div id="trp" class="res"><div style="color:var(--p);margin-bottom:5px">我的公钥:</div><div id="tpk" style="color:#fff"></div><button class="cp" onclick="CP('tpk',1)">复制公钥</button></div>
-    </div>
-
-    <div class="card">
-        <div class="ht" onclick="ACS.tog()" style="cursor:pointer"><span>通讯录 (CONTACTS)</span><span id="car">▼</span></div>
-        <div id="cpnl" style="display:none;margin-top:15px">
-            <div class="trow"><button class="tbtn" onclick="Directory.exp()">📤 导出</button><button class="tbtn" onclick="Directory.imp()">📥 导入</button></div>
-            <div class="abox"><input type="text" id="rid" placeholder="检索 ID" class="ainp"><button class="btn" style="margin:0;padding:10px 12px;white-space:nowrap;width:auto" onclick="ACS.pull()">🔍 从服务器拉取</button></div>
-            <div class="abox"><input type="text" id="cid" placeholder="联系人 ID" class="ainp" style="flex:0.4"><input type="text" id="cnn" placeholder="昵称(可选)" class="ainp" style="flex:0.3"></div>
-            <input type="text" id="cepk" placeholder="加密公钥" style="margin-bottom:8px">
-            <input type="text" id="cspk" placeholder="签名公钥(可选)" style="margin-bottom:8px">
-            <button class="btn" style="margin:0 0 15px 0;padding:10px;font-size:.9rem" onclick="ACS.add()">➕ 添加联系人</button>
-            <div id="clst" style="max-height:200px;overflow-y:auto"></div>
+    <div class="topbar">
+        <a href="index.html" class="nav-home">← 控制台</a>
+        <h1>文本通信协议</h1>
+        <span class="algo-badge">X25519 + AES-GCM</span>
+        <div class="theme-sw" role="group" aria-label="主题切换">
+            <button type="button" data-th="light" onclick="UI.setTheme('light')">☀ 浅</button>
+            <button type="button" data-th="dark" onclick="UI.setTheme('dark')">🌙 深</button>
+            <button type="button" data-th="auto" onclick="UI.setTheme('auto')">⚙ 自动</button>
         </div>
     </div>
 
-    <div class="mtb"><div class="mt on" onclick="TS('e')" id="mt-e">加密模式</div><div class="mt" onclick="TS('d')" id="mt-d">解密模式</div></div>
-    
-    <div class="spl">
-        <div class="card sp on" id="sp-e">
-            <div class="ht">🔒 加密发送 (ENCRYPT)</div>
-            <label>接收方公钥</label><input type="text" id="trk" placeholder="粘贴公钥或从通讯录选择">
-            <label>明文内容</label><textarea id="tpt" placeholder="输入机密信息..."></textarea>
+    <!-- ═══ 身份凭证 ═══ -->
+    <div class="card">
+        <div class="ht">
+            <span class="ht-l">🔑 身份凭证 <span class="en">IDENTITY</span></span>
+            <span class="state" id="led"><span class="dot"></span><span id="led-t">未初始化</span></span>
+        </div>
 
-            <div class="hz-toggle">
-                <input type="checkbox" id="hz-t">
-                <span class="hz-slider" onclick="$('hz-t').click()"></span>
-                <span>汉字密文</span>
-                <span class="hz-tag">4096字库</span>
+        <label for="tp">助记句 · 用于派生私钥（相同口令永远得到相同身份）</label>
+        <input type="password" id="tp" placeholder="输入您的专属口令" autocomplete="new-password" oninput="TA.onPassInput()">
+        <div class="fld-msg hint on">口令不会上传，仅在本机内存中派生密钥。改口令需重新初始化。</div>
+        <div class="inline" style="margin-top:12px">
+            <button class="btn sm" id="tb" onclick="TA.init()" style="flex:1">初始化身份</button>
+            <button class="btn sm ghost" id="tclear" onclick="TA.clear()" style="flex:0 0 auto;width:auto;padding-left:18px;padding-right:18px">清除</button>
+        </div>
+
+        <!-- 我的公钥：常驻，不再随口令输入而消失 -->
+        <div id="idbox" style="display:none;margin-top:16px">
+            <label style="margin-top:0">我的加密公钥（把它给对方，对方才能发消息给你）</label>
+            <div class="secret">
+                <code id="tpk" data-secret></code>
+                <button class="mini" id="tpk-eye" onclick="UI.toggleSecret('tpk',this)" title="显示/隐藏">👁</button>
+                <button class="mini" onclick="CP('tpk')">复制</button>
+                <button class="mini" onclick="ACS.saveSelf()">存入通讯录</button>
+            </div>
+            <div class="fingerprint">
+                <span>指纹</span><span class="fp" id="fp-t">—</span>
+                <span>· 短码</span><span class="fp" id="fp-s">—</span>
+                <span>· 核对时可口头比对</span>
+            </div>
+        </div>
+
+        <div class="note warn" id="idwarn" style="display:none;margin-top:14px;margin-bottom:0">
+            <span class="ic">⚠</span>
+            <span>口令已修改，当前身份仍是旧口令派生的。请点「初始化身份」重新派生，否则对方无法解密你发出的消息。</span>
+        </div>
+    </div>
+
+    <!-- ═══ 通讯录 ═══ -->
+    <div class="card">
+        <div class="ht clickable" onclick="ACS.tog()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();ACS.tog()}">
+            <span class="ht-l">📇 通讯录 <span class="en">CONTACTS</span> <span class="state" id="car-n" style="display:none"></span></span>
+            <span id="car">▼</span>
+        </div>
+        <div id="cpnl" style="display:none">
+            <div class="abox inline" style="margin-bottom:12px">
+                <input type="text" id="rid" placeholder="输入对方 ID，从服务器拉取公钥" class="ainp">
+                <button class="suffix" onclick="ACS.pull()" id="rpull">🔍 拉取</button>
             </div>
 
-            <button class="btn" onclick="TA.enc()">执行加密</button>
-            <div id="trc" class="res"><div id="tct" style="color:var(--ts)"></div><button class="cp" onclick="CP('tct',1)">复制密文</button></div>
+            <div class="ht" style="font-size:.82rem;margin:16px 0 10px;border-bottom:none;padding-bottom:0">
+                <span class="ht-l">✍️ 手动添加</span>
+            </div>
+            <div class="inline">
+                <input type="text" id="cid" placeholder="联系人 ID（必填）" class="ainp">
+                <input type="text" id="cnn" placeholder="昵称（可选）" class="ainp">
+            </div>
+            <label for="cepk">加密公钥（必填 · 32 字节 Base64）</label>
+            <input type="text" id="cepk" placeholder="粘贴对方的加密公钥" oninput="ACS.valEpk()">
+            <div class="fld-msg" id="cepk-msg"></div>
+            <label for="cspk">签名公钥（可选 · 后续签名信道用）</label>
+            <input type="text" id="cspk" placeholder="可留空" oninput="ACS.valSpk()">
+            <div class="fld-msg" id="cspk-msg"></div>
+            <button class="btn sm" onclick="ACS.add()" id="cadd" style="margin-top:14px">➕ 添加联系人</button>
+
+            <div style="display:flex;gap:8px;margin-top:16px">
+                <button class="tbtn" onclick="ACS.exp()">📤 导出通讯录</button>
+                <button class="tbtn" onclick="ACS.imp()">📥 导入通讯录</button>
+            </div>
+            <div id="clst" style="max-height:240px;overflow-y:auto;margin-top:12px"></div>
         </div>
+    </div>
+
+    <!-- ═══ 加 / 解密 ═══ -->
+    <div class="mtb" role="tablist">
+        <div class="mt on" onclick="TS('e')" id="mt-e" role="tab" tabindex="0">🔒 加密发送</div>
+        <div class="mt" onclick="TS('d')" id="mt-d" role="tab" tabindex="0">🔓 解密接收</div>
+    </div>
+
+    <div class="spl">
+        <!-- 加密 -->
+        <div class="card sp on" id="sp-e">
+            <div class="ht"><span class="ht-l">🔒 加密发送 <span class="en">ENCRYPT</span></span></div>
+
+            <label for="trk">接收方加密公钥</label>
+            <div class="inline">
+                <input type="text" id="trk" placeholder="粘贴公钥，或点右侧从通讯录选人" oninput="ACS.valTrk()">
+                <button class="suffix" id="pick-btn" onclick="ACS.pick(event)">▾ 选人</button>
+            </div>
+            <div class="fld-msg" id="trk-msg"></div>
+            <div class="meta" id="trk-who"></div>
+
+            <label for="tpt">明文内容</label>
+            <textarea id="tpt" placeholder="输入要发送的内容…" oninput="TA.onPlain()"></textarea>
+            <div class="meta" id="tpt-meta">0 字 · 约 0 字节</div>
+
+            <div class="hz-toggle">
+                <input type="checkbox" id="hz-t" onchange="TA.onHz()">
+                <span class="hz-slider" onclick="$('hz-t').click()" role="switch" aria-label="汉字密文"></span>
+                <span class="hz-lb" onclick="$('hz-t').click()">汉字密文（对普通聊天软件更隐蔽）</span>
+                <span class="hz-tag" id="hz-tag">关闭</span>
+            </div>
+
+            <button class="btn" onclick="TA.enc()" id="btn-enc">执行加密</button>
+            <div id="trc" class="res">
+                <div class="cap info" id="trc-cap">密文</div>
+                <div class="val" id="tct"></div>
+                <button class="cp" onclick="CP('tct')">📋 复制密文</button>
+            </div>
+        </div>
+
+        <!-- 解密 -->
         <div class="card sp" id="sp-d">
-            <div class="ht">🔓 解密接收 (DECRYPT)</div>
-            <label>密文数据</label><textarea id="tci" placeholder="粘贴收到的密文..."></textarea>
-            <button class="btn green" onclick="TA.dec()">执行解密</button>
-            <div id="trd" class="res"><div style="color:var(--a);margin-bottom:5px">解密结果:</div><div id="tdt" style="color:#fff;font-weight:700"></div></div>
+            <div class="ht"><span class="ht-l">🔓 解密接收 <span class="en">DECRYPT</span></span></div>
+
+            <label for="tci">密文数据</label>
+            <textarea id="tci" placeholder="粘贴收到的密文（Base64 或汉字密文，自动识别）" oninput="TA.onCipher()"></textarea>
+            <div class="meta" id="tci-meta"></div>
+
+            <button class="btn green" onclick="TA.dec()" id="btn-dec">执行解密</button>
+            <div id="trd" class="res">
+                <div class="cap" id="trd-cap"></div>
+                <div class="val plain" id="tdt"></div>
+                <button class="cp" id="trd-cp" style="display:none" onclick="CP('tdt')">📋 复制明文</button>
+            </div>
         </div>
     </div>
 </div>
 
-    <script src="core.js?v=3.0"></script>
+<!-- 联系人浮层选择器 -->
+<div class="picker" id="picker" role="listbox" aria-label="选择联系人"></div>
+
+<!-- 通用模态 -->
+<div class="modal" id="modal">
+    <div class="mbox" id="modal-box"></div>
+</div>
+
+<script src="core.js?v=3.0"></script>
 <script>
+/* ═══════════════════════════════════════════════════════════════════
+   UI 工具层：主题 / 密钥显隐 / 模态 / 浮层选择器 / busy
+   —— 全部在本页内实现，不修改 core.js 的全局行为
+   ═══════════════════════════════════════════════════════════════════ */
+const UI = {
+    /* — 主题：light / dark / auto — */
+    theme: 'auto',
+    initTheme() {
+        let m = 'auto';
+        try { m = localStorage.getItem('cx_theme') || 'auto'; } catch (e) {}
+        this.applyTheme(m, false);
+        // auto 模式下跟随系统变化
+        try {
+            matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+                if (this.theme === 'auto') this.applyTheme('auto', false);
+            });
+        } catch (e) {}
+    },
+    setTheme(m) { this.applyTheme(m, true); },
+    applyTheme(m, persist) {
+        this.theme = m;
+        if (persist) { try { localStorage.setItem('cx_theme', m); } catch (e) {} }
+        const dark = m === 'dark' || (m === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        document.querySelectorAll('.theme-sw button').forEach(b => b.classList.toggle('on', b.dataset.th === m));
+    },
+
+    /* — 密钥显隐 — */
+    toggleSecret(id, btn) {
+        const el = $(id); if (!el) return;
+        const wasMasked = el.dataset.masked === '1';   // 当前是否折叠
+        this.render(el, !wasMasked);                   // 取反：折叠 → 展开，反之亦然
+        if (btn) btn.textContent = wasMasked ? '🙈' : '👁';
+    },
+    render(el, hidden) {
+        const full = el.dataset.full || '';
+        // 用 textContent 赋值，避免 innerText 触发的重排/转换干扰
+        if (hidden) {
+            el.textContent = full.length > 19 ? full.slice(0, 10) + '…' + full.slice(-6) : full;
+            el.dataset.masked = '1';
+        } else {
+            el.textContent = full;
+            el.dataset.masked = '0';
+        }
+    },
+    /* 写入密钥（长串默认折叠显示） */
+    setSecret(id, value, mask) {
+        const el = $(id); if (!el) return;
+        el.dataset.full = value;
+        this.render(el, !!mask);
+        const eye = $(id + '-eye'); if (eye) eye.textContent = '👁';
+    },
+
+    /* — busy 按钮态 — */
+    busy(btn, on, label) {
+        if (!btn) return;
+        if (on) {
+            if (!btn.dataset.orig) btn.dataset.orig = btn.textContent;
+            btn.textContent = label || '⏳ 计算中…';
+            btn.disabled = true; btn.classList.add('busy');
+        } else {
+            if (btn.dataset.orig) btn.textContent = btn.dataset.orig;
+            btn.disabled = false; btn.classList.remove('busy');
+            delete btn.dataset.orig;
+        }
+    },
+
+    /* — 滚动到元素（让结果可见） — */
+    reveal(el) {
+        if (!el) return;
+        requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+    },
+
+    /* — 时长格式化 — */
+    when(ts) {
+        if (!ts) return '';
+        const d = new Date(ts), n = new Date();
+        const p = x => String(x).padStart(2, '0');
+        const hm = p(d.getHours()) + ':' + p(d.getMinutes());
+        return (d.toDateString() === n.toDateString()) ? '今天 ' + hm : (d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + hm);
+    }
+};
+UI.initTheme();
+
+/* ── 通用模态（替代 prompt / confirm） ── */
+const Modal = {
+    _resolve: null,
+    open(html, onMount) {
+        $('modal-box').innerHTML = html;
+        $('modal').classList.add('on');
+        this._resolve = null;
+        // 点遮罩关闭
+        $('modal').onclick = e => { if (e.target === $('modal')) this.close(false); };
+        document.addEventListener('keydown', this._esc);
+        if (onMount) onMount($('modal-box'));
+    },
+    _esc: e => { if (e.key === 'Escape') Modal.close(false); },
+    close(v) {
+        $('modal').classList.remove('on');
+        $('modal-box').innerHTML = '';
+        document.removeEventListener('keydown', Modal._esc);
+        const r = this._resolve;
+        this._resolve = null;
+        if (r) r(v);          // 先取出再清空，否则 choose() 的 await 永远拿不到值
+    },
+    /* 确认框 */
+    confirm(title, desc, okLabel, danger) {
+        return new Promise(res => {
+            this.open(
+                '<h3>' + title + '</h3><div class="mdesc">' + desc + '</div>' +
+                '<div class="macts"><button class="btn ghost" onclick="Modal.close(false)">取消</button>' +
+                '<button class="btn" id="md-ok" style="' + (danger ? 'background:linear-gradient(135deg,var(--danger),#c4443d)' : '') + '" onclick="Modal.close(true)">' + okLabel + '</button></div>'
+            );
+            this._resolve = res;          // open() 会清空 resolver，必须在其之后设置
+            const ok = $('md-ok'); if (ok) setTimeout(() => ok.focus(), 30);
+        });
+    },
+    /* 三选（导入时用） */
+    choose(title, desc, opts) {
+        return new Promise(res => {
+            let h = '<h3>' + title + '</h3><div class="mdesc">' + desc + '</div><div class="macts" style="flex-direction:column">';
+            opts.forEach((o, i) => {
+                h += '<button class="btn' + (o.ghost ? ' ghost' : '') + '" data-i="' + i + '" style="width:100%">' + o.label + '</button>';
+            });
+            h += '</div>';
+            this.open(h);
+            this._resolve = res;          // open() 会清空 resolver，必须在其之后设置
+            $('modal-box').querySelectorAll('[data-i]').forEach(b => {
+                b.onclick = () => Modal.close(parseInt(b.dataset.i));
+            });
+        });
+    }
+};
+</script>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   加密引擎（与重构前完全一致：X25519 派生 + AES-GCM）
+   —— 算法一行未改，只改调用与呈现
+   ═══════════════════════════════════════════════════════════════════ */
 const TA = {
     M: {
-        P: 2n**255n - 19n, i(n) { return this.p(n, this.P - 2n); },
+        P: 2n ** 255n - 19n, i(n) { return this.p(n, this.P - 2n); },
         p(b, e) { let r = 1n; b %= this.P; while (e > 0n) { if (e % 2n === 1n) r = (r * b) % this.P; b = (b * b) % this.P; e /= 2n; } return r; },
         m(s, p) {
             const k = new Uint8Array(s); k[0] &= 248; k[31] &= 127; k[31] |= 64;
@@ -74,7 +320,7 @@ const TA = {
             for (let t = 254; t >= 0; t--) {
                 const kt = (n >> BigInt(t)) & 1n; sw ^= kt; if (sw) { [x2, x3] = [x3, x2]; [z2, z3] = [z3, z2]; } sw = kt;
                 const A = x2 + z2, AA = A * A, B = x2 - z2, BB = B * B, E = AA - BB, C = x3 + z3, D = x3 - z3, DA = D * A, CB = C * B, ad = DA + CB, su = DA - CB;
-                x3 = ad * ad; z3 = x1 * (su * su); x2 = AA * BB;         z2 = E * (AA + 121666n * E); x2 %= this.P; z2 %= this.P; x3 %= this.P; z3 %= this.P;
+                x3 = ad * ad; z3 = x1 * (su * su); x2 = AA * BB; z2 = E * (AA + 121666n * E); x2 %= this.P; z2 %= this.P; x3 %= this.P; z3 %= this.P;
             }
             if (sw) { [x2, x3] = [x3, x2]; [z2, z3] = [z3, z2]; }
             const r = (x2 * this.i(z2)) % this.P; const b = new Uint8Array(32); let tp = r;
@@ -109,74 +355,526 @@ const TA = {
             }
         }
     },
-    rst() { $('led').style.color = '#555'; $('tb').disabled = false; $('tb').innerText = "初始化身份"; $('trp').classList.remove('on'); },
-    async init() {
-        let b = $('tb'); b.disabled = true; b.innerText = "计算中...";
-        setTimeout(async () => {
-            try { $('tpk').innerText = await this.c.init($('tp').value); $('trp').classList.add('on'); $('led').style.color = '#00ff88'; b.innerText = "身份已激活"; }
-            catch (e) { T(e); b.disabled = false; b.innerText = "初始化身份"; }
-        }, 50);
-    },
-    async enc() {
-        try {
-            const raw = await this.c.run($('trk').value, $('tpt').value, false);
-            const useHanzi = $('hz-t').checked;
-            $('tct').innerText = useHanzi ? HanziCodec.encode(Util.b642buf(raw)) : raw;
-            $('trc').classList.add('on');
-        } catch (e) { T("错误:" + e); }
-    },
-    async dec() {
-        try {
-            let input = $('tci').value.trim();
-            // 自动检测：如果是汉字密文，先解码为 Base64
-            if (HanziCodec.isHanzi(input)) {
-                const bytes = HanziCodec.decode(input);
-                input = Util.buf2b64(bytes.buffer);
-            }
-            $('tdt').innerText = await this.c.run(null, input, true);
-            $('trd').classList.add('on');
-        } catch (e) { $('tdt').innerText = "解密失败"; $('trd').classList.add('on'); }
-    }
-};
 
-Directory._onEncFill = function(k) { $('trk').value = k; T('加密公钥已填入'); };
-Directory.render('clst', 'enc');
+    /* ── 状态 ── */
+    _pass: '', _oldPass: '', _ready: false, _busy: false,
 
-var ACS = {
-    tog() {
-        var p = $('cpnl'), a = $('car');
-        if (p.style.display === 'none') {
-            p.style.display = 'block';
-            a.innerText = '▲';
-            if ($('trk').value) $('cepk').value = $('trk').value;
-        } else {
-            p.style.display = 'none';
-            a.innerText = '▼';
+    setState(kind, text) {
+        const led = $('led'); if (!led) return;
+        led.className = 'state' + (kind ? ' ' + kind : '');
+        $('led-t').innerText = text;
+    },
+    /* 口令输入：只在"值确实变化"时降级状态，且不清空已生成的公钥 */
+    onPassInput() {
+        const v = $('tp').value || '';
+        if (!this._ready) return;                 // 尚未初始化，无需提示
+        if (v === this._oldPass) {               // 改回原口令 → 恢复
+            $('idwarn').style.display = 'none';
+            this.setState('ok', '身份已激活');
+            this.updateGate();
+            return;
+        }
+        $('idwarn').style.display = 'flex';
+        this.setState('warn', '口令已修改');
+        this.updateGate();
+    },
+    /* 加密按钮门控：未初始化 / 无接收方公钥 时禁用并给出原因 */
+    updateGate() {
+        const b = $('btn-enc'); if (!b) return;
+        const reasons = [];
+        if (!this._ready) reasons.push('请先初始化身份');
+        if (!Key.ok32($('trk').value)) reasons.push('请填写有效的接收方公钥');
+        if (!($('tpt').value || '').trim()) reasons.push('请输入明文');
+        b.disabled = reasons.length > 0;
+        b.title = reasons.join(' · ');
+        const bd = $('btn-dec');
+        if (bd) {
+            const r2 = [];
+            if (!this._ready) r2.push('请先初始化身份');
+            if (!($('tci').value || '').trim()) r2.push('请粘贴密文');
+            bd.disabled = r2.length > 0;
+            bd.title = r2.join(' · ');
+        }
+        const pick = $('pick-btn');
+        if (pick) pick.disabled = !Object.keys(Directory.data).length;
+    },
+
+    async doInit() {
+        const btn = $('tb');
+        const pass = $('tp').value || '';
+        if (!pass) { T('请输入口令'); $('tp').focus(); return; }
+        this._busy = true; UI.busy(btn, true, '⏳ 派生中…');
+        try {
+            const pk = await this.c.init(pass);
+            this._pass = pass; this._oldPass = pass; this._ready = true;
+            UI.setSecret('tpk', pk, true);
+            $('idbox').style.display = 'block';
+            $('idwarn').style.display = 'none';
+            $('fp-t').innerText = await this.fingerprint(pk);
+            $('fp-s').innerText = pk.slice(0, 6) + '…' + pk.slice(-6);
+            this.setState('ok', '身份已激活');
+            T('身份已激活');
+            UI.reveal($('idbox'));
+        } catch (e) {
+            this._ready = false;
+            this.setState('', '未初始化');
+            $('idwarn').style.display = 'none';
+            T(String(e && e.message ? e.message : e));
+        } finally {
+            this._busy = false; UI.busy(btn, false); this.updateGate();
         }
     },
-    add() {
-        var id = $('cid').value.trim();
-        var nn = $('cnn').value.trim();
-        var epk = $('cepk').value.trim();
-        var spk = $('cspk').value.trim();
-        if (!id) return T('请输入联系人 ID');
-        if (!epk) return T('请输入加密公钥');
-        Directory.add(id, spk, epk, nn);
-        $('cid').value = ''; $('cnn').value = ''; $('cepk').value = ''; $('cspk').value = '';
-        Directory.render('clst', 'enc');
-        T('已添加');
-    },
-    async pull() {
-        var id = $('rid').value.trim();
-        if (!id) return T('请输入检索 ID');
+    init() { this.doInit(); },
+
+    /* 公钥指纹：SHA-256(公钥) 前 8 字节大写十六进制，分组显示 */
+    async fingerprint(pk) {
         try {
-            await Directory.pullFromRemote(id);
-            $('rid').value = '';
-            Directory.render('clst', 'enc');
-            T('拉取成功: ' + id);
-        } catch(e) { T(String(e)); }
+            const buf = Util.b642buf(pk);
+            if (!buf) return '—';
+            const h = await crypto.subtle.digest('SHA-256', buf);
+            const hex = Util.buf2hex(h).toUpperCase().slice(0, 16);
+            return hex.match(/.{1,4}/g).join(' ');
+        } catch (e) { return '—'; }
+    },
+
+    clear() {
+        this._ready = false; this.c.pr = null; this.c.pk = null;
+        $('tp').value = ''; this._pass = ''; this._oldPass = '';
+        $('idbox').style.display = 'none';
+        $('idwarn').style.display = 'none';
+        this.setState('', '未初始化');
+        this.updateGate();
+        T('已清除本机身份');
+    },
+
+    /* 明文输入计数 */
+    onPlain() {
+        const v = $('tpt').value || '';
+        const bytes = new TextEncoder().encode(v).length;
+        $('tpt-meta').innerText = v.length + ' 字 · 约 ' + bytes + ' 字节';
+        this.updateGate();
+    },
+    onCipher() {
+        const v = ($('tci').value || '').trim();
+        if (!v) { $('tci-meta').innerText = ''; }
+        else if (HanziCodec.isHanzi(v)) $('tci-meta').innerText = '识别为：汉字密文 · ' + v.length + ' 字';
+        else $('tci-meta').innerText = '识别为：Base64 密文 · ' + v.length + ' 字符';
+        $('trd').classList.remove('on');
+        this.updateGate();
+    },
+    onHz() {
+        const on = $('hz-t').checked;
+        $('hz-tag').innerText = on ? '开启' : '关闭';
+        try { localStorage.setItem('cx_hz', on ? '1' : '0'); } catch (e) {}
+        if (on) T('已开启汉字密文：密文将由汉字组成，长度约为原来的 1/3');
+    },
+    /* 启动时静默恢复开关状态，不弹提示 */
+    onHzSilent() {
+        const el = $('hz-tag'); if (el) el.innerText = $('hz-t').checked ? '开启' : '关闭';
+    },
+
+    async enc() {
+        if (this._busy) return;
+        const btn = $('btn-enc');
+        const rk = ($('trk').value || '').trim();
+        const plain = $('tpt').value || '';
+        if (!this._ready) return T('请先初始化身份');
+        if (!Key.ok32(rk)) return T('接收方公钥无效（需 32 字节 Base64）');
+        if (!plain) return T('请输入明文内容');
+
+        this._busy = true; UI.busy(btn, true, '⏳ 加密中…');
+        try {
+            const raw = await this.c.run(rk, plain, false);
+            const useHanzi = $('hz-t').checked;
+            const out = useHanzi ? HanziCodec.encode(Util.b642buf(raw)) : raw;
+            $('tct').innerText = out;
+            $('trc-cap').innerText = '密文 · ' + (useHanzi ? '汉字密文 ' + out.length + ' 字' : 'Base64 ' + out.length + ' 字符');
+            $('trc').classList.add('on');
+            UI.reveal($('trc'));
+            T('加密完成，记得用「复制密文」发给对方');
+        } catch (e) {
+            T('加密失败：' + (e && e.message ? e.message : e));
+        } finally {
+            this._busy = false; UI.busy(btn, false); this.updateGate();
+        }
+    },
+
+    async dec() {
+        if (this._busy) return;
+        const btn = $('btn-dec');
+        let input = ($('tci').value || '').trim();
+        if (!this._ready) return T('请先初始化身份');
+        if (!input) return T('请粘贴密文');
+
+        this._busy = true; UI.busy(btn, true, '⏳ 解密中…');
+        const cap = $('trd-cap'), body = $('tdt'), box = $('trd'), cp = $('trd-cp');
+        try {
+            // 自动识别汉字密文
+            if (HanziCodec.isHanzi(input)) {
+                try {
+                    input = Util.buf2b64(HanziCodec.decode(input).buffer);
+                } catch (he) {
+                    throw { cx: '这段内容看起来是汉字密文，但字库校验不通过，可能被改动过：' + he };
+                }
+            }
+            // 结构预检，给出比 "解密失败" 更有用的原因
+            const buf = Util.b642buf(input);
+            if (!buf) throw { cx: '密文不是有效的 Base64，可能被截断、混入换行或复制不全' };
+            let j = null;
+            try { j = JSON.parse(new TextDecoder().decode(buf)); } catch (pe) { throw { cx: '密文内部结构损坏（JSON 解析失败），可能只复制了一部分' }; }
+            if (!j || !j.k || !j.i || !j.c) throw { cx: '密文缺少必要字段（k / i / c），不是本工具生成的密文' };
+
+            const text = await this.c.run(null, input, true);
+            cap.className = 'cap ok'; cap.innerText = '✓ 解密成功';
+            body.innerText = text;
+            cp.style.display = '';
+            box.classList.add('on');
+            UI.reveal(box);
+        } catch (e) {
+            const msg = e && e.cx ? e.cx
+                : (String(e).indexOf('OperationError') >= 0 || String(e).indexOf('decrypt') >= 0)
+                    ? '认证失败：密文与你的身份不匹配，或内容已被篡改'
+                    : '解密失败：' + (e && e.message ? e.message : e);
+            cap.className = 'cap err'; cap.innerText = '✕ ' + msg;
+            body.innerText = '';
+            cp.style.display = 'none';
+            box.classList.add('on');
+            UI.reveal(box);
+        } finally {
+            this._busy = false; UI.busy(btn, false); this.updateGate();
+        }
     }
 };
+
+/* ── 公钥校验（新增，治"截断公钥不报错"） ── */
+const Key = {
+    _b64(v) {
+        const s = String(v || '').replace(/\s+/g, '');
+        if (!s) return null;
+        if (!/^[A-Za-z0-9+/]+={0,2}$/.test(s)) return null;
+        try { const bin = atob(s); return bin.length; } catch (e) { return null; }
+    },
+    ok32(v) { return this._b64(v) === 32; },
+    /* 返回 {state:'empty'|'ok'|'bad', msg} */
+    check(v, label) {
+        const s = String(v || '').trim();
+        if (!s) return { state: 'empty', msg: '' };
+        const n = this._b64(s);
+        if (n === null) return { state: 'bad', msg: '不是有效的 Base64（含非法字符或填充错误）' };
+        if (n !== 32) return { state: 'bad', msg: label + '应为 32 字节，当前解析出 ' + n + ' 字节' + (n < 32 ? '（疑似被截断）' : '（疑似粘贴了多余内容）') };
+        return { state: 'ok', msg: '✓ 格式正确（32 字节）' };
+    }
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+   通讯录增强（本页内实现：校验 / 浮层选人 / 模态导入导出）
+   —— 不改 core.js 的 Directory 算法与其在其它页面的行为
+   ═══════════════════════════════════════════════════════════════════ */
+Directory._onEncFill = function (k) { $('trk').value = k; ACS.valTrk(); ACS.whoIs(k); T('已填入接收方公钥'); };
+
+var ACS = {
+    _selfId: '',
+    tog() {
+        const p = $('cpnl'), a = $('car');
+        const open = p.style.display === 'none';
+        p.style.display = open ? 'block' : 'none';
+        a.innerText = open ? '▲' : '▼';
+        if (open) {
+            // 展开时把加密区已填的公钥带进来，省一次粘贴（原行为保留并增强）
+            if ($('trk').value && !$('cepk').value) { $('cepk').value = $('trk').value; this.valEpk(); }
+            this.focusLater('rid');
+        }
+    },
+
+    /* 字段级校验：即时反馈 + 高亮 */
+    _paint(inputId, msgId, res) {
+        const inp = $(inputId), msg = $(msgId);
+        if (!inp || !msg) return;
+        inp.classList.toggle('bad', res.state === 'bad');
+        msg.className = 'fld-msg' + (res.msg ? ' on' : '') + (res.state === 'bad' ? ' err' : res.state === 'ok' ? '' : ' hint');
+        msg.innerText = res.msg;
+        msg.style.color = res.state === 'ok' ? 'var(--ok)' : '';
+    },
+    valEpk() {
+        const r = Key.check($('cepk').value, '加密公钥');
+        this._paint('cepk', 'cepk-msg', r);
+        this._gate();
+        return r;
+    },
+    valSpk() {
+        // 本页的签名公钥字段是前瞻占位：没填 → 提示可留空；填了 → 同样按 32 字节 Ed25519 校验
+        const v = ($('cspk').value || '').trim();
+        const r = v ? Key.check(v, '签名公钥') : { state: 'empty', msg: '可留空（本页不校验签名，隐私钥仅供「数字签名」页使用）' };
+        this._paint('cspk', 'cspk-msg', r);
+        this._gate();
+        return r;
+    },
+    valTrk() {
+        const v = ($('trk').value || '').trim();
+        const r = v ? Key.check(v, '接收方公钥') : { state: 'empty', msg: '' };
+        const msg = $('trk-msg');
+        msg.className = 'fld-msg' + (r.state === 'bad' ? ' on err' : '');
+        msg.innerText = r.state === 'bad' ? r.msg : '';
+        $('trk').classList.toggle('bad', r.state === 'bad');
+        if (r.state !== 'ok') $('trk-who').innerText = '';
+        else this.whoIs(v);
+        TA.updateGate();
+        return r;
+    },
+    /* 解析公钥归属：通讯录里是谁的？自己？ */
+    whoIs(k) {
+        const el = $('trk-who'); if (!el) return;
+        const key = String(k || '').trim();
+        const mine = TA.c.pk;
+        if (mine && key === mine) { el.innerText = '👤 这是你自己的公钥，发给对方后才能收到消息'; return; }
+        const hit = Object.values(Directory.data).find(c => c.encryption_pubkey === key);
+        el.innerText = hit ? '👤 接收方：' + (hit.nickname || hit.id) : '';
+    },
+    _gate() {
+        const b = $('cadd'); if (!b) return;
+        const id = ($('cid').value || '').trim();
+        const e = Key.check($('cepk').value);
+        const s = ($('cspk').value || '').trim() ? Key.check($('cspk').value) : { state: 'empty' };
+        const bad = !id || e.state !== 'ok' || s.state === 'bad';
+        b.disabled = bad;
+        b.title = !id ? '请填写联系人 ID' : (e.state !== 'ok' ? '请填写正确的加密公钥' : (s.state === 'bad' ? '签名公钥格式有误' : ''));
+    },
+
+    add() {
+        const id = ($('cid').value || '').trim();
+        const nn = ($('cnn').value || '').trim();
+        const epk = ($('cepk').value || '').trim();
+        const spk = ($('cspk').value || '').trim();
+        if (!id) { T('请输入联系人 ID'); $('cid').focus(); return; }
+        const ec = Key.check(epk);
+        if (ec.state !== 'ok') { T('加密公钥无效：' + (ec.msg || '必填')); $('cepk').focus(); return; }
+        if (spk && Key.check(spk).state !== 'ok') { T('签名公钥格式有误，请检查或留空'); $('cspk').focus(); return; }
+        if (Directory.data[id] && !confirm('ID「' + id + '」已存在，是否覆盖？')) return;
+        Directory.add(id, spk, epk, nn);
+        ['cid', 'cnn', 'cepk', 'cspk'].forEach(k => $(k).value = '');
+        this.valEpk(); this.valSpk();
+        this.renderList();
+        T('已添加联系人：' + (nn || id));
+    },
+    /* 把"我的公钥"存入通讯录，省去手动粘贴 */
+    async saveSelf() {
+        const pk = TA.c.pk;
+        if (!pk) return T('请先初始化身份');
+        const mine = Object.values(Directory.data).find(c => c.encryption_pubkey === pk);
+        if (mine) { T('通讯录里已有你的公钥（' + (mine.nickname || mine.id) + '）'); return; }
+        Modal.open(
+            '<h3>存入我的公钥</h3>' +
+            '<div class="mdesc">给自己起一个 ID，方便在通讯录里识别。对方拉取到你的公钥后才能发消息给你。</div>' +
+            '<label for="self-id">我的 ID</label><input type="text" id="self-id" placeholder="例如：cx-zhangsan" value="' + escapeAttr(this._selfId || '') + '">' +
+            '<div class="macts" style="margin-top:16px"><button class="btn ghost" onclick="Modal.close(false)">取消</button>' +
+            '<button class="btn" id="self-ok">保存</button></div>'
+        );
+        this.focusLater('self-id');
+        const selfOk = $('self-ok');
+        if (selfOk) selfOk.onclick = () => {
+            const id = ($('self-id').value || '').trim();
+            if (!id) { T('请输入 ID'); return; }
+            this._selfId = id;
+            try { localStorage.setItem('cx_self_id', id); } catch (e) {}
+            Directory.add(id, '', pk, '我自己');
+            Modal.close(true);
+            this.renderList();
+            T('已存入通讯录');
+        };
+    },
+
+    /* ── 浮层选人：不必展开通讯录就能选 ── */
+    pick(ev) {
+        if (ev) ev.stopPropagation();
+        const box = $('picker');
+        const all = Object.values(Directory.data).filter(c => c.encryption_pubkey);
+        let h = '';
+        if (!all.length) {
+            h = '<div class="pk-empty">通讯录为空<br><span style="font-size:.72rem">先展开「通讯录」添加联系人或从服务器拉取</span></div>';
+        } else {
+            all.forEach(c => {
+                const nm = c.nickname || c.id;
+                h += '<div class="pk-row" onclick="ACS.choose(\'' + escapeAttr(c.id) + '\')">' +
+                    '<div style="flex:1;min-width:0"><div class="pk-nm">' + escHtml(nm) + '</div>' +
+                    '<div class="pk-ky">' + escHtml(c.encryption_pubkey.slice(0, 12) + '…' + c.encryption_pubkey.slice(-6)) + '</div></div></div>';
+            });
+            h += '<div style="border-top:1px solid var(--border);margin-top:6px;padding-top:6px">' +
+                '<div class="pk-row" onclick="ACS.openContacts()"><div class="pk-nm" style="color:var(--accent-600)">＋ 管理通讯录</div></div></div>';
+        }
+        box.innerHTML = h;
+        const r = $('pick-btn').getBoundingClientRect();
+        box.style.minWidth = Math.max(240, r.width + 60) + 'px';
+        box.classList.add('on');
+        // 先显示再量尺寸，避免越界
+        const bh = box.getBoundingClientRect();
+        let left = r.left, top = r.bottom + 6;
+        if (left + bh.width > innerWidth - 12) left = innerWidth - bh.width - 12;
+        if (top + bh.height > innerHeight - 12) top = r.top - bh.height - 6;
+        box.style.left = Math.max(12, left) + 'px';
+        box.style.top = Math.max(12, top) + 'px';
+        box.onclick = e => e.stopPropagation();
+    },
+    choose(id) {
+        const c = Directory.data[id]; if (!c) return;
+        $('trk').value = c.encryption_pubkey;
+        this.valTrk();
+        this.close();
+        T('已选择：' + (c.nickname || c.id));
+    },
+    openContacts() {
+        this.close();
+        if ($('cpnl').style.display === 'none') this.tog();
+        $('cpnl').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    },
+    close() { $('picker').classList.remove('on'); },
+
+    /* 延迟聚焦：元素可能已被关闭的模态移除，取不到就静默跳过 */
+    focusLater(id) {
+        setTimeout(() => { const el = $(id); if (el) el.focus(); }, 40);
+    },
+
+    /* ── 导入 / 导出（模态替换 prompt / confirm） ── */
+    async exp() {
+        const n = Object.keys(Directory.data).length;
+        if (!n) return T('通讯录为空');
+        const json = JSON.stringify(Directory.data);
+        Modal.open(
+            '<h3>导出通讯录</h3>' +
+            '<div class="mdesc">共 ' + n + ' 位联系人。复制下方内容，或下载为文件备份到安全的地方（包含公钥，不含私钥）。</div>' +
+            '<textarea id="exp-txt" readonly style="min-height:130px;font-size:.74rem">' + escHtml(json) + '</textarea>' +
+            '<div class="macts" style="margin-top:14px">' +
+            '<button class="btn ghost" onclick="Modal.close(false)">关闭</button>' +
+            '<button class="btn ghost" id="exp-dl">📥 下载文件</button>' +
+            '<button class="btn" id="exp-cp">📋 复制</button></div>'
+        );
+        const expCp = $('exp-cp'), expDl = $('exp-dl');
+        if (expCp) expCp.onclick = () => { CP('exp-txt'); };
+        if (expDl) expDl.onclick = () => {
+            const blob = new Blob([json], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'cx-contacts-' + new Date().toISOString().slice(0, 10) + '.json';
+            document.body.appendChild(a); a.click();
+            setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+            T('已下载备份文件');
+        };
+    },
+    imp() {
+        Modal.open(
+            '<h3>导入通讯录</h3>' +
+            '<div class="mdesc">粘贴之前导出的备份内容。导入前会先校验格式。</div>' +
+            '<textarea id="imp-txt" placeholder="粘贴通讯录备份内容…" style="min-height:130px;font-size:.74rem"></textarea>' +
+            '<div class="fld-msg" id="imp-msg"></div>' +
+            '<div class="macts" style="margin-top:14px">' +
+            '<button class="btn ghost" onclick="Modal.close(false)">取消</button>' +
+            '<button class="btn" id="imp-next">下一步</button></div>'
+        );
+        this.focusLater('imp-txt');
+        const impNext = $('imp-next');
+        if (impNext) impNext.onclick = async () => {
+            let obj;
+            try { obj = JSON.parse($('imp-txt').value); } catch (e) { T('内容不是有效的 JSON'); return; }
+            if (!obj || typeof obj !== 'object' || Array.isArray(obj)) { T('格式不对：应为「ID → 联系人」的对象'); return; }
+            const keys = Object.keys(obj);
+            if (!keys.length) { T('备份内容为空'); return; }
+            const bad = keys.filter(k => !obj[k] || typeof obj[k] !== 'object');
+            if (bad.length) { T('有 ' + bad.length + ' 条记录格式异常，已中止导入'); return; }
+            const exist = keys.filter(k => Directory.data[k]).length;
+            Modal.close(true);
+            // 三选：覆盖 / 合并 / 取消（替代反人类的 confirm OK=覆盖 Cancel=合并）
+            const idx = await Modal.choose(
+                '导入 ' + keys.length + ' 位联系人',
+                exist ? '其中 <b>' + exist + '</b> 位与现有记录 ID 相同，请选择处理方式：' : '通讯录中没有重复的 ID。',
+                [
+                    { label: '🔀 合并（保留现有，补充新的）' },
+                    { label: '♻️ 覆盖（用备份替换全部）' },
+                    { label: '取消', ghost: true }
+                ]
+            );
+            if (idx === 0) {
+                let added = 0;
+                keys.forEach(k => { if (!Directory.data[k]) { Directory.data[k] = obj[k]; added++; } });
+                Directory.save();
+                this.renderList(); T('已合并，新增 ' + added + ' 位');
+            } else if (idx === 1) {
+                Directory.data = obj; Directory.save();
+                this.renderList(); T('已覆盖，共 ' + keys.length + ' 位');
+            }
+        };
+    },
+    async pull() {
+        const id = ($('rid').value || '').trim();
+        if (!id) { T('请输入要检索的 ID'); $('rid').focus(); return; }
+        const btn = $('rpull');
+        UI.busy(btn, true, '⏳');
+        try {
+            const entry = await Directory.pullFromRemote(id);
+            // 服务器上的签名公钥本页用不到，剔除后另存，避免污染本页通讯录
+            if (entry && 'signing_pubkey' in entry) {
+                delete entry.signing_pubkey;
+                Directory.save();
+                this.renderList();
+            }
+            $('rid').value = '';
+            this.renderList();
+            T('拉取成功：' + id);
+        } catch (e) {
+            T(String(e));
+        } finally {
+            UI.busy(btn, false);
+        }
+    },
+
+    /* 列表渲染（在原 Directory.render 基础上补时间与高亮） */
+    renderList() {
+        Directory.render('clst', 'enc');
+        const n = Object.keys(Directory.data).length;
+        const badge = $('car-n');
+        badge.style.display = n ? '' : 'none';
+        badge.innerText = n + ' 位';
+        this._gate();
+        TA.updateGate();
+    }
+};
+
+/* ── 小工具 ── */
+function escHtml(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function escapeAttr(s) { return escHtml(s).replace(/'/g, '&#39;'); }
+let directory_self_id = '';
+try { directory_self_id = localStorage.getItem('cx_self_id') || ''; } catch (e) {}
+
+/* ── 点空白关闭浮层 ── */
+document.addEventListener('click', () => ACS.close());
+
+/* ── 窄屏切 Tab 后自动滚到面板顶部（治"点了没反应"） ── */
+(function () {
+    const _TS = window.TS;
+    window.TS = function (t) {
+        _TS(t);
+        if (innerWidth < 900) {
+            const el = $('sp-' + t);
+            if (el) requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        }
+    };
+})();
+
+/* ── 启动 ── */
+ACS.renderList();
+TA.updateGate();
+ACS.valSpk();
+(function () {
+    // 回填上次使用的自我 ID 提示
+    if (directory_self_id) ACS._selfId = directory_self_id;
+    // 恢复上次的汉字密文开关
+    try { $('hz-t').checked = localStorage.getItem('cx_hz') === '1'; TA.onHzSilent(); } catch (e) {}
+})();
+/* Tab 键可达性：模式切换支持键盘 */
+['mt-e', 'mt-d'].forEach(id => {
+    const el = $(id); if (!el) return;
+    el.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); }
+    });
+});
 </script>
 </body>
 </html>
