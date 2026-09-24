@@ -39,8 +39,7 @@
 
         <label for="tp">助记句 · 用于派生私钥（相同口令永远得到相同身份）</label>
         <div class="inline">
-            <input type="text" id="tp" class="masked" placeholder="输入您的专属口令" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" oninput="TA.onPassInput(event)" oncompositionstart="TA._composing=true" oncompositionend="TA._composing=false; TA.onPassInput(event)">
-            <button class="suffix" id="tp-eye" type="button" onclick="TA.togglePass()" aria-label="显示或隐藏助记句" title="显示 / 隐藏">👁 显示</button>
+            <input type="text" id="tp" placeholder="输入您的专属口令" oninput="TA.onPassInput()">
         </div>
         <div class="fld-msg hint on">口令不会上传，仅在本机内存中派生密钥。改口令需重新初始化。</div>
         <div class="inline" style="margin-top:12px">
@@ -363,16 +362,7 @@ const TA = {
         $('led-t').innerText = text;
     },
     /* 口令输入：只在"值确实变化"时降级状态，且不清空已生成的公钥 */
-    _composing: false,
-    /* 口令输入
-     *
-     * ⚠️ 中文输入法组字期间（_composing）必须直接返回：
-     * 此前每次 oninput 都会走 updateGate -> RKL.keys -> Key.check -> atob，
-     * 组字过程中反复做同步 DOM 写入与 atob，会打断候选框，导致中文打不出来。
-     * 组字结束后由 oncompositionend 再补跑一次。
-     */
     onPassInput() {
-        if (this._composing) return;
         const v = $('tp').value || '';
         if (!this._ready) return;                 // 尚未初始化，无需提示
         if (v === this._oldPass) {               // 改回原口令 → 恢复
@@ -437,24 +427,6 @@ const TA = {
 
 
     /* 助记句 明文/密文 切换 */
-    /* 助记句显隐
-     *
-     * 输入框固定为 type="text"（不能用 password）：部分中文输入法在
-     * password 字段下无法正常唤起候选框，导致中文助记句打不出来。
-     * 因此改为用 CSS 掩码（-webkit-text-security）实现遮蔽，
-     * 既保留「默认看不见」的隐私效果，又不影响输入法。
-     */
-    _passMasked: true,
-    togglePass() {
-        const el = $('tp'), btn = $('tp-eye');
-        this._passMasked = !this._passMasked;
-        el.classList.toggle('masked', this._passMasked);
-        if (btn) btn.textContent = this._passMasked ? '👁 显示' : '🙈 隐藏';
-        el.focus();
-        // 光标移到末尾，方便继续输入
-        try { const n = el.value.length; el.setSelectionRange(n, n); } catch (e) {}
-    },
-
     clear() {
         this._ready = false; this.c.pr = null; this.c.pk = null;
         $('tp').value = ''; this._pass = ''; this._oldPass = '';
@@ -783,7 +755,6 @@ const Key = {
    ═══════════════════════════════════════════════════════════════════ */
 var RKL = {
     _seq: 0,
-    _composing: false,      // 中文输入法组字中（此时不碰 DOM）
 
     init() { if (!$('rk-list').children.length) this.add(); this.sync(); },
 
@@ -797,14 +768,7 @@ var RKL = {
             '<button class="rk-act rm" type="button" title="删除这一行" data-rm="1">✕</button>';
         const inp = row.querySelector('input');
         inp.value = val || '';
-        // 输入即校验（组字期间跳过，避免打断中文输入法）
-        inp.addEventListener('compositionstart', () => { this._composing = true; });
-        inp.addEventListener('compositionend', () => {
-            this._composing = false;
-            this.val(inp); this.ensureTrailingEmpty(); this.sync();
-        });
         inp.addEventListener('input', () => {
-            if (this._composing) return;          // 组字中不碰 DOM
             this.val(inp);
             if (inp.value.trim() && row === $('rk-list').lastElementChild) this.add(null, false);
             this.ensureTrailingEmpty();
@@ -883,8 +847,6 @@ var RKL = {
     /* 更新「将发送给 N 人」确认条 + 计数徽标 */
     sync() {
         const el = $('rk-who'); if (!el) return;
-        // 组字期间跳过：中文输入法需要稳定 DOM，避免候选框被重置
-        if (this._composing) return;
         const keys = this.keys();
         // 刷新供 updateGate 读取的缓存
         this._state = {

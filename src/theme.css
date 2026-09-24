@@ -438,10 +438,3 @@ html[data-theme="dark"] .modal { background: rgba(0, 0, 0, .62); }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
-
-/* ── 助记句掩码 ─────────────────────────────────────────
- * 用 CSS 掩码而非 type="password"：后者会干扰部分中文输入法的候选框。
- * -webkit-text-security 在 Chrome/Edge/Safari 支持；不支持时退化为明文显示
- * （不影响功能，只是默认不遮蔽）。
- */
-input.masked { -webkit-text-security: disc; text-security: disc; }

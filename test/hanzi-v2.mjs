@@ -50,18 +50,39 @@ t('BITS = 11', H.BITS === 11);
 t('周期 88bit 整除 8bit', (8 * 11) % 8 === 0, '8字=11字节');
 
 console.log('\n② 编解码往返');
-for (const n of [1, 4, 8, 11, 16, 32, 64, 128, 512, 2048]) {
+// 严格等长断言：解码结果必须与原字节**完全相同**。
+// 旧断言只查前缀（src.every(...)），会漏掉「多出尾字节」的缺陷 ——
+// 那正是 27.3% 长度导致解密失败、报成「认证失败」的真因。
+for (const n of [1, 2, 3, 4, 5, 7, 8, 10, 11, 14, 16, 18, 21, 32, 64, 128, 512, 1000, 2048]) {
     const src = new Uint8Array(Array.from({ length: n }, (_, i) => (i * 37 + 91) % 256));
     const enc = H.encode(src);
     const dec = H.decode(enc);
-    t(`n=${n} 往返一致`, src.every((v, i) => v === dec[i]), `${enc.length} 字`);
+    t(`n=${n} 往返严格一致`, dec.length === n && src.every((v, i) => v === dec[i]),
+        `${enc.length} 字 -> ${dec.length} 字节`);
 }
 
-console.log('\n③ 输出长度 = ceil(n*8/11)');
+// 穷举 1..3000：任何长度都不得出现「解码字节数 != 原长」
+{
+    let mismatch = [];
+    for (let n = 1; n <= 3000; n++) {
+        const src = new Uint8Array(Array.from({ length: n }, (_, i) => (i * 37 + 91) % 256));
+        const dec = H.decode(H.encode(src));
+        if (dec.length !== n || !src.every((v, i) => v === dec[i])) mismatch.push(n);
+    }
+    t('长度 1..3000 全部精确往返', mismatch.length === 0,
+        mismatch.length ? '失败长度: ' + mismatch.slice(0, 10).join(',') + '…（共 ' + mismatch.length + ' 个）' : '0 个失配');
+}
+
+console.log('\n③ 输出长度 = ceil((5+n)*8/11)   // 5 = 1 字节标志 + 4 字节长度头');
 for (const n of [1, 8, 11, 22, 100, 1000]) {
     const enc = H.encode(new Uint8Array(n));
-    const want = Math.ceil(n * 8 / 11);
+    const want = Math.ceil((5 + n) * 8 / 11);
     t(`n=${n}`, enc.length === want, `实际 ${enc.length} / 期望 ${want}`);
+}
+// 长度头的固定开销（字符数），用于对外说明密文膨胀
+{
+    const over = [1, 10, 100, 1000].map(n => H.encode(new Uint8Array(n)).length - Math.ceil(n * 8 / 11));
+    t('长度头开销恒定（约 4 字）', over.every(v => Math.abs(v - over[0]) <= 1), '开销 ' + JSON.stringify(over));
 }
 
 console.log('\n④ isHanzi 判定');
