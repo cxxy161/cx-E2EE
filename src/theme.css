@@ -290,6 +290,12 @@ textarea { min-height: 96px; resize: vertical; line-height: 1.55; }
 .res .cap.info { color: var(--accent-600); }
 .res .cap.err { color: var(--danger); }
 .res .val { color: var(--text); line-height: 1.6; }
+/* 密文可能极长：限制高度并允许内部滚动，避免把下方（分段区）推到屏幕外 */
+.res .val.val-ct {
+    font-family: var(--fm); font-size: .78rem; word-break: break-all;
+    max-height: 260px; overflow-y: auto; padding: 10px;
+    background: var(--surface-2); border-radius: var(--r); border: 1px solid var(--border);
+}
 .res .val.plain { font-family: var(--fu); font-weight: 700; white-space: pre-wrap; font-size: .88rem; }
 
 /* 汉字密文开关 */

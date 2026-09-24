@@ -138,7 +138,7 @@
             <button class="btn" onclick="TA.enc()" id="btn-enc">执行加密</button>
             <div id="trc" class="res">
                 <div class="cap info" id="trc-cap">密文</div>
-                <div class="val" id="tct"></div>
+                <div class="val val-ct" id="tct"></div>
                 <button class="cp" onclick="CP('tct',1)">📋 复制密文</button>
             </div>
             <div id="seg-box" style="display:none"></div>
@@ -155,7 +155,7 @@
             <button class="btn green" onclick="TA.dec()" id="btn-dec">执行解密</button>
             <div id="trd" class="res">
                 <div class="cap" id="trd-cap"></div>
-                <div class="val plain" id="tdt"></div>
+                <div class="val plain val-ct" id="tdt"></div>
                 <button class="cp" id="trd-cp" style="display:none" onclick="CP('tdt',1)">📋 复制明文</button>
             </div>
         </div>
@@ -540,6 +540,12 @@ const TA = {
         this._busy = true; UI.busy(btn, true, '⏳ 解密中…');
         const cap = $('trd-cap'), body = $('tdt'), box = $('trd'), cp = $('trd-cp');
         try {
+            // ⓪ 若粘的是带段头的多段文本，先还原成完整密文
+            if (/CX2\|\d+\//.test(input)) {
+                const mg = this._mergeSegments(input);
+                input = mg.cipher;
+                if (mg.total) T('已合并 ' + mg.total + ' 段密文');
+            }
             // ① 自动识别汉字密文（v2 字库严格判定）
             if (HanziCodec.isHanzi(input)) {
                 try {
@@ -577,22 +583,73 @@ const TA = {
     },
 
     /* ── 密文分段（QQ 单条 2000 字符上限） ──
-     * 默认关闭；开启后按 2000 字符切分，但**切点对齐 88bit（8 字 / 11 字节）**，
-     * 否则跨段位流错位，后续段全部解不开。
+     * 默认关闭；开启后切分，且**段体必须是 8 的整数倍**。
+     *
+     * 为什么必须对齐 8 字：汉字编码是 11bit/字、周期 88bit（8 字 ↔ 11 字节）。
+     * 若段体不是 8 的倍数，段与段之间的位流起点就落在 11bit 内部，
+     * 接收方按段独立 decode 时全部错位 → 后续段整体乱码。
+     * 故 body 取 floor((limit-headroom)/8)*8，保证每个段的边界都是 88bit 倍数。
      */
     SEG_LIMIT: 2000,
     SEG_ALIGN: 8,            // 8 字 = 88bit，与 11bit*8 的周期对齐
 
     _segments(cipher) {
         const limit = this.SEG_LIMIT;
-        const headroom = 12;                     // 段头 "CX2|1/9|abcd|9:1|" 的余量
-        const body = limit - headroom;
+        const headroom = 16;                     // 段头 "CX2|1/9|abcd|9:1|" 最大长度余量
+        // 关键：向下取整到 8 的倍数，否则跨段位流错位
+        const raw = limit - headroom;
+        const body = Math.floor(raw / this.SEG_ALIGN) * this.SEG_ALIGN;
         if (cipher.length <= limit) return [cipher];
         const segs = [];
         for (let i = 0; i < cipher.length; i += body) {
             segs.push(cipher.slice(i, i + body));
         }
         return segs;
+    },
+
+    /* ── 接收侧：把带段头的多段文本还原成完整密文 ──
+     * 支持：用户把收到的多段全粘进来（任意顺序、含换行），
+     *       或只粘了部分（缺段时明确报出缺哪一段）。
+     * 返回 {cipher} 或抛 {cx: 原因}
+     */
+    _mergeSegments(text) {
+        const s = String(text || '');
+        // 匹配所有段头 CX2|seq/total|msgid|total:seq|
+        const re = /CX2\|(\d+)\/(\d+)\|([A-Za-z0-9]+)\|(\d+):(\d+)\|/g;
+        const found = [];
+        let m;
+        while ((m = re.exec(s)) !== null) {
+            found.push({ at: m.index, end: re.lastIndex, seq: +m[1], total: +m[2], mid: m[3], i: +m[5] });
+        }
+        if (!found.length) return { cipher: s.replace(/\s+/g, '') };
+
+        // 按 msgid 分组（一次可能粘了多条消息）
+        const groups = new Map();
+        for (const f of found) {
+            if (!groups.has(f.mid)) groups.set(f.mid, []);
+            groups.get(f.mid).push(f);
+        }
+        // 取段数最多的那组（用户多数情况下只粘一条）
+        let best = null;
+        for (const [mid, list] of groups) if (!best || list.length > best.list.length) best = { mid, list };
+        const { list } = best;
+
+        const total = Math.max(...list.map(x => x.total));
+        const have = new Map(list.map(x => [x.i, x]));
+        const missing = [];
+        for (let i = 1; i <= total; i++) if (!have.has(i)) missing.push(i);
+        if (missing.length) {
+            throw { cx: '分段密文不完整：共 ' + total + ' 段，缺少第 ' + missing.join('、') + ' 段。请把全部段都粘贴进来' };
+        }
+        // 按序号拼接段体（段体到下一个段头之前为止）
+        let out = '';
+        for (let i = 1; i <= total; i++) {
+            const f = have.get(i);
+            const next = list.find(x => x.at > f.at);
+            const bodyEnd = next ? next.at : s.length;
+            out += s.slice(f.end, bodyEnd).replace(/\s+/g, '');
+        }
+        return { cipher: out, total };
     },
 
     /* 渲染分段结果：每段一个复制按钮 */
