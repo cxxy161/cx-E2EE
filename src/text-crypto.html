@@ -732,7 +732,7 @@ const Key = {
 var RKL = {
     _seq: 0,
 
-    init() { if (!$('rk-list').children.length) this.add(); this.render(); },
+    init() { if (!$('rk-list').children.length) this.add(); this.sync(); },
 
     /* 增行。focus=true 时自动聚焦新行 */
     add(val, focus) {

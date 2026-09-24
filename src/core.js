@@ -200,22 +200,36 @@ Directory.load();
 //
 // ⚠️ v2 与旧版 4096 字库**不兼容**：旧密文无法解码（按需求，不做向下兼容）。
 const HanziCodec = {
-    /* 字库（从 hanzi-table-v2.js 取；缺失时抛错而非静默降级） */
+    /* 字库（从 hanzi-table-v2.js 取）
+     *
+     * 该文件是可选依赖：只有需要汉字密文的页面（text-crypto / symmetric）
+     * 才引入它。其余页面（签名、图片、PQ 等）虽然也加载 core.js，但从不调用
+     * 汉字编解码 —— 所以字库缺失时**不能抛错**，否则会连带打断整页脚本。
+     * 一旦真正调用 encode/decode，则由 _need() 抛出明确错误。
+     */
     _table() {
         const t = (typeof window !== 'undefined' ? window : globalThis).HANZI_TABLE_V2;
-        if (!t) throw '字库未加载：请先引入 hanzi-table-v2.js';
-        return t;
+        return t || null;
     },
-    get ALPHABET() { return this._table().ALPHABET; },
+    get ALPHABET() { return this._table() ? this._table().ALPHABET : null; },
     BITS: 11,
     SIZE: 2048,
     CHAR_MAP: null,
+    _ok: false,          // 字库是否可用
+
+    /* 真正要用字库时调用：缺失则报明确错误 */
+    _need() {
+        if (!this._ok) throw '字库未加载：本页未引入 hanzi-table-v2.js，无法使用汉字密文';
+    },
 
     INIT() {
+        const t = this._table();
+        if (!t) { this._ok = false; this.CHAR_MAP = null; return; }
         this.CHAR_MAP = new Map();
-        for (let i = 0; i < this.ALPHABET.length; i++) {
-            this.CHAR_MAP.set(this.ALPHABET[i], i);
+        for (let i = 0; i < t.ALPHABET.length; i++) {
+            this.CHAR_MAP.set(t.ALPHABET[i], i);
         }
+        this._ok = true;
     },
 
     // Uint8Array → 汉字密文字符串
@@ -225,6 +239,7 @@ const HanziCodec = {
     // 输出长度 = ceil(n*8/11)，尾部用 0 填充至 11bit 边界。
     encode(bytes) {
         if (!this.CHAR_MAP) this.INIT();
+        this._need();
         const A = this.ALPHABET;
         const src = new Uint8Array(bytes);
         let out = '';
@@ -250,6 +265,7 @@ const HanziCodec = {
     // 调用方需自持长度信息（本版由外层线格式承载，不再内嵌长度头）。
     decode(str) {
         if (!this.CHAR_MAP) this.INIT();
+        this._need();
         // 兼容 emoji 等多码元：用 for...of 按码点遍历
         let acc = 0, nbits = 0;
         const bytes = [];
@@ -279,6 +295,7 @@ const HanziCodec = {
     isHanzi(str) {
         if (!str) return false;
         if (!this.CHAR_MAP) this.INIT();
+        if (!this._ok) return false;      // 无字库的页面一律判定为非汉字密文
         const s = String(str).replace(/\s+/g, '');
         // 至少 8 字才够 11 字节（11bit*8 = 88bit = 11B）
         if (s.length < 8) return false;
