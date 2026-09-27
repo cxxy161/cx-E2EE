@@ -157,6 +157,14 @@ app.use(express.static(path.join(APP_ROOT, 'src'), {
     }
 }));
 
+// 语言隐写模型资产：单一真源在 .pcd/pcd-v3-6M-fixedpoint/model/，
+// 不复制进 src/。浏览器经 /stego-model/ 取。
+app.use('/stego-model', express.static(
+    path.join(APP_ROOT, '.pcd', 'pcd-v3-6M-fixedpoint', 'model'),
+    { etag: false, lastModified: false }
+));
+
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`C-X Server running on 0.0.0.0:${PORT}`);

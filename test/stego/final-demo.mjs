@@ -39,7 +39,7 @@ console.log('载入 pcd-v3-6M 定点模型…');
 const t0 = Date.now();
 const { M, V } = loadReal(join(REPO, '.pcd', 'pcd-v3-6M-fixedpoint', 'model'));
 const engine = createEngine(M);
-console.log(`  完成（${((Date.now() - t0) / 1000).toFixed(1)}s）· 词表 ${V.size} · 汉字 token ${V.cjkCount}\n`);
+console.log(`  完成（${((Date.now() - t0) / 1000).toFixed(1)}s）· 词表 ${V.size} · 可用候选 ${V.allowedCount}\n`);
 
 const fmt = (n) => n.toLocaleString('zh-CN');
 const kb = (b) => (b / 1024).toFixed(2) + ' KB';

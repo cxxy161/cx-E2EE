@@ -62,19 +62,19 @@ export function createEngine(M) {
 /* ── 字节级候选解析：字符集过滤 + 逐对 prefix-free ──
  *
  * 过滤顺序固定（两端必须一致）：
- *   ① isCJKToken —— 纯字节结构判定（首字节 E4–E9 + 两个续接字节）
- *      天然排除字面 U+FFFD(EF BF BD)、ASCII、空白、局部字节片段
+ *   ① isAllowed —— 精确黑名单（空白/控制/零宽/U+FFFD/特殊 token 一律拒）
+ *      不用白名单：白名单会误杀模型学到的词组与标点，逼候选深层递补
  *   ② 与已接受集逐对 prefix-free
  */
 export function resolveByteCandidates(rawIds, V, need = NEED) {
     const ids = new Array(need);
     const bufs = new Array(need);
     let n = 0;
-    const stats = { scanned: 0, rejCharset: 0, rejPrefix: 0 };
+    const stats = { scanned: 0, rejBlack: 0, rejPrefix: 0 };
     for (let i = 0; i < rawIds.length && n < need; i++) {
         const id = rawIds[i];
         stats.scanned++;
-        if (!V.isCJKToken(id)) { stats.rejCharset++; continue; }
+        if (!V.isAllowed(id)) { stats.rejBlack++; continue; }
         const s = V.raw(id);
         let bad = false;
         for (let j = 0; j < n; j++) {
@@ -83,7 +83,7 @@ export function resolveByteCandidates(rawIds, V, need = NEED) {
         if (bad) { stats.rejPrefix++; continue; }
         ids[n] = id; bufs[n] = s; n++;
     }
-    if (n < need) throw new Error(`CANDIDATE_STARVED: ${n}/${need}（charset 剔 ${stats.rejCharset}，prefix 剔 ${stats.rejPrefix}）`);
+    if (n < need) throw new Error(`CANDIDATE_STARVED: ${n}/${need}（黑名单剔 ${stats.rejBlack}，prefix 剔 ${stats.rejPrefix}）`);
     return { ids, bufs, stats };
 }
 

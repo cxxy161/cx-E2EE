@@ -46,7 +46,7 @@ console.log('真词表 × 候选管线 验证\n');
     }
     eq(zero, 0, '① 无空 token');
     eq(maxLen, fmt.vocab.max_token_bytes, '① 最长 token 与 format.json 一致');
-    ok(V.cjkCount > 3000, '① 汉字 token 数量合理', String(V.cjkCount));
+    ok(V.allowedCount > 3400, '① 可用候选数合理', String(V.allowedCount));
 
     // 与 Python 侧解码结果对照（抽查若干 id）
     const check = [2, 95, 96, 260, 265, 13];
@@ -71,9 +71,9 @@ console.log('真词表 × 候选管线 验证\n');
     }
     eq(fffd.size, 456, '② 字面 U+FFFD token = 456（README §6 数字吻合）');
 
-    // 这些 id 必须全部被 isCJKToken 拒绝
+    // 这些 id 必须全部被黑名单拒绝
     let leaked = 0;
-    for (const id of fffd) if (V.isCJKToken(id)) leaked++;
+    for (const id of fffd) if (V.isAllowed(id)) leaked++;
     eq(leaked, 0, '② 456 个 U+FFFD token 全部被汉字白名单拒绝');
 
     // 反向：真正含非法局部字节序列的 token 有几个？
@@ -97,10 +97,10 @@ console.log('真词表 × 候选管线 验证\n');
     /** 字节级贪心 prefix-free：只比较 Uint8Array，绝不解码 */
     function resolve(rawIds) {
         const ids = [], bufs = [];
-        let rejCharset = 0, rejPrefix = 0;
+        let rejBlack = 0, rejPrefix = 0;
         for (const id of rawIds) {
             if (ids.length === NEED) break;
-            if (!V.isCJKToken(id)) { rejCharset++; continue; }
+            if (!V.isAllowed(id)) { rejBlack++; continue; }
             const s = V.raw(id);
             let bad = false;
             for (const a of bufs) {
@@ -109,7 +109,7 @@ console.log('真词表 × 候选管线 验证\n');
             if (bad) { rejPrefix++; continue; }
             ids.push(id); bufs.push(s);
         }
-        return { ids, bufs, rejCharset, rejPrefix, starved: ids.length < NEED };
+        return { ids, bufs, rejBlack, rejPrefix, starved: ids.length < NEED };
     }
 
     let allOk = true, report = [];
@@ -134,7 +134,7 @@ console.log('真词表 × 候选管线 验证\n');
                 if (t[k] === 0xEF && t[k + 1] === 0xBF && t[k + 2] === 0xBD) { clean = false; break; }
         }
         const avgLen = r.bufs.reduce((a, b) => a + b.length, 0) / r.bufs.length;
-        report.push(`${grp.id}: 64名 ✓ charset剔${r.rejCharset} prefix剔${r.rejPrefix} 均长${avgLen.toFixed(2)}B`);
+        report.push(`${grp.id}: 64名 ✓ 黑名单剔${r.rejBlack} prefix剔${r.rejPrefix} 均长${avgLen.toFixed(2)}B`);
         ok(pf, `③ ${grp.id} 字节级 prefix-free`);
         ok(clean, `③ ${grp.id} 候选无 U+FFFD`);
     }
@@ -154,7 +154,7 @@ console.log('真词表 × 候选管线 验证\n');
         const ids = [], bufs = [];
         for (const id of rawIds) {
             if (ids.length === NEED) break;
-            if (!V.isCJKToken(id)) continue;
+            if (!V.isAllowed(id)) continue;
             const s = V.raw(id);
             let bad = false;
             for (const a of bufs) if (V.isPrefix(a, s) || V.isPrefix(s, a)) { bad = true; break; }

@@ -11,7 +11,8 @@ const MIME = {
     '.json': 'application/json; charset=utf-8',
     '.png': 'image/png',
     '.jpg': 'image/jpeg',
-    '.svg': 'image/svg+xml'
+    '.svg': 'image/svg+xml',
+    '.bin': 'application/octet-stream'
 };
 
 // Local static preview server — serves the frontend from ../src.
@@ -19,10 +20,19 @@ const MIME = {
 const ROOT = path.resolve(__dirname, '..', 'src');
 const httpsMode = process.env.HTTPS === '1';
 
+// 语言隐写模型资产：单一真源在 .pcd/pcd-v3-6M-fixedpoint/model/，
+// 不复制进 src/（避免 6.5MB 重复入库）。浏览器经 /stego-model/ 取。
+const MODEL_ROOT = path.resolve(__dirname, '..', '.pcd', 'pcd-v3-6M-fixedpoint', 'model');
+
 const handler = (req, res) => {
     let url = req.url.split('?')[0];
     if (url === '/') url = '/index.html';
-    const fp = path.join(ROOT, url);
+    let base = ROOT;
+    if (url.startsWith('/stego-model/')) {
+        base = MODEL_ROOT;
+        url = url.slice('/stego-model'.length);
+    }
+    const fp = path.join(base, url);
     fs.readFile(fp, (err, data) => {
         if (err) { res.writeHead(404); res.end('Not Found'); return; }
         const ext = path.extname(fp);
