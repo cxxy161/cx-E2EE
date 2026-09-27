@@ -193,6 +193,89 @@ const Directory = {
 };
 Directory.load();
 
+// ─── 助记句遮罩 (Veil) ───
+//
+// 用途：防肩窥。点一下按钮把整个输入框盖住，再点一下恢复。
+//
+// ⚠️ 为什么不做「实时隐藏」（这是踩过坑的地方，别再改回去）
+// ---------------------------------------------------------
+//   type=password / -webkit-text-security / color:transparent / compositionstart 守卫
+//   这四种做法都会**打断中文输入法的组字候选窗**，导致中文口令无法输入。
+//   见 test/pass-field.mjs（该测试就是为了防止回归到那些做法而写的）。
+//
+// 本实现与输入法完全解耦：
+//   ① 只在「主动点击」时切换，途中不监听任何输入事件（oninput 一个字节都不加）；
+//   ② 用绝对定位的不透明遮罩层盖住，不碰输入框自身的任何样式或 type；
+//   ③ 遮蔽时先 blur() 让输入法收摊，再设 readonly —— 原生属性，零事件拦截。
+//
+// ⚠️ 定位：这是**防肩窥，不是加密**。value 始终在内存与 DOM 里，遮蔽期间不变。
+//
+// ⚠️ 隐藏遮罩不能只设 `hidden` 属性（这是上线后踩到的真实 bug）
+// ------------------------------------------------------------
+//   只设 `hidden` **不够**：`.veil{display:flex}` 是作者样式，优先级高于 UA 样式表的
+//   `[hidden]{display:none}` —— hidden 形同虚设，遮罩从页面加载起就一直盖住输入框，
+//   表现为「点不到、光标不显示、无法输入」。
+//   CSS 侧已补 `.veil[hidden]{display:none!important}`，这里再用**内联样式**兜底：
+//   内联优先级最高，且不依赖各页是否引入了那条 CSS 规则。
+const Veil = {
+    /* inputId → { input, veil, btn } */
+    _map: {},
+
+    /**
+     * 绑定一组「输入框 + 遮罩层 + 按钮」。
+     * @param {string} inputId 输入框 id
+     * @param {string} veilId  遮罩层 id（建议 position:absolute 覆盖输入框）
+     * @param {string} btnId   切换按钮 id（可选；不传则只支持点遮罩恢复）
+     */
+    attach(inputId, veilId, btnId) {
+        const input = $(inputId), veil = $(veilId), btn = btnId ? $(btnId) : null;
+        if (!input || !veil) return null;
+
+        this._setHidden(veil, true);
+        // 点遮罩 = 恢复显示（与按钮互补：按钮切换，遮罩一键恢复）
+        veil.addEventListener('click', () => this.hide(inputId));
+        if (btn) btn.addEventListener('click', () => {
+            this._map[inputId] && this._map[inputId].on ? this.hide(inputId) : this.show(inputId);
+        });
+
+        this._map[inputId] = { input, veil, btn, on: false, label: btn ? btn.textContent : '' };
+        return this._map[inputId];
+    },
+
+    /* 同时设 hidden 属性与内联 display —— 缺一不可（见上方注释）。 */
+    _setHidden(veil, hide) {
+        veil.hidden = hide;
+        veil.style.display = hide ? 'none' : 'flex';
+    },
+
+    /** 遮蔽（盖住输入框） */
+    show(inputId) {
+        const e = this._map[inputId];
+        if (!e || e.on) return;
+        const v = e.input.value || '';
+        e.input.blur();                     // ① 先失焦：输入法收摊，此刻无 composition 在途
+        e.input.setAttribute('readonly', ''); // ② 原生属性，不拦截任何事件
+        e.veil.textContent = '●'.repeat(Math.min(Math.max(v.length, 1), 20)) +
+            '　' + v.length + ' 字 · 点击显示';
+        this._setHidden(e.veil, false);
+        if (e.btn) e.btn.textContent = '👁 显示';
+        e.on = true;
+    },
+
+    /** 解除遮蔽并聚焦 */
+    hide(inputId) {
+        const e = this._map[inputId];
+        if (!e || !e.on) return;
+        this._setHidden(e.veil, true);
+        e.input.removeAttribute('readonly');
+        e.input.focus();
+        if (e.btn) e.btn.textContent = e.label || '🙈 遮蔽';
+        e.on = false;
+    },
+
+    isOn(inputId) { return !!(this._map[inputId] && this._map[inputId].on); }
+};
+
 // ─── 汉字密文编解码器 (HanziCodec v2) ───
 // 2048 字库 = 1792 常用汉字（GB2312一级字按字频排序）+ 256 常用符号
 //    字库来自 src/hanzi-table-v2.js（由 tools/gen-hanzi-table.py 生成，勿手改）

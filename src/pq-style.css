@@ -176,3 +176,20 @@ textarea { min-height: 80px; resize: vertical; }
     input::placeholder, textarea::placeholder { color: #64748b; opacity: 0.8; }
     #tst { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55); }
 }
+
+/* ── 助记句遮罩层（防肩窥） ─────────────────────────────
+ * 与 theme.css 的同名规则一致，只是变量名不同（本页用 --soft/--b/--t）。
+ * 同样**刻意不做 CSS 文字掩码** —— 那会打断中文输入法。
+ * 逻辑见 core.js 的 Veil。
+ */
+.veil-wrap { position: relative; display: flex; flex: 1; min-width: 0; }
+.veil {
+    position: absolute; inset: 0; z-index: 2;
+    display: flex; align-items: center; padding: 0 12px;
+    background: var(--soft); border: 1px solid var(--p); border-radius: 8px;
+    cursor: pointer; font-family: var(--fm); font-size: .85rem; color: var(--ts);
+    letter-spacing: .18em; overflow: hidden; white-space: nowrap; user-select: none;
+}
+.veil:hover { color: var(--t); }
+/* 同 theme.css：作者样式会压过 UA 的 [hidden]{display:none}，必须显式声明 */
+.veil[hidden] { display: none !important; }

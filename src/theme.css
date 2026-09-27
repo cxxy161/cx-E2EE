@@ -438,3 +438,27 @@ html[data-theme="dark"] .modal { background: rgba(0, 0, 0, .62); }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
+
+/* ── 助记句遮罩层（防肩窥） ─────────────────────────────
+ * 绝对定位盖住输入框。**刻意不用任何 CSS 文字掩码**
+ * （-webkit-text-security / color:transparent 会打断中文输入法）。
+ * 见 core.js 的 Veil 注释与 test/pass-field.mjs。
+ */
+.veil-wrap { position: relative; display: flex; flex: 1; min-width: 0; }
+.veil {
+    position: absolute; inset: 0; z-index: 2;
+    display: flex; align-items: center; padding: 0 12px;
+    background: var(--surface-2); border: 1px solid var(--border-strong);
+    border-radius: var(--r); cursor: pointer;
+    font-family: var(--fm); font-size: .82rem; color: var(--text-dim);
+    letter-spacing: .18em; overflow: hidden; white-space: nowrap;
+    user-select: none;
+}
+.veil:hover { border-color: var(--brand-500); color: var(--text); }
+/* ⚠️ 必须显式声明：上面的 `.veil{display:flex}` 是作者样式，
+ *    优先级高于 UA 样式表的 `[hidden]{display:none}` —— 少了这条，
+ *    hidden 属性形同虚设，遮罩会从页面加载起就一直盖住输入框
+ *    （表现为：点不到、无光标、无法输入）。 */
+.veil[hidden] { display: none !important; }
+
+/* ══════════════════════════════════════════════════════════════════

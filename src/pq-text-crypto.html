@@ -14,7 +14,15 @@
     <div class="card">
         <div class="ht"><span>身份凭证 (IDENTITY)</span><span id="led" style="color:#94a3b8">●</span></div>
         <label>助记句 (输入唯一口令生成身份)</label>
-        <input type="text" id="tp" placeholder="在此输入您的专属口令，用于生成私钥" oninput="TA.rst()">
+        <div style="display:flex;gap:8px;align-items:stretch">
+            <!-- 遮罩层只做防肩窥：点按钮才盖住，输入过程中不干预（中文输入法可用） -->
+            <div class="veil-wrap">
+                <input type="text" id="tp" placeholder="在此输入您的专属口令，用于生成私钥" oninput="TA.rst()">
+                <div class="veil" id="tp-veil" hidden title="点击显示"></div>
+            </div>
+            <!-- onclick 交由 Veil.attach 绑定，避免内联 + addEventListener 双触发导致相互抵消 -->
+            <button type="button" id="tp-veil-btn" class="btn" style="width:auto;margin-top:0;padding:0 16px;flex:0 0 auto">🙈 遮蔽</button>
+        </div>
         <button class="btn" onclick="TA.init()" id="tb">初始化身份</button>
         <div id="trp" class="res"><div style="color:var(--s);margin-bottom:5px">我的 ML-KEM 公钥:</div><div id="tpk" style="color:var(--t);word-break:break-all"></div><button class="cp" onclick="CP('tpk',1)">复制公钥</button></div>
     </div>
@@ -226,6 +234,9 @@ var ACS = {
         PQ_Directory.render('clst'); T('已添加');
     }
 };
+
+/* 助记句遮罩：手动开关，不记忆状态（每次进页面默认可见） */
+Veil.attach('tp', 'tp-veil', 'tp-veil-btn');
 </script>
 </body>
 </html>

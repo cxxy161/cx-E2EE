@@ -45,7 +45,13 @@
 
         <label for="tp">助记句 · 用于派生私钥（相同口令永远得到相同身份）</label>
         <div class="inline">
-            <input type="text" id="tp" placeholder="输入您的专属口令" oninput="TA.onPassInput()">
+            <!-- 遮罩层只做防肩窥：点按钮才盖住，输入过程中不干预（中文输入法可用） -->
+            <div class="veil-wrap">
+                <input type="text" id="tp" placeholder="输入您的专属口令" oninput="TA.onPassInput()">
+                <div class="veil" id="tp-veil" hidden title="点击显示"></div>
+            </div>
+            <!-- onclick 交由 Veil.attach 绑定，避免内联 + addEventListener 双触发导致相互抵消 -->
+            <button class="suffix" type="button" id="tp-veil-btn">🙈 遮蔽</button>
         </div>
         <div class="fld-msg hint on">口令不会上传，仅在本机内存中派生密钥。改口令需重新初始化。</div>
         <div class="inline" style="margin-top:12px">
@@ -1151,6 +1157,8 @@ document.addEventListener('click', () => ACS.close());
 })();
 
 /* ── 启动 ── */
+/* 助记句遮罩：手动开关，不记忆状态（每次进页面默认可见，避免「以为没填」） */
+Veil.attach('tp', 'tp-veil', 'tp-veil-btn');
 
 /* 探测加密后端：非安全上下文会回退纯 JS，此时必须常驻警告（不能静默降级） */
 SC.onMode = () => SC.mountNotice();
