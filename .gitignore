@@ -3,4 +3,5 @@ node_modules/
 data/
 dist/
 archive/
-test/
+test/*
+!test/stego/
