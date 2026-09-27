@@ -9,3 +9,7 @@ test/*
 # Python 字节码（模型包的 python 侧仅导出期使用）
 __pycache__/
 *.pyc
+
+# 模型分发包：.pcd/ 已是单一真源且整包入库，
+# 这个 zip 只是同内容的再打包（逐文件 sha256 一致），不入库以免双份 6.2MB
+pcd-v3-6M-fixedpoint.zip
