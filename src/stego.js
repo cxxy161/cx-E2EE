@@ -67,13 +67,90 @@
         EXP_LUT_N: 8192, EXP_LUT_MAX: 16, SIG_LUT_N: 8192, SIG_LUT_MAX: 16, Q_MAX: 127,
     };
 
-    /* 协议常量（与 test/stego/frame.mjs 必须一致） */
+    /* ══════════════════ 协议常量 ══════════════════
+     *
+     * ── 档位（topk）设计 ──
+     * 每 token 承载 bits = log2(topk) 位。**帧长随档位走**，锚定「每帧恒定 256 token」：
+     *     SEG_BYTES = 32 × bits        （因为 256×bits = 8×SEG_BYTES）
+     *
+     *    topk  bits  帧长   载荷   token/帧
+     *      4    2    64B    60B     256
+     *      8    3    96B    92B     256
+     *     16    4   128B   124B     256
+     *     32    5   160B   156B     256
+     *     64    6   192B   188B     256   ← 默认
+     *    128    7   224B   220B     256
+     *    256    8   256B   252B     256
+     *
+     * 为什么不让帧长固定 192B：那样 5bit / 7bit 会留残位
+     * （192×8=1536，1536%5=1、%7=3），档位不可用。
+     * 锚定 token 数后 7 档全部整除，且帧边界恒由 token 数决定，与档位无关。
+     */
+    const PROFILES = [4, 8, 16, 32, 64, 128, 256].map(k => {
+        const bits = Math.round(Math.log2(k));
+        const segBytes = 32 * bits;
+        return { topk: k, bits, segBytes, payload: segBytes - 4, tokensPerFrame: 256 };
+    });
+    const DEFAULT_PROFILE = 64;
+    /** 候选池深度：恒取足够深，供「最大档位 + 黑名单剔除 + prefix-free 递补」消耗。
+     *  实测 top256 档位最深要挖到第 443 名才能凑满 256 个
+     *  （黑名单剔除 + 前缀冲突去重），故池深必须 ≥512，给 256 会饥饿。 */
+    const MAX_TOPK = 512;
+
+    /** 取档位（未知值退回默认；输入是"每 token 位数"或"topk"都接受） */
+    function profileFor(v) {
+        if (v == null) return PROFILES.find(p => p.topk === DEFAULT_PROFILE);
+        return PROFILES.find(p => p.topk === v) || PROFILES.find(p => p.bits === v) ||
+            PROFILES.find(p => p.topk === DEFAULT_PROFILE);
+    }
+
+    /* 运行期协议参数（随档位切换）。默认 = top64。 */
     const P = {
-        SEG_BYTES: 192, FRAME_HDR: 4, MAGIC: 0x5354,
-        TOKENS_PER_FRAME: 256, BITS: 6, TOPK: 256, NEED: 64,
-        FRAMES_PER_SEG: 3, BOS: 1,
+        FRAME_HDR: 4, MAGIC: 0x5354,
+        /* 链长 = 一条**连续 token 流**含几帧。2 帧 = 512 token，正好用满
+         * RoPE 表的 512 个可用位置。原值 3 帧 = 768 token 已经越界：
+         * 实测 pos 512 与 513 输出的 logits **完全相同**（查表得 undefined，
+         * 退化成一个定值）—— 编解码自洽所以往返不报错，但第 512 个 token
+         * 之后的文本质量是坏的。
+         *
+         * 链与「显示分段」是两件事，必须解耦：
+         *   链 = 编解码的**连续性**单位（状态重置点，决定互操作性）
+         *   段 = 复制/发送的**排版**单位（决定要不要加段头） */
+        CHAIN_FRAMES: 2,
+        CHAIN_TOKENS: 512,          // = CHAIN_FRAMES × 256
+        SEG_CHAR_LIMIT: 2000,       // 排版上限（QQ 单条）
+        BOS: 1,
+        // 以下由 applyProfile 填充
+        TOPK: 64, BITS: 6, NEED: 64, SEG_BYTES: 192, SEG_PAYLOAD: 188, TOKENS_PER_FRAME: 256,
     };
-    P.SEG_PAYLOAD = P.SEG_BYTES - P.FRAME_HDR;   // 188
+
+    function applyProfile(v) {
+        const pf = profileFor(v);
+        P.TOPK = pf.topk; P.BITS = pf.bits; P.NEED = pf.topk;
+        P.SEG_BYTES = pf.segBytes; P.SEG_PAYLOAD = pf.payload;
+        P.TOKENS_PER_FRAME = pf.tokensPerFrame;
+        P.PROFILE = pf.topk;
+        return pf;
+    }
+    applyProfile(DEFAULT_PROFILE);
+
+    /** 当前档位在「压缩 ↔ 通顺」轴上的定位（供 UI 文案） */
+    function profileInfo(v) {
+        const pf = profileFor(v);
+        const idx = PROFILES.indexOf(pf);
+        return {
+            topk: pf.topk, bits: pf.bits, segBytes: pf.segBytes, payload: pf.payload,
+            // 实测经验：bits 越大，候选挖得越深，文本越生硬但压缩越好
+            compression: idx,          // 0=最通顺, 6=最压缩
+            sample: pf.topk === 4 ? '几乎全是模型首选词，最像人话'
+                : pf.topk === 8 ? '文本很自然'
+                    : pf.topk === 16 ? '文本自然'
+                        : pf.topk === 32 ? '文本较自然'
+                            : pf.topk === 64 ? '均衡（默认）'
+                                : pf.topk === 128 ? '文本偏生硬'
+                                    : '压缩最好，文本最生硬',
+        };
+    }
 
     /* ══════════════════ ③ 模型装载（ArrayBuffer 版） ══════════════════ */
 
@@ -475,7 +552,24 @@
         return h >>> 0;
     }
     const nonce16 = (msgid, seq) => fnv1a16(String(msgid) + '/' + String(seq));
-    const expected12 = (msgid, seq) => (((P.MAGIC ^ nonce16(msgid, seq)) & 0xffff) >>> 4) & 0xfff;
+
+    /* ── 帧 nonce：由**载荷自身**导出（自描述帧） ──
+     *
+     * 原实现 nonce = FNV(msgid + '/' + seq)，msgid 取自段信封，于是
+     * **没有段头就绝对解不开** —— 但段头只是排版标识（把多段归到同一条
+     * 消息、支持乱序拼接），不该是解密的必需品。
+     *
+     * 改为由载荷字节导出后，帧头自校验、自包含：
+     *   有段头能解，只有正文、甚至只有裸正文也能解。
+     *
+     * 端点仍高度离散：载荷是密文（近似随机），故各消息首 12bit 依旧
+     * 无固定指纹（docs/hanzi-prefix.md 记录的问题不会复发）。
+     * 保密性无关 —— 帧头只是位流对齐校验，安全性由 CX2 的 AES-GCM 承担。 */
+    function nonceOf(slice) {
+        let h = 0x811c9dc5;
+        for (let i = 0; i < slice.length; i++) { h ^= slice[i]; h = Math.imul(h, 0x01000193) >>> 0; }
+        return ((h >>> 16) ^ h) & 0xffff;
+    }
 
     function prfStream(seed, n) {
         const out = new Uint8Array(n);
@@ -489,11 +583,10 @@
         return out;
     }
 
-    function buildFrame(slice, msgid, seq) {
+    function buildFrame(slice, seq) {
         if (slice.length > P.SEG_PAYLOAD) throw new Error('SLICE_TOO_LONG');
         const f = new Uint8Array(P.SEG_BYTES);
-        const nn = nonce16(msgid, seq);
-        const m = (P.MAGIC ^ nn) & 0xffff;
+        const m = (P.MAGIC ^ nonceOf(slice)) & 0xffff;     // 自描述：由载荷导出
         f[0] = m >>> 8; f[1] = m & 0xff;
         f[2] = slice.length >>> 8; f[3] = slice.length & 0xff;
         f.set(slice, P.FRAME_HDR);
@@ -505,14 +598,24 @@
         return f;
     }
 
-    function parseFrame(f, msgid, seq) {
+    /** 解析并**自校验**（nonce 由载荷导出，故可独立验证，不依赖信封） */
+    function parseFrame(f, seq) {
         if (f.length !== P.SEG_BYTES) throw new Error('FRAME_SIZE');
-        const nn = nonce16(msgid, seq);
-        const m = (f[0] << 8) | f[1];
-        if (((m ^ nn) & 0xffff) !== P.MAGIC) throw new Error('MAGIC_MISMATCH');
         const len = (f[2] << 8) | f[3];
         if (len > P.SEG_PAYLOAD) throw new Error('BAD_LEN');
-        return f.slice(P.FRAME_HDR, P.FRAME_HDR + len);
+        const slice = f.slice(P.FRAME_HDR, P.FRAME_HDR + len);
+        const m = (f[0] << 8) | f[1];
+        if (((m ^ nonceOf(slice)) & 0xffff) !== P.MAGIC) throw new Error('MAGIC_MISMATCH');
+        return slice;
+    }
+
+    /** 只做帧头自校验（用于判定「这一档位解出的字节流是不是合法的帧流」） */
+    function frameMagicOk(f) {
+        if (f.length !== P.SEG_BYTES) return false;
+        const len = (f[2] << 8) | f[3];
+        if (len > P.SEG_PAYLOAD) return false;
+        const m = (f[0] << 8) | f[1];
+        return (((m ^ nonceOf(f.subarray(P.FRAME_HDR, P.FRAME_HDR + len))) & 0xffff) === P.MAGIC);
     }
 
     function splitPayload(bytes) {
@@ -530,12 +633,21 @@
 
     function mergeSegments(text) {
         const s = String(text || '');
+        const strip = (x) => x.replace(/[\s\u200b-\u200d\ufeff]/g, '');
         const found = [];
         let m; ENV_RE.lastIndex = 0;
         while ((m = ENV_RE.exec(s)) !== null) {
             found.push({ at: m.index, end: ENV_RE.lastIndex, total: +m[2], mid: m[3], i: +m[5] });
         }
-        if (!found.length) return { bodies: null, total: 1, got: 0, missing: [1], incomplete: true };
+        /* 无段头 → **整段就是正文**。
+         * 段头只是排版标识（分组 + 乱序重排），不是解密的必需品：
+         * 帧 nonce 由载荷自身导出，故裸正文可独立解码。
+         * 这让「复制全文（最干净）」和「只有一段」都天然可用。 */
+        if (!found.length) {
+            const body = strip(s);
+            if (!body) return { bodies: null, total: 0, got: 0, missing: [], incomplete: true };
+            return { bodies: [{ seq: 1, body }], total: 1, got: 1, missing: [], incomplete: false, bare: true };
+        }
         const groups = new Map();
         for (const f of found) {
             if (!groups.has(f.mid)) groups.set(f.mid, []);
@@ -555,7 +667,7 @@
             const next = list.find(x => x.at > f.at);
             const bodyEnd = next ? next.at : s.length;
             // 剥离一切空白与零宽字符（token 内已保证不含空白，故安全）
-            out.push({ seq: i, body: s.slice(f.end, bodyEnd).replace(/[\s\u200b-\u200d\ufeff]/g, '') });
+            out.push({ seq: i, body: strip(s.slice(f.end, bodyEnd)) });
         }
         return { bodies: out, msgid: best.mid, total, got: list.length, missing, incomplete: missing.length > 0 };
     }
@@ -615,26 +727,36 @@
 
     const YIELD_EVERY = 16;   // 每 16 步让出一次（≈110ms 一个时间片）
 
-    /** 段内 K 帧 = 一条连续 token 流（段字节 = K×192，token = K×256，天然整除） */
+    /** 一条链 = CHAIN_FRAMES 帧 = 一条连续 token 流（状态从 BOS 起步） */
     function makeForwarder(M, V) {
         const fwd = function forward(lastTokenId, state) {
             const r = stepForward(M, lastTokenId, state);
-            return { topK: topKFromLogits(r.logits, P.TOPK), nextState: state };
+            // ⚠️ 候选池深度恒为 MAX_TOPK，**与当前档位解耦**：
+            //    档位只决定"取池中前 N 名"，池子浅了会让小档位饥饿
+            //    （实测 top4 时若池深=4 会 CANDIDATE_STARVED）。
+            return { topK: topKFromLogits(r.logits, MAX_TOPK), nextState: state };
         };
-        fwd.M = M;      // encodeSegmentReal 需要它来建初态
+        fwd.M = M;      // encodeChain 需要它来建初态
         fwd.V = V;
         return fwd;
     }
 
-    async function encodeSegmentReal(segBytes, fwd, V, onStep, signal) {
-        const units = unitsFromBytes(segBytes, P.BITS);
+    /**
+     * 编码**一条链**：chainBytes → 伪装文本。
+     *
+     * 链是编解码的连续性单位 —— 状态从 BOS 起步、连续推进。
+     * 链长必须 ≤ RoPE 表的可用位置数（512），否则位置编码查表越界、
+     * 退化成常量（实测 pos512 与 pos513 的 logits 完全相同）。
+     */
+    async function encodeChain(chainBytes, fwd, V, onStep, signal) {
+        const units = unitsFromBytes(chainBytes, P.BITS);
         const state = createState(fwd.M);
         let last = P.BOS;
         const parts = [];
         let total = 0;
         for (let i = 0; i < units.length; i++) {
             const r = fwd(last, state);
-            const cand = resolveByteCandidates(r.topK, V);
+            const cand = resolveByteCandidates(r.topK, V, P.NEED);
             const u = units[i];
             parts.push(cand.bufs[u]);
             total += cand.bufs[u].length;
@@ -651,44 +773,101 @@
         return new TextDecoder('utf-8').decode(bytes);
     }
 
-    async function decodeFrameReal(textBytes, fwd, V, opts) {
-        const msgid = opts.msgid, seq = opts.seq;
-        const fastFail = opts.fastFail !== false;
+    /* ── 档位自动识别（全流式，链边界隐式） ──
+     *
+     * 接收端不知道发送端用了哪一档（2~8 bit/token），必须自己试出来。
+     *
+     * 关键洞察：**前向链与档位无关**。
+     *   文本里第 i 个 token 是什么，是由密文决定的既定事实；
+     *   档位只决定「该 token 在候选表中排第几」。
+     *   所以 lastTokenId 序列对 7 个档位完全相同 → 前向只需跑一遍。
+     *
+     * 链边界**不需要传输**：编解码双方都按「每 CHAIN_TOKENS 个 token
+     * 重置一次状态」这条确定性规则执行，边界天然对齐。
+     * 于是段头（乃至分段本身）都不是解密的必需品。
+     *
+     * 档位淘汰靠**自描述帧头**：某档位凑满一个帧长后，用它自己的 nonce
+     * 校验 Magic。16 bit 校验足以把其余档位迅速清掉。
+     */
+    async function decodeAuto(textBytes, fwd, V, opts) {
+        opts = opts || {};
         const signal = opts.signal;
-        const state = createState(fwd.M);
+        const live = PROFILES.map(pf => ({ pf, ok: true, acc: 0, nbits: 0, bytes: [] }));
+        let state = createState(fwd.M);
         let last = P.BOS;
-        const units = [];
         let cursor = 0, steps = 0;
 
-        const bail = (msg) => { const e = new Error(msg); e.code = 'NOT_STEGO'; e.stepsUsed = steps; return e; };
-
-        while (cursor < textBytes.length) {
+        while (cursor < textBytes.length && live.some(L => L.ok)) {
+            // 确定性链边界：与编码端同规则重置
+            if (steps > 0 && steps % P.CHAIN_TOKENS === 0) {
+                state = createState(fwd.M);
+                last = P.BOS;
+            }
             const r = fwd(last, state);
-            const cand = resolveByteCandidates(r.topK, V);
+            let needMax = 0;
+            for (const L of live) if (L.ok && L.pf.topk > needMax) needMax = L.pf.topk;
+            if (needMax === 0) break;
+            const cand = resolveByteCandidates(r.topK, V, needMax);
+
+            // 文本在当前候选表中的位置（与档位无关）
             let hit = -1, hits = 0;
             for (let i = 0; i < cand.bufs.length; i++) {
                 if (V.matchesAt(textBytes, cursor, cand.bufs[i])) { if (hit < 0) hit = i; hits++; }
             }
             if (hits === 0) {
-                if (fastFail && steps < 4) throw bail('识别失败：文本与候选集无法对齐');
-                throw new Error('DESYNC@' + cursor + '（文本可能被改动）');
+                if (opts.fastFail !== false && steps < 4) {
+                    const e = new Error('这段内容不是隐写文本');
+                    e.code = 'NOT_STEGO'; e.stepsUsed = steps;
+                    throw e;
+                }
+                const e = new Error('文本与候选集无法对齐（第 ' + cursor + ' 字节起，可能被改动）');
+                e.code = 'NOT_STEGO'; e.stepsUsed = steps;
+                throw e;
             }
             if (hits > 1) throw new Error('AMBIGUOUS@' + cursor);
-            units.push(hit);
+
+            // 各档位按自己的位宽累计
+            for (const L of live) {
+                if (!L.ok) continue;
+                if (hit >= L.pf.topk) { L.ok = false; continue; }   // 名次超出该档位范围
+                L.acc = ((L.acc << L.pf.bits) | hit) >>> 0;
+                L.nbits += L.pf.bits;
+                while (L.nbits >= 8) {
+                    L.nbits -= 8;
+                    L.bytes.push((L.acc >>> L.nbits) & 0xff);
+                }
+                L.acc = L.nbits ? (L.acc & ((1 << L.nbits) - 1)) : 0;
+                // 凑满一个帧长即用**自描述帧头**校验（16bit，极强的淘汰判据）
+                const fb = L.pf.segBytes;
+                if (L.bytes.length >= fb) {
+                    const f = new Uint8Array(L.bytes.slice(0, fb));
+                    if (!frameMagicOk(f)) L.ok = false;
+                }
+            }
+
             last = cand.ids[hit];
             cursor += cand.bufs[hit].length;
             steps++;
+            if ((steps & 7) === 0 && opts.onChars) opts.onChars(cursor);
             if ((steps & (YIELD_EVERY - 1)) === 0) {
                 if (opts.onStep) opts.onStep(steps);
+                if (opts.onChars) opts.onChars(cursor);
                 await yieldToUI();
                 if (signal && signal.aborted) { const e = new Error('aborted'); e.name = 'AbortError'; throw e; }
             }
-            if (fastFail && steps === 2) {
-                const got12 = ((units[0] << 6) | units[1]) & 0xfff;
-                if (got12 !== expected12(msgid, seq)) throw bail('识别失败：头部校验不匹配');
-            }
         }
-        return bytesFromUnits(units, P.BITS);
+        if (opts.onChars) opts.onChars(cursor);
+
+        const winner = live.filter(L => L.ok);
+        if (!winner.length) {
+            const e = new Error('这段内容不是隐写文本');
+            e.code = 'NOT_STEGO'; e.stepsUsed = steps;
+            throw e;
+        }
+        // 多档位同时存活说明文本太短（尚未凑满任何一档的帧长），取位宽最小者（最保守）
+        winner.sort((a, b) => a.pf.bits - b.pf.bits);
+        const W = winner[0];
+        return { bytes: Uint8Array.from(W.bytes), profile: W.pf.topk, candidates: winner.length, steps };
     }
 
     /* ══════════════════ 对外 API ══════════════════ */
@@ -697,10 +876,14 @@
         P, C,
         loadModel, loadVocab, createState, stepForward, topKFromLogits,
         makeForwarder,
-        buildFrame, parseFrame, splitPayload, segmentEnvelope, mergeSegments,
+        buildFrame, parseFrame, frameMagicOk, splitPayload, segmentEnvelope, mergeSegments,
         unitsFromBytes, bytesFromUnits, resolveByteCandidates,
-        fnv1a16, nonce16, expected12,
+        fnv1a16, nonceOf, nonce16,
         rshiftRound, isqrt, idivFloor,
+
+        /* ── 档位（高级设置） ── */
+        PROFILES, profileFor, profileInfo, applyProfile, MAX_TOPK,
+        get profile() { return P.PROFILE; },
 
         _M: null, _V: null, ready: false,
 
@@ -713,8 +896,17 @@
         },
 
         /**
-         * 密文字节 → 分段伪装文本。
-         * @returns {{segments:Array, frames:number, chars:number, ms:number}}
+         * 密文字节 → 伪装文本。
+         *
+         * 两层结构，**必须分清**（原来混为一谈，是「1800 字莫名分段」的根因）：
+         *   链 chain  = 编解码的**连续性**单位（状态重置点，≤ RoPE 表 512 位置）
+         *   段 segment= 复制/发送的**排版**单位（只影响要不要加段头）
+         *
+         * 段永远由**整数条链**组成，保证段的 token 数是 CHAIN_TOKENS 的整数倍，
+         * 接收端按同一条「每 CHAIN_TOKENS 重置」规则即可逐段对齐，
+         * 无需任何传输字段说明段里装了几条链。
+         *
+         * @returns {{segments:Array, frames:number, chains:number, chars:number, ms:number}}
          */
         async encodeAll(cipherBytes, opt) {
             opt = opt || {};
@@ -723,79 +915,150 @@
             const fwd = makeForwarder(M, V);
             const slices = splitPayload(cipherBytes);
             const framesTotal = slices.length;
-            const segsTotal = Math.ceil(framesTotal / P.FRAMES_PER_SEG);
+            const chainsTotal = Math.ceil(framesTotal / P.CHAIN_FRAMES);
             const t0 = Date.now();
-            let done = 0, doneBase = 0;
+            let done = 0;
             const totalSteps = framesTotal * P.TOKENS_PER_FRAME;
-            const segments = [];
+            const msgid = opt.msgid || Math.random().toString(36).slice(2, 6);
 
-            for (let s = 0; s < segsTotal; s++) {
-                const first = s * P.FRAMES_PER_SEG;
-                const lastF = Math.min(first + P.FRAMES_PER_SEG, framesTotal);
-                const K = lastF - first;
-                const segBytes = new Uint8Array(K * P.SEG_BYTES);
+            /* 先逐条链编码，再贪心打包成段（段的字数只有编完才知道，
+             * 故不能预先按固定链数分段）。 */
+            const chainTexts = [];
+            for (let c = 0; c < chainsTotal; c++) {
+                if (opt.signal && opt.signal.aborted) { const e = new Error('aborted'); e.name = 'AbortError'; throw e; }
+                const first = c * P.CHAIN_FRAMES;
+                const K = Math.min(P.CHAIN_FRAMES, framesTotal - first);
+                const chainBytes = new Uint8Array(K * P.SEG_BYTES);
                 for (let k = 0; k < K; k++) {
-                    segBytes.set(buildFrame(slices[first + k], opt.msgid, first + k + 1), k * P.SEG_BYTES);
+                    chainBytes.set(buildFrame(slices[first + k], first + k + 1), k * P.SEG_BYTES);
                 }
-                const body = await encodeSegmentReal(segBytes, fwd, V, (stepInSeg) => {
-                    done = doneBase + stepInSeg;
+                const doneBase = done;
+                const body = await encodeChain(chainBytes, fwd, V, (stepInChain) => {
+                    done = doneBase + stepInChain;
                     const el = Math.max(1, Date.now() - t0) / 1000;
                     if (opt.onProgress) opt.onProgress({
                         frame: Math.min(framesTotal, Math.floor(done / P.TOKENS_PER_FRAME) + 1), framesTotal,
-                        segment: s + 1, segmentsTotal: segsTotal,
+                        chain: c + 1, chainsTotal,
                         step: done, stepsTotal: totalSteps,
                         bps: done / el,
                         etaMs: ((totalSteps - done) / Math.max(done / el, 1e-6)) * 1000,
                     });
                 }, opt.signal);
-                doneBase += K * P.TOKENS_PER_FRAME;
-                if (opt.signal && opt.signal.aborted) { const e = new Error('aborted'); e.name = 'AbortError'; throw e; }
-                segments.push({ seq: s + 1, total: segsTotal, msgid: opt.msgid, body });
+                chainTexts.push({ frames: K, body });
+                done = doneBase + K * P.TOKENS_PER_FRAME;
             }
+
+            // 贪心打包：整条链为单位装进段，段字数 ≤ SEG_CHAR_LIMIT
+            const groups = [];
+            let cur = null;
+            for (const ct of chainTexts) {
+                const wouldBe = (cur ? cur.chars : 0) + ct.body.length;
+                if (cur && wouldBe > P.SEG_CHAR_LIMIT) { groups.push(cur); cur = null; }
+                if (!cur) cur = { chains: [], chars: 0, frames: 0 };
+                cur.chains.push(ct.body); cur.chars += ct.body.length; cur.frames += ct.frames;
+            }
+            if (cur) groups.push(cur);
+
+            const segsTotal = groups.length;
+            const segments = groups.map((g, i) => ({
+                seq: i + 1, total: segsTotal, msgid,
+                frames: g.frames, chains: g.chains.length,
+                body: g.chains.join(''),
+            }));
             const chars = segments.reduce((a, x) => a + x.body.length, 0);
-            return { segments, frames: framesTotal, chars, ms: Date.now() - t0 };
+            return { segments, frames: framesTotal, chains: chainsTotal, chars, ms: Date.now() - t0 };
         },
 
-        /** 伪装文本（可含多段信封）→ 密文字节 */
+        /**
+         * 伪装文本 → 密文字节。
+         *
+         * 三种输入都能解（段头**只是排版标识**，不是解密的必需品）：
+         *   ① 带段头（按段复制/乱序粘贴）→ 按 seq 归位后逐段解
+         *   ② 无段头全文（「复制全文」）→ 整段当一条连续流解
+         *   ③ 单段裸正文 → 同 ②
+         */
         async decodeAll(text, opt) {
             opt = opt || {};
             if (!this.ready) throw new Error('模型未装载');
             const M = this._M, V = this._V;
             const mg = mergeSegments(text);
-            if (!mg.bodies) { const e = new Error('未识别为隐写文本'); e.code = 'NOT_STEGO'; throw e; }
+            if (!mg.bodies || !mg.bodies.length) {
+                const e = new Error('这段内容不是隐写文本'); e.code = 'NOT_STEGO'; throw e;
+            }
             if (mg.incomplete) {
-                const e = new Error('收到第 ' + mg.got + '/' + mg.total + ' 段，还缺第 ' + mg.missing.join('、') + ' 段');
+                const e = new Error('收到第 ' + mg.got + '/' + mg.total + ' 段，还缺第 ' +
+                    mg.missing.join('、') + ' 段');
                 e.code = 'INCOMPLETE'; throw e;
             }
             const fwd = makeForwarder(M, V);
             const enc = new TextEncoder();
             const out = [];
             const t0 = Date.now();
-            let done = 0;
-            const framesTotal = mg.total * P.FRAMES_PER_SEG;
+            /* 进度以**字符**为单位（用户看到的是字数）。
+             * decodeAuto 内部按 UTF-8 **字节**推进 cursor，故必须先把每段
+             * 的「字节 offset → 字符数」映射算好，否则 1 个汉字算 3 个字节，
+             * 分子会以约 3 倍速度冲过字符分母（实测 12071/4096 并显示 100%）。 */
+            const totalChars = mg.bodies.reduce((a, b) => a + b.body.length, 0);
+            // 预编码每段，并建 offset→char 表（只在 token 边界查询，粒度足够）
+            const encBodies = mg.bodies.map(b => enc.encode(b.body));
+            const charAtByte = encBodies.map((u8, bi) => {
+                // byteOff → 该字节属于第几个 JS 字符。只在 token 边界查询，粒度足够。
+                const s = mg.bodies[bi].body;
+                const map = new Uint32Array(u8.length + 1);
+                let byteOff = 0, charIdx = 0;
+                for (const ch of s) {                       // 按码点迭代（正确处理代理对）
+                    const cp = ch.codePointAt(0);
+                    const need = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+                    for (let k = 0; k < need && byteOff + k <= u8.length; k++) map[byteOff + k] = charIdx;
+                    byteOff += need;
+                    charIdx += ch.length;                   // 代理对占 2 个 JS 字符
+                }
+                for (let k = byteOff; k <= u8.length; k++) map[k] = charIdx;
+                return map;
+            });
+            let charsDone = 0;
+            let detected = 0;
 
-            for (const b of mg.bodies) {
+            for (let bi = 0; bi < mg.bodies.length; bi++) {
+                const b = mg.bodies[bi];
                 if (opt.signal && opt.signal.aborted) { const e = new Error('aborted'); e.name = 'AbortError'; throw e; }
-                const firstFrame = (b.seq - 1) * P.FRAMES_PER_SEG + 1;
-                const expected = Math.min(P.FRAMES_PER_SEG, framesTotal - (b.seq - 1) * P.FRAMES_PER_SEG);
-                const frameBytes = await decodeFrameReal(enc.encode(b.body), fwd, V, {
-                    msgid: mg.msgid, seq: firstFrame, fastFail: true, signal: opt.signal,
-                    onStep: () => {
-                        done++;
-                        if (opt.onProgress && done % 16 === 0) opt.onProgress({ step: done, stepsTotal: framesTotal * P.TOKENS_PER_FRAME });
+                const base = charsDone;
+                // ① 自动识别档位并解出字节流（档位由文本自身决定，无需用户指定）
+                const auto = await decodeAuto(encBodies[bi], fwd, V, {
+                    signal: opt.signal,
+                    onStep: () => {},
+                    onChars: (byteOff) => {
+                        const map = charAtByte[bi];
+                        const done = base + map[Math.min(byteOff, map.length - 1)];
+                        if (done < charsDone) return;         // 单调保护
+                        charsDone = done;
+                        if (opt.onProgress) opt.onProgress({
+                            chars: charsDone, charsTotal: totalChars,
+                            segment: b.seq, segmentsTotal: mg.total,
+                        });
                     },
                 });
-                const nFrames = Math.floor(frameBytes.length / P.SEG_BYTES);
-                for (let i = 0; i < Math.min(nFrames, expected); i++) {
-                    const frameNo = firstFrame + i;
-                    out.push(parseFrame(frameBytes.subarray(i * P.SEG_BYTES, (i + 1) * P.SEG_BYTES), mg.msgid, frameNo));
+                charsDone = base + b.body.length;
+                if (opt.onProgress) opt.onProgress({
+                    chars: charsDone, charsTotal: totalChars,
+                    segment: b.seq, segmentsTotal: mg.total,
+                });
+                detected = auto.profile;
+                // 用识别出的档位切帧
+                const segBytes = 32 * Math.round(Math.log2(auto.profile));
+                const frameBytes = auto.bytes;
+                const nFrames = Math.floor(frameBytes.length / segBytes);
+                for (let i = 0; i < nFrames; i++) {
+                    try {
+                        out.push(parseFrame(frameBytes.subarray(i * segBytes, (i + 1) * segBytes), i + 1));
+                    } catch (e) { break; }   // 尾部残帧：链末对齐不足，丢弃
                 }
             }
             const total = out.reduce((a, x) => a + x.length, 0);
             const joined = new Uint8Array(total);
             let o = 0;
             for (const x of out) { joined.set(x, o); o += x.length; }
-            return { bytes: joined, ms: Date.now() - t0 };
+            return { bytes: joined, ms: Date.now() - t0, profile: detected, segments: mg.total, bare: !!mg.bare };
         },
 
         /**

@@ -66,7 +66,13 @@ console.log('浏览器版内核（src/stego.js）对齐验证\n');
     ok(Stego._V.allowedCount > 3400, '① 可用候选数合理', String(Stego._V.allowedCount));
     eq(Stego.P.SEG_BYTES, 192, '① 帧长 192');
     eq(Stego.P.SEG_PAYLOAD, 188, '① 载荷 188');
-    eq(Stego.P.TOPK, 256, '① top-K = 256');
+    // 档位体系：P.TOPK 是**当前档位**（默认 64），而候选池深度恒为 MAX_TOPK=512
+    eq(Stego.P.TOPK, 64, '① 默认档位 Top-64');
+    eq(Stego.MAX_TOPK, 512, '① 候选池深度 512（足够最深档位递补）');
+    eq(Stego.PROFILES.length, 7, '① 7 档可选（top4~256）');
+    ok(Stego.PROFILES.every(pf => (pf.segBytes * 8) % pf.bits === 0),
+        '① 全部档位帧长对位数整除（无残位）',
+        Stego.PROFILES.map(pf => `${pf.topk}:${(pf.segBytes * 8) % pf.bits}`).join(' '));
     eq(Stego.P.NEED, 64, '① 候选 64');
     eq(Stego.P.BOS, 1, '① BOS = 1');
 }

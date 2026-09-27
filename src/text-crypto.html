@@ -109,7 +109,76 @@
         </div>
     </div>
 
-    <!-- ═══ 加 / 解密 ═══ -->
+    <!-- ═══ 语言隐写（实验性）═══ 独立卡片：开启后加/解密区只剩模型模式 -->
+    <div class="card" id="st-card">
+        <div class="ht">
+            <span class="ht-l">🔬 语言隐写 <span class="en">LINGUISTIC STEGO</span></span>
+        </div>
+
+        <div class="hz-toggle">
+            <input type="checkbox" id="st-t" onchange="StegoUI.onToggle()">
+            <span class="hz-slider" onclick="$('st-t').click()" role="switch" aria-label="语言隐写"></span>
+            <span class="hz-lb" onclick="$('st-t').click()">启用语言隐写（实验性）</span>
+            <span class="hz-tag" id="st-tag">关闭</span>
+        </div>
+
+        <div id="st-panel" style="display:none">
+            <div class="st-banner">
+                ⚠ 实验性功能 · 开启后加密/解密仅使用模型模式（汉字与 Base64 不再适用）
+                <span class="st-sub">
+                    <b>不提供额外保密性</b>：安全性仍由 CX2 的 AES-GCM 承担，隐写只是表观混淆。<br>
+                    <b>需下载模型 6.5MB</b>（首次，之后本地缓存；纯离线运行，无外部网络依赖）。<br>
+                    <b>性能</b>：约 <b>2 秒/帧</b>（每帧 256 次推理，纯 JS）。一帧约可承载
+                    0.06~0.25KB 密文，长消息需分段。<br>
+                    <b>膨胀</b>：伪装文本比明文长数倍，且<b>随档位变化</b> ——
+                    压缩优先约 4x，通顺优先可达 16x。<b>短消息因协议固定开销占比高，膨胀会更明显</b>。
+                </span>
+            </div>
+
+            <div class="st-row" style="margin-top:10px">
+                <span class="st-lb">模型</span>
+                <span class="st-state st-dim" id="st-model-state">未知</span>
+                <button class="btn ghost sm" type="button" id="st-dl"
+                        style="width:auto;padding-left:14px;padding-right:14px"
+                        onclick="StegoUI.downloadModel()">⬇ 下载模型（待部署）</button>
+            </div>
+            <div class="st-bar" id="st-dl-bar" style="display:none"><i id="st-dl-fill"></i></div>
+            <div class="st-meta" id="st-dl-meta"></div>
+
+            <!-- ── 高级设置 ── -->
+            <div class="st-adv">
+                <div class="st-adv-hd" onclick="StegoUI.toggleAdv()">
+                    <span id="st-adv-caret">▸</span> 高级设置
+                    <span class="st-adv-cur" id="st-adv-cur"></span>
+                </div>
+                <div class="st-adv-bd" id="st-adv-bd" style="display:none">
+                    <div class="st-field">
+                        <label class="st-fl" for="st-topk">
+                            Top-K 候选范围
+                            <span class="st-i" onclick="StegoUI.toggleInfo(event)">i</span>
+                        </label>
+                        <div class="st-i-pop" id="st-i-pop" style="display:none">
+                            <b>每个 token 承载 log₂(K) 比特。</b><br>
+                            K 越大 → 每 token 装得越多、<b>压缩率越好</b>，
+                            但候选要往模型排序的深处挖，那些词模型自己也不看好，
+                            <b>文本会变生硬</b>。<br>
+                            K 越小 → 几乎全是模型首选词，<b>文本最自然</b>，
+                            但同样内容要写更多字。<br><br>
+                            帧长随 K 自动调整（每帧恒 256 token）。
+                            接收端会<b>自动识别</b>发送端用的档位，无需手动指定。
+                        </div>
+                        <input type="range" id="st-topk" min="0" max="6" step="1" value="4"
+                               oninput="StegoUI.onTopkInput()" onchange="StegoUI.onTopkCommit()">
+                        <div class="st-scale">
+                            <span>压缩优先</span><span id="st-scale-mid"></span><span>通顺优先</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        </div>
+
+        <!-- ═══ 加 / 解密 ═══ -->
     <div class="mtb" role="tablist">
         <div class="mt on" onclick="TS('e')" id="mt-e" role="tab" tabindex="0">🔒 加密发送</div>
         <div class="mt" onclick="TS('d')" id="mt-d" role="tab" tabindex="0">🔓 解密接收</div>
@@ -132,7 +201,8 @@
             <textarea id="tpt" placeholder="输入要发送的内容…" oninput="TA.onPlain()"></textarea>
             <div class="meta" id="tpt-meta">0 字 · 约 0 字节</div>
 
-            <div class="hz-toggle">
+            <!-- 语言隐写模式（纯模型）下，本行由 StegoUI 隐藏 -->
+            <div class="hz-toggle" id="hz-row">
                 <input type="checkbox" id="hz-t" onchange="TA.onHz()">
                 <span class="hz-slider" onclick="$('hz-t').click()" role="switch" aria-label="汉字密文"></span>
                 <span class="hz-lb" onclick="$('hz-t').click()">汉字密文（对普通聊天软件更隐蔽）</span>
@@ -146,6 +216,8 @@
                 <span class="hz-tag" id="seg-tag">关闭</span>
             </div>
 
+            <div id="st-est"></div>
+
             <button class="btn" onclick="TA.enc()" id="btn-enc">执行加密</button>
             <div id="trc" class="res">
                 <div class="cap info" id="trc-cap">密文</div>
@@ -153,6 +225,23 @@
                 <button class="cp" onclick="CP('tct',1)">📋 复制密文</button>
             </div>
             <div id="seg-box" style="display:none"></div>
+
+            <!-- 语言隐写：步骤②（仅该模式可见，汉字/Base64 模式保持一步出结果） -->
+            <div id="st-step2" style="display:none">
+                <button class="btn green" type="button" id="st-go" onclick="StegoUI.generate()">✨ 生成伪装文本</button>
+            </div>
+            <div id="st-prog" style="display:none">
+                <div class="st-bar"><i id="st-prog-fill"></i></div>
+                <div class="st-meta"><span id="st-prog-pct">0%</span> · <span id="st-prog-meta">序列化中…</span></div>
+                <div class="st-act"><button class="btn ghost sm" type="button" id="st-cancel"
+                        style="display:none;width:auto" onclick="StegoUI.cancel()">取消</button></div>
+            </div>
+            <div id="st-out" class="res">
+                <div class="cap" id="st-cap"></div>
+                <div class="val" id="stt"></div>
+                <button class="cp" id="st-cp" onclick="StegoUI.copyOutput(this)">📋 复制全文</button>
+            </div>
+            <div id="st-segs" style="display:none"></div>
         </div>
 
         <!-- 解密 -->
@@ -160,8 +249,24 @@
             <div class="ht"><span class="ht-l">🔓 解密接收 <span class="en">DECRYPT</span></span></div>
 
             <label for="tci">密文数据</label>
-            <textarea id="tci" placeholder="粘贴收到的密文（Base64 或汉字密文，自动识别）" oninput="TA.onCipher()"></textarea>
+            <textarea id="tci" placeholder="粘贴收到的密文" oninput="TA.onCipher()"></textarea>
             <div class="meta" id="tci-meta"></div>
+
+            <!-- 语言隐写：两步解密（先还原为 Base64，再走常规解密） -->
+            <div id="st-dec-step" style="display:none">
+                <div class="st-hint">
+                    语言隐写模式 · 两步解密：
+                    先点「还原为 Base64」跑模型还原，再点「执行解密」完成 CX2 解密。
+                </div>
+                <button class="btn" type="button" id="st-dec-go" onclick="StegoUI.decode()">🔍 还原为 Base64</button>
+                <div id="st-dec-prog" style="display:none">
+                    <div class="st-bar"><i id="st-dec-fill"></i></div>
+                    <div class="st-meta"><span id="st-dec-pct">0%</span> · <span id="st-dec-meta">识别中…</span></div>
+                    <div class="st-act"><button class="btn ghost sm" type="button" id="st-dec-cancel"
+                            style="display:none;width:auto" onclick="StegoUI.cancel()">取消</button></div>
+                </div>
+                <div id="st-dec-msg" class="meta"></div>
+            </div>
 
             <button class="btn green" onclick="TA.dec()" id="btn-dec">执行解密</button>
             <div id="trd" class="res">
@@ -185,6 +290,9 @@
 <script src="core.js?v=3.1"></script>
 <script src="cx-crypto.js?v=1.0"></script>
 <script src="cx2.js?v=2.1"></script>
+<script src="stego.js?v=0.1"></script>
+<script src="stego-engine.js?v=0.1"></script>
+<script src="stego-ui.js?v=0.1"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════
    UI 工具层：主题 / 密钥显隐 / 模态 / 浮层选择器 / busy
@@ -527,6 +635,8 @@ const TA = {
             $('trc').classList.add('on');
             this._renderIfOn(out);
             UI.reveal($('trc'));
+            // 语言隐写模式：把 Base64 交给步骤②，并刷新容量预估
+            if (typeof StegoUI !== 'undefined' && StegoUI.enabled) StegoUI.onCipherReady(out);
             T('加密完成，记得用「复制密文」发给对方');
         } catch (e) {
             T('加密失败：' + (e && e.message ? e.message : e));
@@ -544,6 +654,7 @@ const TA = {
 
         this._busy = true; UI.busy(btn, true, '⏳ 解密中…');
         const cap = $('trd-cap'), body = $('tdt'), box = $('trd'), cp = $('trd-cp');
+        const rawInput = input;      // 语言隐写需要**带段信封的原文**（自己解信封）
         try {
             // ⓪ 先解析段头（可能是一整段、也可能被切成多段）
             const mg = this._mergeSegments(input);
@@ -564,6 +675,10 @@ const TA = {
                     throw { cx: '这段内容看起来是汉字密文，但字库校验不通过，可能被改动过：' + he };
                 }
             }
+            // ①.5 语言隐写在「语言隐写」分区里用独立的「还原为 Base64」按钮完成，
+            //     这里不再自动触发 —— 避免粘普通中文就无脑跑模型。
+            //     用户点过还原后，输入框里已是 Base64，直接走下面的常规解密路径。
+
             // ② v2 结构预检，给出比「解密失败」更有用的原因
             const buf = Util.b642buf(input);
             if (!buf) throw { cx: '密文不是有效的 Base64，可能被截断、混入换行或复制不全' };
@@ -1179,6 +1294,8 @@ ACS.valSpk();
     try { $('hz-t').checked = localStorage.getItem('cx_hz') === '1'; TA.onHzSilent(); } catch (e) {}
     // 恢复上次的自动分段开关（默认关）
     try { $('seg-t').checked = localStorage.getItem('cx_seg') === '1'; TA.onSeg(); } catch (e) {}
+    // 语言隐写（实验性）初始化：恢复开关、查模型缓存
+    try { if (typeof StegoUI !== 'undefined') StegoUI.init(); } catch (e) { console.warn('StegoUI init 失败', e); }
 })();
 /* Tab 键可达性：模式切换支持键盘 */
 ['mt-e', 'mt-d'].forEach(id => {
