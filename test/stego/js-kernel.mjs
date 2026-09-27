@@ -188,7 +188,7 @@ export function siluLut(x, sigLut) {
 }
 
 /** 整数 softmax：max 减除 → EXP_LUT → 非负整除 */
-export function softmaxLut(scores, outFrac = C.RES_FRAC) {
+export function softmaxLut(scores, expLut, outFrac = C.RES_FRAC) {
     const S = scores.length;
     let m = -Infinity;
     for (let i = 0; i < S; i++) if (scores[i] > m) m = scores[i];
@@ -199,7 +199,7 @@ export function softmaxLut(scores, outFrac = C.RES_FRAC) {
         const d = scores[i] - m;
         let idx = idivFloor((-d) * (C.EXP_LUT_N - 1), span);
         if (idx < 0) idx = 0; else if (idx > C.EXP_LUT_N - 1) idx = C.EXP_LUT_N - 1;
-        e[i] = scores.__expLut[idx];
+        e[i] = expLut[idx];
         sum += e[i];
     }
     if (sum < 1) sum = 1;
@@ -209,17 +209,20 @@ export function softmaxLut(scores, outFrac = C.RES_FRAC) {
     return p;
 }
 
-/** 整数 RoPE（chunk-half） */
-export function ropeApply(x, T, H, hd, cos, sin) {
+/**
+ * 整数 RoPE（chunk-half）。
+ * @param pos0 起始位置。全序列前向 pos0=0；KV Cache 增量步传当前位置 p。
+ */
+export function ropeApply(x, T, H, hd, cos, sin, pos0 = 0) {
     const half = hd >> 1;
     const out = new Float64Array(T * H * hd);
     for (let t = 0; t < T; t++) {
+        const rb = (pos0 + t) * half;
         for (let h = 0; h < H; h++) {
             const base = (t * H + h) * hd;
-            const cb = t * half;
             for (let i = 0; i < half; i++) {
                 const x1 = x[base + i], x2 = x[base + half + i];
-                const c = cos[cb + i], s = sin[cb + i];
+                const c = cos[rb + i], s = sin[rb + i];
                 out[base + i] = rshiftRound(x1 * c - x2 * s, C.ROPE_FRAC);
                 out[base + half + i] = rshiftRound(x2 * c + x1 * s, C.ROPE_FRAC);
             }
@@ -228,19 +231,14 @@ export function ropeApply(x, T, H, hd, cos, sin) {
     return out;
 }
 
-/* ══════════════════ 前向 ══════════════════ */
+/* ══════════════════ 前向（全序列，无 KV Cache） ══════════════════ */
 export function forward(M, ids, capture = null) {
     const cfg = M.cfg;
     const T = ids.length, h = cfg.n_head, kvh = cfg.n_kv_head, hd = cfg.head_dim, d = cfg.d_model;
     const EXP = M.tables.exp_lut.arr, SIG = M.tables.sig_lut.arr;
     const COS = M.tables.rope_cos.arr, SIN = M.tables.rope_sin.arr;
 
-    // 供 softmaxLut 取 LUT（避免每次传参）
-    const scoresProto = { __expLut: EXP };
-    const softmax = (sc) => { sc.__expLut = EXP; return softmaxLut(sc); };
-
     const te = M.tensors.tok_emb;
-    // emb: x[t][k] = rshift_round(q[id][k] * M[id], W_SHIFT - RES_FRAC)
     let x = new Float64Array(T * d);
     const embShift = C.W_SHIFT - C.RES_FRAC;
     for (let t = 0; t < T; t++) {
@@ -249,7 +247,6 @@ export function forward(M, ids, capture = null) {
     }
     if (capture) capture.emb = x.slice();
 
-    // 注意力缩放常数（初始化期由 head_dim 导出，非推理期浮点）
     const scoreNum = Math.round((1 / Math.sqrt(hd)) * Math.pow(2, C.SCORE_INV_FRAC));
 
     for (let i = 0; i < cfg.n_layer; i++) {
@@ -259,11 +256,9 @@ export function forward(M, ids, capture = null) {
         const kk = linear(n1, T, d, M.tensors[p + 'k']);
         const vv = linear(n1, T, d, M.tensors[p + 'v']);
 
-        const hdQ = (h * hd) / hd;   // = h
-        const q3 = ropeApply(qq, T, h, hd, COS, SIN);
-        const k3r = ropeApply(kk, T, kvh, hd, COS, SIN);
+        const q3 = ropeApply(qq, T, h, hd, COS, SIN, 0);
+        const k3r = ropeApply(kk, T, kvh, hd, COS, SIN, 0);
 
-        // GQA：k/v 各 head 复制 h/kvh 份
         const rep = h / kvh;
         const k3 = new Float64Array(T * h * hd);
         const v3 = new Float64Array(T * h * hd);
@@ -277,7 +272,6 @@ export function forward(M, ids, capture = null) {
             }
         }
 
-        // 逐 head 注意力（因果）
         const attn = new Float64Array(T * h * hd);
         for (let hh = 0; hh < h; hh++) {
             for (let t = 0; t < T; t++) {
@@ -289,7 +283,7 @@ export function forward(M, ids, capture = null) {
                     }
                     sc[s] = rshiftRound(acc * scoreNum, C.RES_FRAC + C.SCORE_INV_FRAC);
                 }
-                const pr = softmax(sc);
+                const pr = softmaxLut(sc, EXP);
                 for (let dd = 0; dd < hd; dd++) {
                     let acc = 0;
                     for (let s = 0; s <= t; s++) acc += pr[s] * v3[(s * h + hh) * hd + dd];
@@ -298,8 +292,8 @@ export function forward(M, ids, capture = null) {
             }
         }
 
-        const atf = attn;   // 已是 [T, h*hd] == [T, d]
-        const o = linearFromQ(...(() => { const r = quantAct(atf, T, d); return [r.q, r.s]; })(), T, M.tensors[p + 'o']);
+        const r = quantAct(attn, T, d);
+        const o = linearFromQ(r.q, r.s, T, M.tensors[p + 'o']);
         for (let z = 0; z < T * d; z++) x[z] += o[z];
         if (capture) capture['blk' + i + '.attn_out'] = x.slice();
 
@@ -319,6 +313,133 @@ export function forward(M, ids, capture = null) {
     if (capture) capture.final_norm = xf.slice();
     const logits = linear(xf, T, d, M.tensors.tok_emb);
     return { logits, T, vocab: te.out };
+}
+
+/* ══════════════════ KV Cache ══════════════════
+ *
+ * 契约：
+ *   const st = createState(M);            // 空缓存，pos=0
+ *   logits   = stepForward(M, id, st);    // 前向 1 个 token，返回该位置 logits
+ *
+ * 等价性：stepForward 逐步喂入 ids 序列，其第 t 步输出必须与
+ *         forward(M, ids.slice(0,t+1)) 的最后一个位置**逐 bit 相同**。
+ *         K/V 缓存只是等价变换，不改变任何中间量。
+ */
+
+export function createState(M) {
+    const cfg = M.cfg;
+    const nLayer = cfg.n_layer;
+    return {
+        M,
+        pos: 0,
+        // 每层缓存：K/V 为 [maxPos, n_head, head_dim]，与全序列路径同一布局
+        k: Array.from({ length: nLayer }, () => new Float64Array(0)),
+        v: Array.from({ length: nLayer }, () => new Float64Array(0)),
+        cap: 0,
+        _capture: null,
+    };
+}
+
+function ensureCap(st, need) {
+    const M = st.M, cfg = M.cfg;
+    if (st.cap >= need) return;
+    let cap = st.cap || 64;
+    while (cap < need) cap *= 2;
+    const per = cap * cfg.n_head * cfg.head_dim;
+    for (let i = 0; i < cfg.n_layer; i++) {
+        const k = new Float64Array(per); k.set(st.k[i]); st.k[i] = k;
+        const v = new Float64Array(per); v.set(st.v[i]); st.v[i] = v;
+    }
+    st.cap = cap;
+}
+
+/**
+ * 单 token 增量前向。返回 { logits: Float64Array(vocab) }。
+ * @param st  由 createState 创建并跨步复用
+ * @param id  当前 token id
+ */
+export function stepForward(M, id, st, capture = null) {
+    const cfg = M.cfg;
+    const h = cfg.n_head, kvh = cfg.n_kv_head, hd = cfg.head_dim, d = cfg.d_model;
+    const EXP = M.tables.exp_lut.arr, SIG = M.tables.sig_lut.arr;
+    const COS = M.tables.rope_cos.arr, SIN = M.tables.rope_sin.arr;
+    const pos = st.pos;
+    ensureCap(st, pos + 1);
+
+    const te = M.tensors.tok_emb;
+    const embShift = C.W_SHIFT - C.RES_FRAC;
+    let x = new Float64Array(d);
+    {
+        const m = te.m[id], base = id * d;
+        for (let k = 0; k < d; k++) x[k] = rshiftRound(te.q[base + k] * m, embShift);
+    }
+    if (capture) capture.emb = x.slice();
+
+    const scoreNum = Math.round((1 / Math.sqrt(hd)) * Math.pow(2, C.SCORE_INV_FRAC));
+    const rep = h / kvh;
+    const S = pos + 1;
+
+    for (let i = 0; i < cfg.n_layer; i++) {
+        const p = 'blocks.' + i + '.';
+        const n1 = rmsnorm(x, M.norms[p + 'norm1'], 1, d);
+        const qq = linear(n1, 1, d, M.tensors[p + 'q']);   // [1, h*hd]
+        const kk = linear(n1, 1, d, M.tensors[p + 'k']);   // [1, kvh*hd]
+        const vv = linear(n1, 1, d, M.tensors[p + 'v']);
+
+        const q3 = ropeApply(qq, 1, h, hd, COS, SIN, pos);      // 位置 pos
+        const k3r = ropeApply(kk, 1, kvh, hd, COS, SIN, pos);
+
+        // 写入本层缓存：K/V 复制到 n_head（GQA）
+        const kc = st.k[i], vc = st.v[i];
+        for (let hh = 0; hh < h; hh++) {
+            const src = hh / rep | 0;
+            const dst = (pos * h + hh) * hd;
+            for (let dd = 0; dd < hd; dd++) {
+                kc[dst + dd] = k3r[src * hd + dd];
+                vc[dst + dd] = vv[src * hd + dd];
+            }
+        }
+
+        const attn = new Float64Array(h * hd);
+        for (let hh = 0; hh < h; hh++) {
+            const sc = new Float64Array(S);
+            for (let s = 0; s < S; s++) {
+                let acc = 0;
+                const kb = (s * h + hh) * hd;
+                for (let dd = 0; dd < hd; dd++) acc += q3[hh * hd + dd] * kc[kb + dd];
+                sc[s] = rshiftRound(acc * scoreNum, C.RES_FRAC + C.SCORE_INV_FRAC);
+            }
+            const pr = softmaxLut(sc, EXP);
+            for (let dd = 0; dd < hd; dd++) {
+                let acc = 0;
+                for (let s = 0; s < S; s++) acc += pr[s] * vc[(s * h + hh) * hd + dd];
+                attn[hh * hd + dd] = rshiftRound(acc, C.RES_FRAC);
+            }
+        }
+
+        const r = quantAct(attn, 1, d);
+        const o = linearFromQ(r.q, r.s, 1, M.tensors[p + 'o']);
+        for (let z = 0; z < d; z++) x[z] += o[z];
+        if (capture) capture['blk' + i + '.attn_out'] = x.slice();
+
+        const n2 = rmsnorm(x, M.norms[p + 'norm2'], 1, d);
+        const g_ = linear(n2, 1, d, M.tensors[p + 'gate']);
+        const u_ = linear(n2, 1, d, M.tensors[p + 'up']);
+        const sil = siluLut(g_, SIG);
+        const hid = new Float64Array(M.tensors[p + 'gate'].out);
+        for (let z = 0; z < hid.length; z++) hid[z] = rshiftRound(sil[z] * u_[z], C.RES_FRAC);
+
+        const dn = linear(hid, 1, M.tensors[p + 'down'].inn, M.tensors[p + 'down']);
+        for (let z = 0; z < d; z++) x[z] += dn[z];
+        if (capture) capture['blk' + i + '.out'] = x.slice();
+    }
+
+    const xf = rmsnorm(x, M.norms.final_norm, 1, d);
+    if (capture) capture.final_norm = xf.slice();
+    const logits = linear(xf, 1, d, M.tensors.tok_emb);
+
+    st.pos = pos + 1;
+    return { logits, T: 1, vocab: te.out };
 }
 
 /* ══════════════════ FNV-1a 64 ══════════════════ */
