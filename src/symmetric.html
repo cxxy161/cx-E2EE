@@ -54,11 +54,15 @@
 
     <script src="hanzi-table-v2.js?v=2.0"></script>
 <script src="core.js?v=3.1"></script>
+<script src="cx-crypto.js?v=1.0"></script>
 <script>
 const AES = {
     enc: new TextEncoder(), dec: new TextDecoder(),
-    async getK(pw) { return await crypto.subtle.importKey("raw", this.enc.encode(pw), "PBKDF2", false, ["deriveKey"]); },
-    async derK(pk, salt) { return await crypto.subtle.deriveKey({ name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" }, pk, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]); },
+    /* 经 SC 门面派生：非安全上下文（局域网 http）下自动回退纯 JS PBKDF2。
+     * 输出与原生 deriveKey(AES-GCM/256) 完全一致，故线格式不变。 */
+    async derK(pw, salt) {
+        return await SC.pbkdf2(this.enc.encode(pw), salt, 100000, 32);
+    },
 
     async run(isDec) {
         const t = isDec ? 'd' : 'e';
@@ -66,11 +70,11 @@ const AES = {
         if (!txt || !pw) return T("文本与密钥为必填项");
 
         try {
-            if (!window.crypto?.subtle) throw "当前环境不支持 Web Crypto API，请使用 HTTPS 或 localhost 访问";
+            await SC.ensure();     // 无 crypto.subtle 时回退纯 JS（不支持的浏览器才抛错）
             if (!isDec) {
-                const s = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
-                const pKey = await this.getK(pw), aKey = await this.derK(pKey, s);
-                const encCont = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, aKey, this.enc.encode(txt));
+                const s = SC.rand(16), iv = SC.rand(12);
+                const aKey = await this.derK(pw, s);
+                const encCont = await SC.gcmSeal(aKey, iv, this.enc.encode(txt));
 
                 const eBytes = new Uint8Array(encCont), pl = new Uint8Array(28 + eBytes.byteLength);
                 pl.set(s, 0); pl.set(iv, 16); pl.set(eBytes, 28);
@@ -92,9 +96,9 @@ const AES = {
                 if (pl.byteLength < 44) throw "长度截断";
 
                 const s = pl.slice(0, 16), iv = pl.slice(16, 28), eBytes = pl.slice(28);
-                const pKey = await this.getK(pw), aKey = await this.derK(pKey, s);
+                const aKey = await this.derK(pw, s);
 
-                const decCont = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, aKey, eBytes);
+                const decCont = await SC.gcmOpen(aKey, iv, eBytes);
                 $('out-d').innerText = this.dec.decode(decCont);
                 $('rx-d').classList.add('on');
             }

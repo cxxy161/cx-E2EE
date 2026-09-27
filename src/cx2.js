@@ -69,24 +69,22 @@ const CX2 = (function () {
     /* ── X25519：复用页面的纯 JS 实现（TA.M.m），避免重复实现 ── */
     function x25519(scalar, point) { return TA.M.m(scalar, point); }
 
-    /* ── HKDF-SHA256 → 32 字节 ── */
+    /* ── HKDF-SHA256 → 32 字节 ──
+     *
+     * 经 SC 门面调用：非安全上下文（http + 局域网 IP）下 crypto.subtle 不可用，
+     * SC 会惰性加载纯 JS 实现顶上；HTTPS/localhost 下仍走原生。
+     * 两者**逐字节一致**，故不影响线格式（见 test/softcrypto-vectors.mjs）。
+     */
     async function hkdf(ikm, salt, info) {
-        const k = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
-        const bits = await crypto.subtle.deriveBits(
-            { name: 'HKDF', hash: 'SHA-256', salt: enc.encode(salt), info: enc.encode(info) },
-            k, KEY_LEN * 8
-        );
-        return new Uint8Array(bits);
+        return SC.hkdf(ikm, enc.encode(salt), enc.encode(info), KEY_LEN);
     }
 
     /* ── AES-256-GCM ── */
     async function gcmSeal(key, iv, plain) {
-        const k = await crypto.subtle.importKey('raw', key, 'AES-GCM', false, ['encrypt']);
-        return new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, plain));
+        return SC.gcmSeal(key, iv, plain);
     }
     async function gcmOpen(key, iv, cipher) {
-        const k = await crypto.subtle.importKey('raw', key, 'AES-GCM', false, ['decrypt']);
-        return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, k, cipher));
+        return SC.gcmOpen(key, iv, cipher);
     }
 
     /* ── 对单个接收方算出 (wrap_key, idx) ──
@@ -113,7 +111,7 @@ const CX2 = (function () {
      * peers: Uint8Array(32) 或 Base64 字符串 的数组（至少 1 个）
      */
     async function encrypt(plaintext, peers) {
-        if (!window.crypto?.subtle) throw new Error('当前环境不支持 Web Crypto API，请使用 HTTPS 或 localhost 访问');
+        await SC.ensure();          // 无 crypto.subtle 时惰性加载纯 JS 回退（不支持的浏览器才抛错）
         const list = (peers || []).map(p => (typeof p === 'string' ? unb64(p) : p));
         if (!list.length) throw new Error('至少需要一个接收方公钥');
         for (const p of list) {
@@ -122,17 +120,17 @@ const CX2 = (function () {
         if (list.length > 255) throw new Error('接收方数量超过上限 255');
 
         // ① 共享会话密钥：正文只加密一次
-        const contentKey = crypto.getRandomValues(new Uint8Array(KEY_LEN));
-        const ivCt = crypto.getRandomValues(new Uint8Array(IV_LEN));
+        const contentKey = SC.rand(KEY_LEN);
+        const ivCt = SC.rand(IV_LEN);
         const ct = await gcmSeal(contentKey, ivCt, enc.encode(plaintext));
 
         // ② 每个接收方各 wrap 一份 content_key
-        const ephSk = crypto.getRandomValues(new Uint8Array(32));
+        const ephSk = SC.rand(32);
         const ephPk = x25519(ephSk, null);            // 只用公钥分量，不依赖对方私钥
         const recs = [];
         for (const peerPk of list) {
             const { wrapKey, idx } = await deriveFor(ephSk, ephPk, peerPk);
-            const iv = crypto.getRandomValues(new Uint8Array(IV_LEN));
+            const iv = SC.rand(IV_LEN);
             const wrapped = await gcmSeal(wrapKey, iv, contentKey);
             if (wrapped.length !== WRAP_LEN) throw new Error('包裹长度异常');
             recs.push(u8(idx, ephPk, iv, wrapped));
@@ -152,7 +150,7 @@ const CX2 = (function () {
         if (!mySk || mySk.length !== 32) {
             throw new Error('本机私钥不可用（请先点「初始化身份」）');
         }
-        if (!window.crypto?.subtle) throw new Error('当前环境不支持 Web Crypto API，请使用 HTTPS 或 localhost 访问');
+        await SC.ensure();          // 同上：解密路径同样支持纯 JS 回退
         let buf;
         try { buf = unb64(cipherB64); }
         catch (e) { throw new Error('密文不是有效的 Base64，可能被截断或复制不全'); }

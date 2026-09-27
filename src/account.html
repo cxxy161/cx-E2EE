@@ -45,7 +45,8 @@
     </div>
 </div>
 
-    <script src="core.js?v=3.0"></script>
+    <script src="cx-crypto.js?v=1.0"></script>
+<script src="core.js?v=3.1"></script>
 <script>
 var ACC = {
     enc: new TextEncoder(),
@@ -75,14 +76,13 @@ var ACC = {
         var m = $('mnemo').value.trim();
         if (!m) return T('请输入助记词');
         try {
-            var hash = await crypto.subtle.digest('SHA-256', this.enc.encode(m));
+            var hash = await SC.sha256(this.enc.encode(m));
             this.kp = nacl.sign.keyPair.fromSeed(new Uint8Array(hash));
             var pkB64 = Util.buf2b64(this.kp.publicKey.buffer);
             $('dspk').innerText = pkB64;
             $('spk').value = pkB64;
 
-            var km = await crypto.subtle.importKey('raw', this.enc.encode(m), { name: 'PBKDF2' }, false, ['deriveBits']);
-            var sd = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: this.enc.encode('CX3'), iterations: 1e5, hash: 'SHA-256' }, km, 256);
+            var sd = await SC.pbkdf2(this.enc.encode(m), this.enc.encode('CX3'), 1e5, 32);
             var encPriv = new Uint8Array(sd);
             var encPub = this.X25519.m(encPriv, null);
             var epkB64 = Util.buf2b64(encPub.buffer);

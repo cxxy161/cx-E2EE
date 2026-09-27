@@ -30,6 +30,12 @@
         </div>
     </div>
 
+    <!-- 纯 JS 回退加密警告条：仅非安全上下文（crypto.subtle 不可用）时出现 -->
+    <div class="note warn" id="sc-warn" style="display:none;margin-bottom:14px">
+        <span class="ic">⚠</span>
+        <span id="sc-warn-tx"></span>
+    </div>
+
     <!-- ═══ 身份凭证 ═══ -->
     <div class="card">
         <div class="ht">
@@ -171,7 +177,8 @@
 
 <script src="hanzi-table-v2.js?v=2.0"></script>
 <script src="core.js?v=3.1"></script>
-<script src="cx2.js?v=2.0"></script>
+<script src="cx-crypto.js?v=1.0"></script>
+<script src="cx2.js?v=2.1"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════
    UI 工具层：主题 / 密钥显隐 / 模态 / 浮层选择器 / busy
@@ -328,26 +335,24 @@ const TA = {
         e: new TextEncoder(), d: new TextDecoder(), pr: null, pk: null,
         async init(tx) {
             if (!tx) throw "请输入口令";
-            if (!window.crypto?.subtle) throw "当前环境不支持 Web Crypto API，请使用 HTTPS 或 localhost 访问";
-            const km = await crypto.subtle.importKey("raw", this.e.encode(tx), { name: "PBKDF2" }, false, ["deriveBits"]);
-            const sd = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: this.e.encode("CX3"), iterations: 1e5, hash: "SHA-256" }, km, 256);
+            // 经 SC 门面：非安全上下文下自动回退纯 JS PBKDF2（不支持的浏览器才抛错）
+            const sd = await SC.pbkdf2(this.e.encode(tx), this.e.encode("CX3"), 1e5, 32);
             this.pr = new Uint8Array(sd); this.pk = Util.buf2b64(TA.M.m(this.pr, null).buffer); return this.pk;
         },
         async run(k, t, d) {
-            if (!this.pr) throw "请先初始化"; const op = "AES-GCM";
+            if (!this.pr) throw "请先初始化";
+            await SC.ensure();          // 无 crypto.subtle 时回退纯 JS
             if (d) {
                 const j = JSON.parse(this.d.decode(Util.b642buf(t)));
                 const s = TA.M.m(this.pr, new Uint8Array(Util.b642buf(j.k)));
-                const ky = await crypto.subtle.importKey("raw", s, op, false, ["decrypt"]);
-                return this.d.decode(await crypto.subtle.decrypt({ name: op, iv: Util.b642buf(j.i) }, ky, Util.b642buf(j.c)));
+                return this.d.decode(await SC.gcmOpen(s, Util.b642buf(j.i), Util.b642buf(j.c)));
             } else {
-                const e = crypto.getRandomValues(new Uint8Array(32));
+                const e = SC.rand(32);
                 const pubBuf = Util.b642buf(k);
                 if (!pubBuf || pubBuf.byteLength !== 32) throw "接收方公钥格式损坏或长度不符";
                 const s = TA.M.m(e, new Uint8Array(pubBuf));
-                const ky = await crypto.subtle.importKey("raw", s, op, false, ["encrypt"]);
-                const v = crypto.getRandomValues(new Uint8Array(12));
-                const c = await crypto.subtle.encrypt({ name: op, iv: v }, ky, this.e.encode(t));
+                const v = SC.rand(12);
+                const c = await SC.gcmSeal(s, v, this.e.encode(t));
                 return Util.buf2b64(this.e.encode(JSON.stringify({ k: Util.buf2b64(TA.M.m(e, null).buffer), i: Util.buf2b64(v.buffer), c: Util.buf2b64(c) })));
             }
         }
@@ -567,9 +572,9 @@ const TA = {
             if (!this._ready || !this.c.pr) {
                 throw { cx: '请先在顶部「初始化身份」——解密需要本机私钥' };
             }
-            if (!window.crypto || !window.crypto.subtle) {
-                throw { cx: '当前页面无 Web Crypto（crypto.subtle 不可用）。请用 localhost / HTTPS 访问，且清一次浏览器缓存' };
-            }
+            // 环境自检：crypto.subtle 缺失时 SC 会自动回退纯 JS 实现（见 cx-crypto.js）。
+            // 这里只拦「原生与回退都不可用」—— 此时 SC.ensure() 会抛出带原因的明确错误。
+            await SC.ensure();
             const text = await CX2.decrypt(input, this.c.pr);
             cap.className = 'cap ok'; cap.innerText = '✓ 解密成功';
             body.innerText = text;
@@ -1146,6 +1151,15 @@ document.addEventListener('click', () => ACS.close());
 })();
 
 /* ── 启动 ── */
+
+/* 探测加密后端：非安全上下文会回退纯 JS，此时必须常驻警告（不能静默降级） */
+SC.onMode = () => SC.mountNotice();
+SC.ensure().catch(e => {
+    // 原生与回退都不可用：直接告诉用户原因，而不是等到点按钮才报错
+    const box = $('sc-warn'), tx = $('sc-warn-tx');
+    if (box && tx) { tx.innerText = String(e && e.message ? e.message : e); box.style.display = 'flex'; }
+});
+
 RKL.init();
 ACS.renderList();
 TA.updateGate();

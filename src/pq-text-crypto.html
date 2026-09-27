@@ -49,7 +49,8 @@
     </div>
 </div>
 
-<script src="core.js?v=3.0"></script>
+<script src="cx-crypto.js?v=1.0"></script>
+<script src="core.js?v=3.1"></script>
 <script>
 // Utility functions
 var PQ_Utils = {
@@ -146,10 +147,9 @@ var TA = {
         var tx = $('tp').value;
         if (!tx) return T('请输入口令');
         if (!ml_kem768) return T('后量子模块加载中，请稍候...');
-        if (!window.crypto || !window.crypto.subtle) return T('当前环境不支持 Web Crypto API');
         var b = $('tb'); b.disabled = true; b.innerText = "计算中...";
-        crypto.subtle.importKey("raw", self.c.e.encode(tx), { name: "PBKDF2" }, false, ["deriveBits"])
-        .then(function(km) { return crypto.subtle.deriveBits({ name: "PBKDF2", salt: self.c.e.encode("CX-PQ"), iterations: 1e5, hash: "SHA-256" }, km, 512); })
+        // 经 SC 门面：非安全上下文下回退纯 JS PBKDF2（输出 512 位与原生一致）
+        SC.pbkdf2(self.c.e.encode(tx), self.c.e.encode("CX-PQ"), 1e5, 64)
         .then(function(sd) {
             var seed = new Uint8Array(sd);
             var kp = ml_kem768.keygen(seed);
@@ -175,10 +175,10 @@ var TA = {
             var result = ml_kem768.encapsulate(theirPk);
             var ct = result.cipherText;
             var ss = result.sharedSecret;
-            crypto.subtle.importKey("raw", ss, "AES-GCM", false, ["encrypt"])
-            .then(function(key) {
-                var iv = crypto.getRandomValues(new Uint8Array(12));
-                return crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, self.c.e.encode(plaintext))
+            SC.ensure()
+            .then(function() {
+                var iv = SC.rand(12);
+                return SC.gcmSeal(ss, iv, self.c.e.encode(plaintext))
                 .then(function(enc) {
                     var out = { ct: PQ_Utils.buf2b64(ct), iv: PQ_Utils.buf2b64(iv.buffer), c: PQ_Utils.buf2b64(enc) };
                     $('tct').innerText = PQ_Utils.buf2b64(self.c.e.encode(JSON.stringify(out)));
@@ -198,9 +198,9 @@ var TA = {
             var j = JSON.parse(self.c.d.decode(PQ_Utils.b642buf(cipherB64)));
             var ct = new Uint8Array(PQ_Utils.b642buf(j.ct));
             var ss = ml_kem768.decapsulate(ct, self.c.sk);
-            crypto.subtle.importKey("raw", ss, "AES-GCM", false, ["decrypt"])
-            .then(function(key) {
-                return crypto.subtle.decrypt({ name: "AES-GCM", iv: PQ_Utils.b642buf(j.iv) }, key, PQ_Utils.b642buf(j.c));
+            SC.ensure()
+            .then(function() {
+                return SC.gcmOpen(ss, PQ_Utils.b642buf(j.iv), PQ_Utils.b642buf(j.c));
             })
             .then(function(dec) {
                 $('tdt').innerText = self.c.d.decode(dec);

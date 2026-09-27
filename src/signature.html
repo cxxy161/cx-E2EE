@@ -68,7 +68,8 @@
     </div>
 </div>
 
-    <script src="core.js?v=3.0"></script>
+    <script src="cx-crypto.js?v=1.0"></script>
+<script src="core.js?v=3.1"></script>
 <script>
 Directory._onSigFill = function(k) { $('v-pubkey').value = k; T('签名公钥已填入'); };
 Directory.render('clst', 'sign');
@@ -110,9 +111,8 @@ const EdDSA = {
             const m = $('mnemonic').value, sn = $('signer-name').value, msg = $('message').value;
             if (!m || !sn || !msg) return T("参数不完整");
 
-            if (!window.crypto || !window.crypto.subtle) return T("当前环境不支持 Web Crypto API，请使用 HTTPS 或 localhost");
-
-            const sdBuf = await crypto.subtle.digest('SHA-256', this.enc.encode(m));
+            // 经 SC 门面：非安全上下文下回退纯 JS SHA-256（不支持的浏览器才抛错）
+            const sdBuf = await SC.sha256(this.enc.encode(m));
             const kp = nacl.sign.keyPair.fromSeed(new Uint8Array(sdBuf));
             const mBytes = this.enc.encode(msg), nBytes = this.enc.encode(sn);
 

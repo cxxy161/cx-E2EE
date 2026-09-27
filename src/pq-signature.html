@@ -63,7 +63,8 @@
     </div>
 </div>
 
-<script src="core.js?v=3.0"></script>
+<script src="cx-crypto.js?v=1.0"></script>
+<script src="core.js?v=3.1"></script>
 <script>
 var PQ_Utils = {
     b642buf: function(b64) { try { var bin = atob(b64.replace(/\s+/g, '')); var bytes = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); return bytes.buffer; } catch(e) { return null; } },
@@ -116,7 +117,7 @@ var MLDSA = {
         var m = $('mnemonic').value, sn = $('signer-name').value, msg = $('message').value;
         if (!m || !sn || !msg) return T("参数不完整");
         if (!ml_dsa65) return T("签名模块加载中...");
-        crypto.subtle.digest('SHA-256', self.enc.encode(m)).then(function(hashBuf) {
+        SC.sha256(self.enc.encode(m)).then(function(hashBuf) {
             var kp = ml_dsa65.keygen(new Uint8Array(hashBuf));
             var mBytes = self.enc.encode(msg), nBytes = self.enc.encode(sn);
             var payload = new Uint8Array(mBytes.length + 1 + nBytes.length);
