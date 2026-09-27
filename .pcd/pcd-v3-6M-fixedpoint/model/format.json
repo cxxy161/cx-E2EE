@@ -1,0 +1,685 @@
+{
+  "schema": "pcd-v3-6M-fixedpoint/1",
+  "model": {
+    "name": "pcd-v3-6M",
+    "params": 6491808
+  },
+  "arch": {
+    "vocab_size": 4096,
+    "d_model": 288,
+    "n_layer": 6,
+    "n_head": 6,
+    "n_kv_head": 2,
+    "d_ff": 768,
+    "head_dim": 48,
+    "max_seq_len": 512,
+    "rope_max_len": 4096,
+    "rope_theta": 10000.0,
+    "rms_eps": 1e-05,
+    "tie_embeddings": true,
+    "dropout": 0.0,
+    "use_checkpoint": true
+  },
+  "globals": {
+    "RES_FRAC": 12,
+    "W_SHIFT": 20,
+    "NORM_FRAC": 12,
+    "LUT_FRAC": 15,
+    "ROPE_FRAC": 14,
+    "Q_MAX": 127,
+    "exp_lut_n": 8192,
+    "exp_lut_max": 16.0,
+    "sig_lut_n": 8192,
+    "sig_lut_max": 16.0,
+    "byte_order": "little",
+    "tokenizer": "ByteLevel BPE, vocab=4096 (id->bytes 查表，客户端不跑 BPE)"
+  },
+  "tensors": [
+    {
+      "name": "blocks.0.q",
+      "shape": [
+        288,
+        288
+      ],
+      "q_offset": 0,
+      "q_bytes": 82944,
+      "m_offset": 82944,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.0.k",
+      "shape": [
+        96,
+        288
+      ],
+      "q_offset": 84096,
+      "q_bytes": 27648,
+      "m_offset": 111744,
+      "m_bytes": 384,
+      "m_count": 96
+    },
+    {
+      "name": "blocks.0.v",
+      "shape": [
+        96,
+        288
+      ],
+      "q_offset": 112128,
+      "q_bytes": 27648,
+      "m_offset": 139776,
+      "m_bytes": 384,
+      "m_count": 96
+    },
+    {
+      "name": "blocks.0.o",
+      "shape": [
+        288,
+        288
+      ],
+      "q_offset": 140160,
+      "q_bytes": 82944,
+      "m_offset": 223104,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.0.gate",
+      "shape": [
+        768,
+        288
+      ],
+      "q_offset": 224256,
+      "q_bytes": 221184,
+      "m_offset": 445440,
+      "m_bytes": 3072,
+      "m_count": 768
+    },
+    {
+      "name": "blocks.0.up",
+      "shape": [
+        768,
+        288
+      ],
+      "q_offset": 448512,
+      "q_bytes": 221184,
+      "m_offset": 669696,
+      "m_bytes": 3072,
+      "m_count": 768
+    },
+    {
+      "name": "blocks.0.down",
+      "shape": [
+        288,
+        768
+      ],
+      "q_offset": 672768,
+      "q_bytes": 221184,
+      "m_offset": 893952,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.1.q",
+      "shape": [
+        288,
+        288
+      ],
+      "q_offset": 895104,
+      "q_bytes": 82944,
+      "m_offset": 978048,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.1.k",
+      "shape": [
+        96,
+        288
+      ],
+      "q_offset": 979200,
+      "q_bytes": 27648,
+      "m_offset": 1006848,
+      "m_bytes": 384,
+      "m_count": 96
+    },
+    {
+      "name": "blocks.1.v",
+      "shape": [
+        96,
+        288
+      ],
+      "q_offset": 1007232,
+      "q_bytes": 27648,
+      "m_offset": 1034880,
+      "m_bytes": 384,
+      "m_count": 96
+    },
+    {
+      "name": "blocks.1.o",
+      "shape": [
+        288,
+        288
+      ],
+      "q_offset": 1035264,
+      "q_bytes": 82944,
+      "m_offset": 1118208,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.1.gate",
+      "shape": [
+        768,
+        288
+      ],
+      "q_offset": 1119360,
+      "q_bytes": 221184,
+      "m_offset": 1340544,
+      "m_bytes": 3072,
+      "m_count": 768
+    },
+    {
+      "name": "blocks.1.up",
+      "shape": [
+        768,
+        288
+      ],
+      "q_offset": 1343616,
+      "q_bytes": 221184,
+      "m_offset": 1564800,
+      "m_bytes": 3072,
+      "m_count": 768
+    },
+    {
+      "name": "blocks.1.down",
+      "shape": [
+        288,
+        768
+      ],
+      "q_offset": 1567872,
+      "q_bytes": 221184,
+      "m_offset": 1789056,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.2.q",
+      "shape": [
+        288,
+        288
+      ],
+      "q_offset": 1790208,
+      "q_bytes": 82944,
+      "m_offset": 1873152,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.2.k",
+      "shape": [
+        96,
+        288
+      ],
+      "q_offset": 1874304,
+      "q_bytes": 27648,
+      "m_offset": 1901952,
+      "m_bytes": 384,
+      "m_count": 96
+    },
+    {
+      "name": "blocks.2.v",
+      "shape": [
+        96,
+        288
+      ],
+      "q_offset": 1902336,
+      "q_bytes": 27648,
+      "m_offset": 1929984,
+      "m_bytes": 384,
+      "m_count": 96
+    },
+    {
+      "name": "blocks.2.o",
+      "shape": [
+        288,
+        288
+      ],
+      "q_offset": 1930368,
+      "q_bytes": 82944,
+      "m_offset": 2013312,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.2.gate",
+      "shape": [
+        768,
+        288
+      ],
+      "q_offset": 2014464,
+      "q_bytes": 221184,
+      "m_offset": 2235648,
+      "m_bytes": 3072,
+      "m_count": 768
+    },
+    {
+      "name": "blocks.2.up",
+      "shape": [
+        768,
+        288
+      ],
+      "q_offset": 2238720,
+      "q_bytes": 221184,
+      "m_offset": 2459904,
+      "m_bytes": 3072,
+      "m_count": 768
+    },
+    {
+      "name": "blocks.2.down",
+      "shape": [
+        288,
+        768
+      ],
+      "q_offset": 2462976,
+      "q_bytes": 221184,
+      "m_offset": 2684160,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.3.q",
+      "shape": [
+        288,
+        288
+      ],
+      "q_offset": 2685312,
+      "q_bytes": 82944,
+      "m_offset": 2768256,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.3.k",
+      "shape": [
+        96,
+        288
+      ],
+      "q_offset": 2769408,
+      "q_bytes": 27648,
+      "m_offset": 2797056,
+      "m_bytes": 384,
+      "m_count": 96
+    },
+    {
+      "name": "blocks.3.v",
+      "shape": [
+        96,
+        288
+      ],
+      "q_offset": 2797440,
+      "q_bytes": 27648,
+      "m_offset": 2825088,
+      "m_bytes": 384,
+      "m_count": 96
+    },
+    {
+      "name": "blocks.3.o",
+      "shape": [
+        288,
+        288
+      ],
+      "q_offset": 2825472,
+      "q_bytes": 82944,
+      "m_offset": 2908416,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.3.gate",
+      "shape": [
+        768,
+        288
+      ],
+      "q_offset": 2909568,
+      "q_bytes": 221184,
+      "m_offset": 3130752,
+      "m_bytes": 3072,
+      "m_count": 768
+    },
+    {
+      "name": "blocks.3.up",
+      "shape": [
+        768,
+        288
+      ],
+      "q_offset": 3133824,
+      "q_bytes": 221184,
+      "m_offset": 3355008,
+      "m_bytes": 3072,
+      "m_count": 768
+    },
+    {
+      "name": "blocks.3.down",
+      "shape": [
+        288,
+        768
+      ],
+      "q_offset": 3358080,
+      "q_bytes": 221184,
+      "m_offset": 3579264,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.4.q",
+      "shape": [
+        288,
+        288
+      ],
+      "q_offset": 3580416,
+      "q_bytes": 82944,
+      "m_offset": 3663360,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.4.k",
+      "shape": [
+        96,
+        288
+      ],
+      "q_offset": 3664512,
+      "q_bytes": 27648,
+      "m_offset": 3692160,
+      "m_bytes": 384,
+      "m_count": 96
+    },
+    {
+      "name": "blocks.4.v",
+      "shape": [
+        96,
+        288
+      ],
+      "q_offset": 3692544,
+      "q_bytes": 27648,
+      "m_offset": 3720192,
+      "m_bytes": 384,
+      "m_count": 96
+    },
+    {
+      "name": "blocks.4.o",
+      "shape": [
+        288,
+        288
+      ],
+      "q_offset": 3720576,
+      "q_bytes": 82944,
+      "m_offset": 3803520,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.4.gate",
+      "shape": [
+        768,
+        288
+      ],
+      "q_offset": 3804672,
+      "q_bytes": 221184,
+      "m_offset": 4025856,
+      "m_bytes": 3072,
+      "m_count": 768
+    },
+    {
+      "name": "blocks.4.up",
+      "shape": [
+        768,
+        288
+      ],
+      "q_offset": 4028928,
+      "q_bytes": 221184,
+      "m_offset": 4250112,
+      "m_bytes": 3072,
+      "m_count": 768
+    },
+    {
+      "name": "blocks.4.down",
+      "shape": [
+        288,
+        768
+      ],
+      "q_offset": 4253184,
+      "q_bytes": 221184,
+      "m_offset": 4474368,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.5.q",
+      "shape": [
+        288,
+        288
+      ],
+      "q_offset": 4475520,
+      "q_bytes": 82944,
+      "m_offset": 4558464,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.5.k",
+      "shape": [
+        96,
+        288
+      ],
+      "q_offset": 4559616,
+      "q_bytes": 27648,
+      "m_offset": 4587264,
+      "m_bytes": 384,
+      "m_count": 96
+    },
+    {
+      "name": "blocks.5.v",
+      "shape": [
+        96,
+        288
+      ],
+      "q_offset": 4587648,
+      "q_bytes": 27648,
+      "m_offset": 4615296,
+      "m_bytes": 384,
+      "m_count": 96
+    },
+    {
+      "name": "blocks.5.o",
+      "shape": [
+        288,
+        288
+      ],
+      "q_offset": 4615680,
+      "q_bytes": 82944,
+      "m_offset": 4698624,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "blocks.5.gate",
+      "shape": [
+        768,
+        288
+      ],
+      "q_offset": 4699776,
+      "q_bytes": 221184,
+      "m_offset": 4920960,
+      "m_bytes": 3072,
+      "m_count": 768
+    },
+    {
+      "name": "blocks.5.up",
+      "shape": [
+        768,
+        288
+      ],
+      "q_offset": 4924032,
+      "q_bytes": 221184,
+      "m_offset": 5145216,
+      "m_bytes": 3072,
+      "m_count": 768
+    },
+    {
+      "name": "blocks.5.down",
+      "shape": [
+        288,
+        768
+      ],
+      "q_offset": 5148288,
+      "q_bytes": 221184,
+      "m_offset": 5369472,
+      "m_bytes": 1152,
+      "m_count": 288
+    },
+    {
+      "name": "tok_emb",
+      "shape": [
+        4096,
+        288
+      ],
+      "q_offset": 5370624,
+      "q_bytes": 1179648,
+      "m_offset": 6550272,
+      "m_bytes": 16384,
+      "m_count": 4096
+    }
+  ],
+  "norms": {
+    "dtype": "int32",
+    "frac": 12,
+    "entries": [
+      {
+        "name": "blocks.0.norm1",
+        "count": 288,
+        "offset": 0
+      },
+      {
+        "name": "blocks.0.norm2",
+        "count": 288,
+        "offset": 1152
+      },
+      {
+        "name": "blocks.1.norm1",
+        "count": 288,
+        "offset": 2304
+      },
+      {
+        "name": "blocks.1.norm2",
+        "count": 288,
+        "offset": 3456
+      },
+      {
+        "name": "blocks.2.norm1",
+        "count": 288,
+        "offset": 4608
+      },
+      {
+        "name": "blocks.2.norm2",
+        "count": 288,
+        "offset": 5760
+      },
+      {
+        "name": "blocks.3.norm1",
+        "count": 288,
+        "offset": 6912
+      },
+      {
+        "name": "blocks.3.norm2",
+        "count": 288,
+        "offset": 8064
+      },
+      {
+        "name": "blocks.4.norm1",
+        "count": 288,
+        "offset": 9216
+      },
+      {
+        "name": "blocks.4.norm2",
+        "count": 288,
+        "offset": 10368
+      },
+      {
+        "name": "blocks.5.norm1",
+        "count": 288,
+        "offset": 11520
+      },
+      {
+        "name": "blocks.5.norm2",
+        "count": 288,
+        "offset": 12672
+      },
+      {
+        "name": "final_norm",
+        "count": 288,
+        "offset": 13824
+      }
+    ]
+  },
+  "tables": [
+    {
+      "name": "exp_lut",
+      "dtype": "int32",
+      "shape": [
+        8192
+      ],
+      "offset": 0,
+      "bytes": 32768,
+      "frac": 15
+    },
+    {
+      "name": "sig_lut",
+      "dtype": "int32",
+      "shape": [
+        8192
+      ],
+      "offset": 32768,
+      "bytes": 32768,
+      "frac": 15
+    },
+    {
+      "name": "rope_cos",
+      "dtype": "int32",
+      "shape": [
+        512,
+        24
+      ],
+      "offset": 65536,
+      "bytes": 49152,
+      "frac": 14
+    },
+    {
+      "name": "rope_sin",
+      "dtype": "int32",
+      "shape": [
+        512,
+        24
+      ],
+      "offset": 114688,
+      "bytes": 49152,
+      "frac": 14
+    }
+  ],
+  "vocab": {
+    "file": "vocab.bin",
+    "vocab_size": 4096,
+    "index_bytes": 8192,
+    "index_dtype": "uint16le",
+    "stream_bytes": 18362,
+    "max_token_bytes": 15,
+    "layout": "前 vocab_size*2 字节 = 偏移索引；其后为 UTF-8 字节流。token i 的字节 = stream[offset[i] : offset[i+1]]，末个 token 的结束 = stream_bytes。"
+  },
+  "runtime": {
+    "quant_act": "逐 token：s = min s 使 max|q| <= 127；q = rshift_round(x, s)",
+    "linear": "(acc * M) >> (W_SHIFT - s_x)，acc = int8 @ int8 -> int32",
+    "rounding": "rshift_round = 算术右移 + 半值远离零（纯位运算）",
+    "note": "参考实现见 int_ref.py；舍入与移位语义以该文件为准"
+  }
+}

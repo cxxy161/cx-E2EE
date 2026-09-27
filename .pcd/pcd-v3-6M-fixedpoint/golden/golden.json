@@ -1,0 +1,1275 @@
+{
+  "schema": "pcd-v3-6M-fixedpoint-golden/1",
+  "hash": {
+    "algo": "FNV-1a 64",
+    "offset_basis": 14695981039346656037,
+    "prime": 1099511628211,
+    "mod": "2^64",
+    "input": "张量按 C 序转 int32 小端字节流后逐字节哈希",
+    "reference_js": "function fnv1a64(bytes) {            // bytes: Uint8Array\n  let h = 0xcbf29ce484222325n;\n  const p = 0x100000001b3n, m = (1n<<64n)-1n;\n  for (const b of bytes) { h ^= BigInt(b); h = (h*p) & m; }\n  return h;                            // BigInt, 输出 16 位小写 hex\n}"
+  },
+  "note": "logits 为 int32，定点 2^-RES_FRAC；Top-64 按分数降序，同分以 token_id 升序决胜。",
+  "globals": {
+    "RES_FRAC": 12,
+    "byte_order": "little"
+  },
+  "n_groups": 3,
+  "golden_bin": {
+    "file": "golden.bin",
+    "total_bytes": 49152
+  },
+  "groups": [
+    {
+      "id": "p1_narrative",
+      "text": "飞船缓缓降落在荒芜的星球表面",
+      "note": "纯中文叙事开头",
+      "prompt_ids": [
+        1306,
+        3260,
+        1609,
+        956,
+        291,
+        2254,
+        703,
+        2477,
+        1884,
+        3004
+      ],
+      "prompt_bytes_utf8": [
+        233,
+        163,
+        158,
+        232,
+        136,
+        185,
+        231,
+        188,
+        147,
+        231,
+        188,
+        147,
+        233,
+        153,
+        141,
+        232,
+        144,
+        189,
+        229,
+        156,
+        168,
+        232,
+        141,
+        146,
+        232,
+        138,
+        156,
+        231,
+        154,
+        132,
+        230,
+        152,
+        159,
+        231,
+        144,
+        131,
+        232,
+        161,
+        168,
+        233,
+        157,
+        162
+      ],
+      "n_tokens": 10,
+      "layer_hashes": {
+        "emb": 2135372467627909818,
+        "blk0.attn_out": 2653412259636033080,
+        "blk0.out": 17224088241171107260,
+        "blk1.attn_out": 2297894249877531566,
+        "blk1.out": 3645435558760329453,
+        "blk2.attn_out": 15703703338800300431,
+        "blk2.out": 12884951580136587077,
+        "blk3.attn_out": 6496091495075677098,
+        "blk3.out": 2300662843855096901,
+        "blk4.attn_out": 15104447082965886015,
+        "blk4.out": 16998845503089481165,
+        "blk5.attn_out": 14794474391283650875,
+        "blk5.out": 13127663041676429970,
+        "final_norm": 6764302167462332202,
+        "logits_last": 12434130371873584215
+      },
+      "top64": [
+        {
+          "rank": 1,
+          "token_id": 260,
+          "score_i32": 36107
+        },
+        {
+          "rank": 2,
+          "token_id": 265,
+          "score_i32": 33283
+        },
+        {
+          "rank": 3,
+          "token_id": 13,
+          "score_i32": 25116
+        },
+        {
+          "rank": 4,
+          "token_id": 376,
+          "score_i32": 21739
+        },
+        {
+          "rank": 5,
+          "token_id": 317,
+          "score_i32": 20880
+        },
+        {
+          "rank": 6,
+          "token_id": 368,
+          "score_i32": 20480
+        },
+        {
+          "rank": 7,
+          "token_id": 798,
+          "score_i32": 16961
+        },
+        {
+          "rank": 8,
+          "token_id": 284,
+          "score_i32": 16901
+        },
+        {
+          "rank": 9,
+          "token_id": 350,
+          "score_i32": 16719
+        },
+        {
+          "rank": 10,
+          "token_id": 2,
+          "score_i32": 16603
+        },
+        {
+          "rank": 11,
+          "token_id": 659,
+          "score_i32": 16055
+        },
+        {
+          "rank": 12,
+          "token_id": 553,
+          "score_i32": 16028
+        },
+        {
+          "rank": 13,
+          "token_id": 32,
+          "score_i32": 15880
+        },
+        {
+          "rank": 14,
+          "token_id": 550,
+          "score_i32": 15278
+        },
+        {
+          "rank": 15,
+          "token_id": 389,
+          "score_i32": 14866
+        },
+        {
+          "rank": 16,
+          "token_id": 312,
+          "score_i32": 14476
+        },
+        {
+          "rank": 17,
+          "token_id": 2490,
+          "score_i32": 14285
+        },
+        {
+          "rank": 18,
+          "token_id": 760,
+          "score_i32": 14016
+        },
+        {
+          "rank": 19,
+          "token_id": 548,
+          "score_i32": 13919
+        },
+        {
+          "rank": 20,
+          "token_id": 1718,
+          "score_i32": 13244
+        },
+        {
+          "rank": 21,
+          "token_id": 856,
+          "score_i32": 13161
+        },
+        {
+          "rank": 22,
+          "token_id": 411,
+          "score_i32": 13004
+        },
+        {
+          "rank": 23,
+          "token_id": 1623,
+          "score_i32": 12903
+        },
+        {
+          "rank": 24,
+          "token_id": 1609,
+          "score_i32": 12760
+        },
+        {
+          "rank": 25,
+          "token_id": 276,
+          "score_i32": 12585
+        },
+        {
+          "rank": 26,
+          "token_id": 416,
+          "score_i32": 12477
+        },
+        {
+          "rank": 27,
+          "token_id": 15,
+          "score_i32": 12448
+        },
+        {
+          "rank": 28,
+          "token_id": 339,
+          "score_i32": 12135
+        },
+        {
+          "rank": 29,
+          "token_id": 2141,
+          "score_i32": 12103
+        },
+        {
+          "rank": 30,
+          "token_id": 537,
+          "score_i32": 12032
+        },
+        {
+          "rank": 31,
+          "token_id": 415,
+          "score_i32": 11787
+        },
+        {
+          "rank": 32,
+          "token_id": 790,
+          "score_i32": 11615
+        },
+        {
+          "rank": 33,
+          "token_id": 477,
+          "score_i32": 11503
+        },
+        {
+          "rank": 34,
+          "token_id": 391,
+          "score_i32": 11328
+        },
+        {
+          "rank": 35,
+          "token_id": 492,
+          "score_i32": 11199
+        },
+        {
+          "rank": 36,
+          "token_id": 3260,
+          "score_i32": 11055
+        },
+        {
+          "rank": 37,
+          "token_id": 296,
+          "score_i32": 10956
+        },
+        {
+          "rank": 38,
+          "token_id": 3480,
+          "score_i32": 10877
+        },
+        {
+          "rank": 39,
+          "token_id": 262,
+          "score_i32": 10865
+        },
+        {
+          "rank": 40,
+          "token_id": 2397,
+          "score_i32": 10747
+        },
+        {
+          "rank": 41,
+          "token_id": 2899,
+          "score_i32": 10636
+        },
+        {
+          "rank": 42,
+          "token_id": 280,
+          "score_i32": 10633
+        },
+        {
+          "rank": 43,
+          "token_id": 3151,
+          "score_i32": 10477
+        },
+        {
+          "rank": 44,
+          "token_id": 1060,
+          "score_i32": 10338
+        },
+        {
+          "rank": 45,
+          "token_id": 1107,
+          "score_i32": 10275
+        },
+        {
+          "rank": 46,
+          "token_id": 613,
+          "score_i32": 9814
+        },
+        {
+          "rank": 47,
+          "token_id": 381,
+          "score_i32": 9720
+        },
+        {
+          "rank": 48,
+          "token_id": 1227,
+          "score_i32": 9391
+        },
+        {
+          "rank": 49,
+          "token_id": 1199,
+          "score_i32": 9390
+        },
+        {
+          "rank": 50,
+          "token_id": 319,
+          "score_i32": 9386
+        },
+        {
+          "rank": 51,
+          "token_id": 2218,
+          "score_i32": 9327
+        },
+        {
+          "rank": 52,
+          "token_id": 510,
+          "score_i32": 9319
+        },
+        {
+          "rank": 53,
+          "token_id": 332,
+          "score_i32": 9272
+        },
+        {
+          "rank": 54,
+          "token_id": 563,
+          "score_i32": 9119
+        },
+        {
+          "rank": 55,
+          "token_id": 1022,
+          "score_i32": 9094
+        },
+        {
+          "rank": 56,
+          "token_id": 3133,
+          "score_i32": 8965
+        },
+        {
+          "rank": 57,
+          "token_id": 795,
+          "score_i32": 8912
+        },
+        {
+          "rank": 58,
+          "token_id": 28,
+          "score_i32": 8810
+        },
+        {
+          "rank": 59,
+          "token_id": 807,
+          "score_i32": 8780
+        },
+        {
+          "rank": 60,
+          "token_id": 2353,
+          "score_i32": 8750
+        },
+        {
+          "rank": 61,
+          "token_id": 326,
+          "score_i32": 8729
+        },
+        {
+          "rank": 62,
+          "token_id": 2289,
+          "score_i32": 8711
+        },
+        {
+          "rank": 63,
+          "token_id": 467,
+          "score_i32": 8683
+        },
+        {
+          "rank": 64,
+          "token_id": 468,
+          "score_i32": 8667
+        }
+      ],
+      "logits_offset": 0,
+      "logits_bytes": 16384,
+      "logits_frac": 12
+    },
+    {
+      "id": "p2_dialogue",
+      "text": "“你确定要这么做吗？”她问。",
+      "note": "中文引号对话（检验引号 token 编码路径）",
+      "prompt_ids": [
+        282,
+        305,
+        2052,
+        377,
+        3581,
+        548,
+        412,
+        364,
+        518,
+        265
+      ],
+      "prompt_bytes_utf8": [
+        226,
+        128,
+        156,
+        228,
+        189,
+        160,
+        231,
+        161,
+        174,
+        229,
+        174,
+        154,
+        232,
+        166,
+        129,
+        232,
+        191,
+        153,
+        228,
+        185,
+        136,
+        229,
+        129,
+        154,
+        229,
+        144,
+        151,
+        239,
+        188,
+        159,
+        226,
+        128,
+        157,
+        229,
+        165,
+        185,
+        233,
+        151,
+        174,
+        227,
+        128,
+        130
+      ],
+      "n_tokens": 10,
+      "layer_hashes": {
+        "emb": 4206756092866350202,
+        "blk0.attn_out": 6014962044815851644,
+        "blk0.out": 17126895213641590094,
+        "blk1.attn_out": 13461573284081609012,
+        "blk1.out": 9066143698912339817,
+        "blk2.attn_out": 4459199053016082468,
+        "blk2.out": 4813635576196589675,
+        "blk3.attn_out": 12440212701845223977,
+        "blk3.out": 17722846727240458085,
+        "blk4.attn_out": 4379528173445191425,
+        "blk4.out": 14811767522313123186,
+        "blk5.attn_out": 8193054775964568261,
+        "blk5.out": 11956356257882996021,
+        "final_norm": 5099604622003570838,
+        "logits_last": 11785675696677905266
+      },
+      "top64": [
+        {
+          "rank": 1,
+          "token_id": 200,
+          "score_i32": 46836
+        },
+        {
+          "rank": 2,
+          "token_id": 364,
+          "score_i32": 31730
+        },
+        {
+          "rank": 3,
+          "token_id": 277,
+          "score_i32": 25466
+        },
+        {
+          "rank": 4,
+          "token_id": 925,
+          "score_i32": 23990
+        },
+        {
+          "rank": 5,
+          "token_id": 2203,
+          "score_i32": 22624
+        },
+        {
+          "rank": 6,
+          "token_id": 800,
+          "score_i32": 21372
+        },
+        {
+          "rank": 7,
+          "token_id": 282,
+          "score_i32": 17278
+        },
+        {
+          "rank": 8,
+          "token_id": 512,
+          "score_i32": 17085
+        },
+        {
+          "rank": 9,
+          "token_id": 1773,
+          "score_i32": 16999
+        },
+        {
+          "rank": 10,
+          "token_id": 326,
+          "score_i32": 16204
+        },
+        {
+          "rank": 11,
+          "token_id": 292,
+          "score_i32": 16091
+        },
+        {
+          "rank": 12,
+          "token_id": 281,
+          "score_i32": 15663
+        },
+        {
+          "rank": 13,
+          "token_id": 420,
+          "score_i32": 15654
+        },
+        {
+          "rank": 14,
+          "token_id": 1336,
+          "score_i32": 15213
+        },
+        {
+          "rank": 15,
+          "token_id": 1290,
+          "score_i32": 15137
+        },
+        {
+          "rank": 16,
+          "token_id": 3759,
+          "score_i32": 14318
+        },
+        {
+          "rank": 17,
+          "token_id": 375,
+          "score_i32": 13795
+        },
+        {
+          "rank": 18,
+          "token_id": 504,
+          "score_i32": 13763
+        },
+        {
+          "rank": 19,
+          "token_id": 761,
+          "score_i32": 13447
+        },
+        {
+          "rank": 20,
+          "token_id": 490,
+          "score_i32": 13442
+        },
+        {
+          "rank": 21,
+          "token_id": 291,
+          "score_i32": 13328
+        },
+        {
+          "rank": 22,
+          "token_id": 988,
+          "score_i32": 13242
+        },
+        {
+          "rank": 23,
+          "token_id": 1028,
+          "score_i32": 13164
+        },
+        {
+          "rank": 24,
+          "token_id": 1461,
+          "score_i32": 12601
+        },
+        {
+          "rank": 25,
+          "token_id": 738,
+          "score_i32": 12498
+        },
+        {
+          "rank": 26,
+          "token_id": 958,
+          "score_i32": 12417
+        },
+        {
+          "rank": 27,
+          "token_id": 3698,
+          "score_i32": 12318
+        },
+        {
+          "rank": 28,
+          "token_id": 2152,
+          "score_i32": 12001
+        },
+        {
+          "rank": 29,
+          "token_id": 1526,
+          "score_i32": 11862
+        },
+        {
+          "rank": 30,
+          "token_id": 771,
+          "score_i32": 11644
+        },
+        {
+          "rank": 31,
+          "token_id": 2949,
+          "score_i32": 11578
+        },
+        {
+          "rank": 32,
+          "token_id": 2459,
+          "score_i32": 11512
+        },
+        {
+          "rank": 33,
+          "token_id": 1868,
+          "score_i32": 11129
+        },
+        {
+          "rank": 34,
+          "token_id": 1620,
+          "score_i32": 10973
+        },
+        {
+          "rank": 35,
+          "token_id": 393,
+          "score_i32": 10932
+        },
+        {
+          "rank": 36,
+          "token_id": 572,
+          "score_i32": 10910
+        },
+        {
+          "rank": 37,
+          "token_id": 2297,
+          "score_i32": 10900
+        },
+        {
+          "rank": 38,
+          "token_id": 1973,
+          "score_i32": 10765
+        },
+        {
+          "rank": 39,
+          "token_id": 416,
+          "score_i32": 10749
+        },
+        {
+          "rank": 40,
+          "token_id": 1598,
+          "score_i32": 10732
+        },
+        {
+          "rank": 41,
+          "token_id": 679,
+          "score_i32": 10491
+        },
+        {
+          "rank": 42,
+          "token_id": 1178,
+          "score_i32": 10412
+        },
+        {
+          "rank": 43,
+          "token_id": 459,
+          "score_i32": 10361
+        },
+        {
+          "rank": 44,
+          "token_id": 289,
+          "score_i32": 10195
+        },
+        {
+          "rank": 45,
+          "token_id": 1720,
+          "score_i32": 10137
+        },
+        {
+          "rank": 46,
+          "token_id": 276,
+          "score_i32": 10048
+        },
+        {
+          "rank": 47,
+          "token_id": 344,
+          "score_i32": 10028
+        },
+        {
+          "rank": 48,
+          "token_id": 762,
+          "score_i32": 10021
+        },
+        {
+          "rank": 49,
+          "token_id": 707,
+          "score_i32": 10017
+        },
+        {
+          "rank": 50,
+          "token_id": 553,
+          "score_i32": 10006
+        },
+        {
+          "rank": 51,
+          "token_id": 626,
+          "score_i32": 9844
+        },
+        {
+          "rank": 52,
+          "token_id": 689,
+          "score_i32": 9812
+        },
+        {
+          "rank": 53,
+          "token_id": 2221,
+          "score_i32": 9633
+        },
+        {
+          "rank": 54,
+          "token_id": 1007,
+          "score_i32": 9321
+        },
+        {
+          "rank": 55,
+          "token_id": 1195,
+          "score_i32": 9235
+        },
+        {
+          "rank": 56,
+          "token_id": 294,
+          "score_i32": 9196
+        },
+        {
+          "rank": 57,
+          "token_id": 222,
+          "score_i32": 9003
+        },
+        {
+          "rank": 58,
+          "token_id": 2113,
+          "score_i32": 8789
+        },
+        {
+          "rank": 59,
+          "token_id": 2410,
+          "score_i32": 8649
+        },
+        {
+          "rank": 60,
+          "token_id": 391,
+          "score_i32": 8639
+        },
+        {
+          "rank": 61,
+          "token_id": 1086,
+          "score_i32": 8637
+        },
+        {
+          "rank": 62,
+          "token_id": 2755,
+          "score_i32": 8620
+        },
+        {
+          "rank": 63,
+          "token_id": 260,
+          "score_i32": 8575
+        },
+        {
+          "rank": 64,
+          "token_id": 731,
+          "score_i32": 8497
+        }
+      ],
+      "logits_offset": 16384,
+      "logits_bytes": 16384,
+      "logits_frac": 12
+    },
+    {
+      "id": "p3_log",
+      "text": "终端日志：SYS-0x7F 冷却液压力 12.4kPa 状态=警告",
+      "note": "ASCII + 数字 + 中文混排（检验非中文 token 路径）",
+      "prompt_ids": [
+        1018,
+        1427,
+        863,
+        2182,
+        411,
+        52,
+        58,
+        52,
+        14,
+        17,
+        89,
+        24,
+        39,
+        222,
+        1173,
+        787,
+        2794,
+        1453,
+        544,
+        222,
+        3278,
+        15,
+        21,
+        76,
+        49,
+        66,
+        222,
+        2612,
+        30,
+        1224,
+        743
+      ],
+      "prompt_bytes_utf8": [
+        231,
+        187,
+        136,
+        231,
+        171,
+        175,
+        230,
+        151,
+        165,
+        229,
+        191,
+        151,
+        239,
+        188,
+        154,
+        83,
+        89,
+        83,
+        45,
+        48,
+        120,
+        55,
+        70,
+        32,
+        229,
+        134,
+        183,
+        229,
+        141,
+        180,
+        230,
+        182,
+        178,
+        229,
+        142,
+        139,
+        229,
+        138,
+        155,
+        32,
+        49,
+        50,
+        46,
+        52,
+        107,
+        80,
+        97,
+        32,
+        231,
+        138,
+        182,
+        230,
+        128,
+        129,
+        61,
+        232,
+        173,
+        166,
+        229,
+        145,
+        138
+      ],
+      "n_tokens": 31,
+      "layer_hashes": {
+        "emb": 10693212055549831389,
+        "blk0.attn_out": 5765824236725964715,
+        "blk0.out": 8770620295991875240,
+        "blk1.attn_out": 4549907822920296592,
+        "blk1.out": 11040203251688661542,
+        "blk2.attn_out": 2871660394556208500,
+        "blk2.out": 6733436056809273110,
+        "blk3.attn_out": 10092841467805633708,
+        "blk3.out": 6476197739002538047,
+        "blk4.attn_out": 14170541992390999135,
+        "blk4.out": 5697670131995751630,
+        "blk5.attn_out": 722422892251192533,
+        "blk5.out": 1591885069269281425,
+        "final_norm": 12664073273937401913,
+        "logits_last": 16032361385929352261
+      },
+      "top64": [
+        {
+          "rank": 1,
+          "token_id": 276,
+          "score_i32": 24961
+        },
+        {
+          "rank": 2,
+          "token_id": 424,
+          "score_i32": 20643
+        },
+        {
+          "rank": 3,
+          "token_id": 541,
+          "score_i32": 15795
+        },
+        {
+          "rank": 4,
+          "token_id": 1008,
+          "score_i32": 15229
+        },
+        {
+          "rank": 5,
+          "token_id": 1035,
+          "score_i32": 15156
+        },
+        {
+          "rank": 6,
+          "token_id": 367,
+          "score_i32": 14995
+        },
+        {
+          "rank": 7,
+          "token_id": 329,
+          "score_i32": 14835
+        },
+        {
+          "rank": 8,
+          "token_id": 872,
+          "score_i32": 14748
+        },
+        {
+          "rank": 9,
+          "token_id": 2053,
+          "score_i32": 14721
+        },
+        {
+          "rank": 10,
+          "token_id": 480,
+          "score_i32": 14630
+        },
+        {
+          "rank": 11,
+          "token_id": 952,
+          "score_i32": 14468
+        },
+        {
+          "rank": 12,
+          "token_id": 287,
+          "score_i32": 14414
+        },
+        {
+          "rank": 13,
+          "token_id": 1279,
+          "score_i32": 14371
+        },
+        {
+          "rank": 14,
+          "token_id": 550,
+          "score_i32": 14321
+        },
+        {
+          "rank": 15,
+          "token_id": 1018,
+          "score_i32": 14135
+        },
+        {
+          "rank": 16,
+          "token_id": 282,
+          "score_i32": 14125
+        },
+        {
+          "rank": 17,
+          "token_id": 1475,
+          "score_i32": 14038
+        },
+        {
+          "rank": 18,
+          "token_id": 734,
+          "score_i32": 13498
+        },
+        {
+          "rank": 19,
+          "token_id": 1227,
+          "score_i32": 13495
+        },
+        {
+          "rank": 20,
+          "token_id": 2194,
+          "score_i32": 13435
+        },
+        {
+          "rank": 21,
+          "token_id": 368,
+          "score_i32": 13107
+        },
+        {
+          "rank": 22,
+          "token_id": 660,
+          "score_i32": 12558
+        },
+        {
+          "rank": 23,
+          "token_id": 3852,
+          "score_i32": 12546
+        },
+        {
+          "rank": 24,
+          "token_id": 475,
+          "score_i32": 12511
+        },
+        {
+          "rank": 25,
+          "token_id": 2243,
+          "score_i32": 12346
+        },
+        {
+          "rank": 26,
+          "token_id": 1607,
+          "score_i32": 12176
+        },
+        {
+          "rank": 27,
+          "token_id": 956,
+          "score_i32": 12115
+        },
+        {
+          "rank": 28,
+          "token_id": 1362,
+          "score_i32": 12105
+        },
+        {
+          "rank": 29,
+          "token_id": 1381,
+          "score_i32": 11949
+        },
+        {
+          "rank": 30,
+          "token_id": 3359,
+          "score_i32": 11889
+        },
+        {
+          "rank": 31,
+          "token_id": 2942,
+          "score_i32": 11874
+        },
+        {
+          "rank": 32,
+          "token_id": 2493,
+          "score_i32": 11829
+        },
+        {
+          "rank": 33,
+          "token_id": 653,
+          "score_i32": 11761
+        },
+        {
+          "rank": 34,
+          "token_id": 289,
+          "score_i32": 11682
+        },
+        {
+          "rank": 35,
+          "token_id": 710,
+          "score_i32": 11621
+        },
+        {
+          "rank": 36,
+          "token_id": 393,
+          "score_i32": 11470
+        },
+        {
+          "rank": 37,
+          "token_id": 284,
+          "score_i32": 11284
+        },
+        {
+          "rank": 38,
+          "token_id": 394,
+          "score_i32": 11276
+        },
+        {
+          "rank": 39,
+          "token_id": 543,
+          "score_i32": 11216
+        },
+        {
+          "rank": 40,
+          "token_id": 361,
+          "score_i32": 11048
+        },
+        {
+          "rank": 41,
+          "token_id": 534,
+          "score_i32": 11038
+        },
+        {
+          "rank": 42,
+          "token_id": 966,
+          "score_i32": 10918
+        },
+        {
+          "rank": 43,
+          "token_id": 459,
+          "score_i32": 10895
+        },
+        {
+          "rank": 44,
+          "token_id": 358,
+          "score_i32": 10428
+        },
+        {
+          "rank": 45,
+          "token_id": 696,
+          "score_i32": 10354
+        },
+        {
+          "rank": 46,
+          "token_id": 432,
+          "score_i32": 10278
+        },
+        {
+          "rank": 47,
+          "token_id": 616,
+          "score_i32": 10126
+        },
+        {
+          "rank": 48,
+          "token_id": 961,
+          "score_i32": 9979
+        },
+        {
+          "rank": 49,
+          "token_id": 561,
+          "score_i32": 9950
+        },
+        {
+          "rank": 50,
+          "token_id": 4047,
+          "score_i32": 9874
+        },
+        {
+          "rank": 51,
+          "token_id": 2579,
+          "score_i32": 9849
+        },
+        {
+          "rank": 52,
+          "token_id": 348,
+          "score_i32": 9794
+        },
+        {
+          "rank": 53,
+          "token_id": 743,
+          "score_i32": 9733
+        },
+        {
+          "rank": 54,
+          "token_id": 1283,
+          "score_i32": 9707
+        },
+        {
+          "rank": 55,
+          "token_id": 3780,
+          "score_i32": 9691
+        },
+        {
+          "rank": 56,
+          "token_id": 845,
+          "score_i32": 9601
+        },
+        {
+          "rank": 57,
+          "token_id": 2770,
+          "score_i32": 9573
+        },
+        {
+          "rank": 58,
+          "token_id": 1140,
+          "score_i32": 9551
+        },
+        {
+          "rank": 59,
+          "token_id": 1151,
+          "score_i32": 9411
+        },
+        {
+          "rank": 60,
+          "token_id": 351,
+          "score_i32": 9360
+        },
+        {
+          "rank": 61,
+          "token_id": 317,
+          "score_i32": 9324
+        },
+        {
+          "rank": 62,
+          "token_id": 1447,
+          "score_i32": 9297
+        },
+        {
+          "rank": 63,
+          "token_id": 18,
+          "score_i32": 9281
+        },
+        {
+          "rank": 64,
+          "token_id": 3790,
+          "score_i32": 9260
+        }
+      ],
+      "logits_offset": 32768,
+      "logits_bytes": 16384,
+      "logits_frac": 12
+    }
+  ]
+}

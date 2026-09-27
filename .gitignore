@@ -5,3 +5,7 @@ dist/
 archive/
 test/*
 !test/stego/
+
+# Python 字节码（模型包的 python 侧仅导出期使用）
+__pycache__/
+*.pyc
