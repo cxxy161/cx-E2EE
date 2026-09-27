@@ -11,5 +11,10 @@ RUN npm install --production
 COPY server/ server/
 COPY src/ src/
 
+# 3) 语言隐写模型资产：server.js 的 /stego-model 路由指向
+#    /app/.pcd/pcd-v3-6M-fixedpoint/model，不 COPY 则整条路由 404。
+#    （只拷 model/，python 侧与 golden/ 是导出期工具，运行时不用）
+COPY .pcd/pcd-v3-6M-fixedpoint/model/ .pcd/pcd-v3-6M-fixedpoint/model/
+
 EXPOSE 3000
 CMD ["node", "server/server.js"]
