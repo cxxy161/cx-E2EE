@@ -1,8 +1,8 @@
 // 语言隐写 UI 与基础交互验证（无算法依赖 —— 模型未交付，只验 UI 状态机）
 //
 // 覆盖：
-//   ① 模式互斥：开语言隐写 → 汉字自动关；开汉字 → 语言隐写自动关
-//   ② 分段开关锁定：语言模式下 seg-t 自动勾选且 disabled
+//   ① 模式互斥：开语言隐写 → 汉字**强制关闭且置 disabled**（隐写模式下不得复活）
+//   ② 分段开关**不因隐写锁定**（分段只是发送排版，与是否用模型无关）
 //   ③ 实验横幅与面板显隐
 //   ④ 模型状态机：未部署 → missing/error，按钮可用（重试），不伪造进度
 //   ⑤ 容量预估：短消息告警、帧/段/字数计算
@@ -90,7 +90,7 @@ console.log('语言隐写 UI 测试（无算法依赖）\n');
     eq(s.step2, 'none', 'T1 步骤②默认隐藏');
     eq(s.segDisabled, false, 'T1 分段开关默认可用');
     ok(s.hasBanner, 'T1 实验性横幅存在');
-    ok(/实验性/.test(s.bannerText) && /不提供保密性/.test(s.bannerText), 'T1 横幅明示实验性与无保密性');
+    ok(/实验性/.test(s.bannerText) && /不提供额外保密性/.test(s.bannerText), 'T1 横幅明示实验性与无保密性');
 }
 
 /* ═══ T2 开启语言隐写 ═══ */
@@ -102,13 +102,16 @@ console.log('语言隐写 UI 测试（无算法依赖）\n');
                  step2: getComputedStyle(document.getElementById('st-step2')).display,
                  segChecked: document.getElementById('seg-t').checked,
                  segDisabled: document.getElementById('seg-t').disabled,
+                 hzChecked: document.getElementById('hz-t').checked,
+                 hzDisabled: document.getElementById('hz-t').disabled,
                  tag: document.getElementById('st-tag').innerText };
     })()`);
     eq(s.enabled, true, 'T2 已启用');
     ok(s.panel !== 'none', 'T2 面板显示', s.panel);
     ok(s.step2 !== 'none', 'T2 步骤②出现', s.step2);
-    eq(s.segChecked, true, 'T2 分段开关被自动勾选');
-    eq(s.segDisabled, true, 'T2 分段开关被锁定');
+    eq(s.segDisabled, false, 'T2 分段开关不被隐写锁定（尊重用户选择）');
+    eq(s.hzChecked, false, 'T2 汉字密文被强制关闭');
+    eq(s.hzDisabled, true, 'T2 汉字开关被置 disabled（隐藏≠禁用）');
     eq(s.tag, '实验', 'T2 标签显示「实验」');
 }
 
@@ -137,11 +140,13 @@ console.log('语言隐写 UI 测试（无算法依赖）\n');
         const small=document.getElementById('st-est').innerText;
         t.value='测试内容'.repeat(400); TA.onPlain(); StegoUI.sync();
         const big=document.getElementById('st-est').innerText;
-        return { small, big, consts: { SEG_BYTES:StegoConst.SEG_BYTES, PAY:StegoConst.SEG_PAYLOAD,
-                 TOK:StegoConst.TOKENS_PER_FRAME, LIM:StegoConst.SEG_CHAR_LIMIT } };
+        return { small, big, consts: { TOK:StegoConst.TOKENS_PER_FRAME, LIM:StegoConst.SEG_CHAR_LIMIT,
+                 SEGB:Stego.P.SEG_BYTES, PAY:Stego.P.SEG_PAYLOAD, TOPK:Stego.P.TOPK } };
     })()`);
-    eq(s.consts.SEG_BYTES, 192, 'T4 帧长 192');
-    eq(s.consts.PAY, 188, 'T4 载荷 188');
+    // 帧长/载荷**随档位变化**（segBytes = 32 × bits），故断言当前档位的自洽关系，
+    // 而不是写死 192/188 —— 档位一改那对常量就不成立了。
+    eq(s.consts.SEGB, 32 * Math.log2(s.consts.TOPK), 'T4 帧长 = 32 × log2(TopK)');
+    eq(s.consts.PAY, s.consts.SEGB - 4, 'T4 载荷 = 帧长 - 4 字节帧头');
     eq(s.consts.TOK, 256, 'T4 每帧 256 token');
     eq(s.consts.LIM, 2000, 'T4 单段 2000 字上限');
     ok(/帧/.test(s.big) && /段/.test(s.big), 'T4 预估给出帧数与段数', s.big.slice(0, 80));
@@ -188,23 +193,40 @@ console.log('语言隐写 UI 测试（无算法依赖）\n');
     eq(s.stOut, 'none', 'T6 未生成时第二输出框隐藏');
 }
 
-/* ═══ T7 互斥：开汉字 → 关语言 ═══ */
+/* ═══ T7 互斥：隐写开启时汉字不得复活（本 bug 的看门测试） ═══ */
 {
+    // 前置：隐写处于开启态，且尝试在隐藏行上硬置 checked
     const s = await ev(`(function(){
-        $('hz-t').checked = true; TA.onHz();
-        return { stEnabled: StegoUI.enabled,
-                 stChecked: $('st-t').checked,
-                 segDisabled: $('seg-t').disabled,
-                 step2: getComputedStyle($('st-step2')).display };
+        document.getElementById('st-t').checked = true; StegoUI.onToggle();
+        var hz = document.getElementById('hz-t');
+        hz.checked = true;                       // 隐藏状态下被脚本/残留置位
+        StegoUI.sync();                          // 任意一次渲染都应把闸门落下
+        var s1 = { stEnabled: StegoUI.enabled,
+                   hzChecked: hz.checked,
+                   hzDisabled: hz.disabled,
+                   lsHz: localStorage.getItem('cx_hz'),
+                   step2: getComputedStyle($('st-step2')).display };
+        // 再走一次 TA.onHz 直调（绕过渲染）
+        hz.checked = true; TA.onHz();
+        return Object.assign(s1, { hzChecked2: hz.checked, tag: document.getElementById('hz-tag').innerText });
     })()`);
-    eq(s.stEnabled, false, 'T7 开汉字后语言隐写关闭');
-    eq(s.stChecked, false, 'T7 语言开关同步取消勾选');
-    eq(s.segDisabled, false, 'T7 分段开关解除锁定');
-    eq(s.step2, 'none', 'T7 步骤②隐藏');
+    eq(s.stEnabled, true, 'T7 隐写仍开启');
+    eq(s.hzChecked, false, 'T7 硬置的汉字开关被闸门回退');
+    eq(s.hzDisabled, true, 'T7 汉字开关被置 disabled');
+    eq(s.lsHz, '0', 'T7 持久化不残留汉字开启态');
+    eq(s.hzChecked2, false, 'T7 TA.onHz 直调同样不复活');
+    eq(s.tag, '关闭', 'T7 标签显示「关闭」');
+    ok(s.step2 !== 'none', 'T7 步骤②可见（隐写模式）', s.step2);
 }
 
-/* ═══ T8 回归：汉字模式仍是一步出结果 ═══ */
+/** 退出隐写模式，回到汉字/Base64 可选状态（供 T8/T9/T10 用） */
+const stegoOff = () => ev(`(function(){
+    document.getElementById('st-t').checked = false; StegoUI.onToggle(); return StegoUI.enabled;
+})()`);
+
+/* ═══ T8 回归：关掉隐写后汉字模式仍是一步出结果 ═══ */
 {
+    eq(await stegoOff(), false, 'T8 隐写已关闭');
     const s = await ev(`(async function(){
         $('hz-t').checked = true; TA.onHz();
         $('tpt').value='汉字回归验证'.repeat(30); TA.onPlain();

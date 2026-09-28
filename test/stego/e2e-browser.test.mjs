@@ -69,10 +69,12 @@ await sleep(1200);
 {
     await ev(`(function(){ var t=$('st-t'); t.checked=true; StegoUI.onToggle(); return 1; })()`);
     const s = await ev(`({ enabled: StegoUI.enabled, hzOff: !$('hz-t').checked,
+        hzDisabled: $('hz-t').disabled,
         segLocked: $('seg-t').disabled, panel: getComputedStyle($('st-panel')).display })`);
     ok(s.enabled, '② 语言隐写已开启');
     ok(s.hzOff, '② 汉字开关被自动关闭（互斥）');
-    ok(s.segLocked, '② 分段开关被锁定');
+    ok(s.hzDisabled, '② 汉字开关被置 disabled（隐藏≠禁用）');
+    ok(!s.segLocked, '② 分段开关不被隐写锁定（尊重用户选择）');
     ok(s.panel !== 'none', '② 面板可见');
 }
 
@@ -133,15 +135,25 @@ await sleep(1200);
 /* ── ⑥ 解密还原（走完整页面路径） ──
  * ⚠️ 必须用**页面生成的线上文本**（含正确 msgid 的信封）。
  *    nonce = f(msgid,seq)，自己拼一个假 msgid 会让 Magic 对不上，
- *    从而被正当地判为非隐写文本。 */
+ *    从而被正当地判为非隐写文本。
+ * ⚠️ 隐写解密是**两步**：先「还原为 Base64」（跑模型），再「执行解密」（CX2）。
+ *    直接调 TA.dec() 会把伪装文本当 Base64 解，必然报
+ *    「密文不是有效的 Base64」—— 这正是本测试曾经失真的原因。 */
 {
     const s = await ev(`(async function(){
         var wire = StegoUI.wireText();
         $('tci').value = wire; TA.onCipher();
-        await TA.dec();
-        return { wire: wire.length, cap: $('trd-cap').innerText, out: $('tdt').innerText };
+        await StegoUI.decode();                 // 步骤①：模型还原为 Base64
+        var restored = $('tci').value;
+        var isB64 = /^[A-Za-z0-9+/]+={0,2}$/.test(restored);
+        var decMsg = $('st-dec-msg').innerText;
+        await TA.dec();                         // 步骤②：常规 CX2 解密
+        return { wire: wire.length, restored: restored.length, isB64: isB64,
+                 decMsg: decMsg, cap: $('trd-cap').innerText, out: $('tdt').innerText };
     })()`, 600000);
     ok(s.wire > 100, '⑥ 取到带信封的线上文本', String(s.wire));
+    ok(s.isB64, '⑥ 模型已把伪装文本还原为 Base64', s.decMsg.slice(0, 80));
+    ok(/还原为 Base64/.test(s.decMsg), '⑥ 步骤①给出还原提示', s.decMsg.slice(0, 80));
     ok(/解密成功/.test(s.cap), '⑥ 解密成功', s.cap);
     eq(s.out, globalThis.__plain, '⑥ 明文与原文完全一致');
 }

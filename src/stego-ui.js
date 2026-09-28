@@ -112,6 +112,10 @@
             try { st = localStorage.getItem('cx_stego') === '1'; } catch (e) { }
             if ($('st-t')) $('st-t').checked = st;
             this.enabled = st;
+            /* 启动兜底：上次隐写是开着的 —— 汉字密文必须立刻关掉，
+             * 不能等用户点一次「生成伪装文本」才发现密文是汉字。
+             * （页面启动段已先做过一次，此处覆盖脚本单独调用 init 的情形） */
+            if (st) this.forceHanziOff();
 
             // 档位
             let tk = 64;
@@ -151,11 +155,8 @@
             try { localStorage.setItem('cx_stego', on ? '1' : '0'); } catch (e) { }
 
             if (on) {
-                // 纯模型模式：汉字开关整行隐藏，不再互斥提示
-                if ($('hz-t') && $('hz-t').checked) {
-                    $('hz-t').checked = false;
-                    try { TA.onHzSilent(); } catch (e) { }
-                }
+                // 纯模型模式：汉字开关强制关闭且整行不可用（不再互斥提示）
+                this.forceHanziOff();
                 T('已开启语言隐写：加解密将使用模型模式');
             } else {
                 T('已关闭语言隐写');
@@ -164,6 +165,43 @@
              * 与是否用模型无关 —— 用户可能用微信/邮件/论坛，不是只有 QQ。
              * 隐写模式下同样尊重用户的开关选择。 */
             this.sync();
+        },
+
+        /* ═══ 汉字密文的唯一权威关闭点（互斥硬闸） ═══
+         *
+         * 为什么必须有一个**幂等的强制关闭**，而不是只在 onToggle 里关一次：
+         *   隐写模式要求密文是 Base64（步骤② Util.b642buf 只吃 Base64）。
+         *   汉字开关整行只是 `display:none` —— 隐藏 ≠ 禁用：
+         *     · 刷新时 localStorage 的 cx_hz='1' 会把 checked 回填成 true
+         *       （text-crypto.html 启动段曾无条件恢复，这是本 bug 的根因）；
+         *     · 脚本赋值 / 无障碍操作也能在隐藏状态下把 checked 置回 true。
+         *   两种路径都会让「执行加密」产出汉字密文，然后步骤②抛
+         *   「密文不是有效 Base64」—— 用户完全无从理解。
+         *
+         * 所以：**任何非 Base64 选项都必须被无条件、可重复地清掉**，
+         * 并且把持久化值一并改回 '0'，让矛盾态不会跨会话存活。
+         * 调用点：onToggle（开）· init（启动兜底）· TA.onHz（页面侧二次防御）。
+         */
+        forceHanziOff() {
+            const t = $('hz-t');
+            if (t && t.checked) t.checked = false;
+            // 持久化同步归零，否则下次刷新又会把 checked 回填成 true
+            try { localStorage.setItem('cx_hz', '0'); } catch (e) { }
+            // 标签文案可能停在「开启」，同步刷新
+            try { if (typeof TA !== 'undefined' && TA.onHzSilent) TA.onHzSilent(); } catch (e) { }
+            // 隐藏的整行同时标 disabled + aria-hidden，让脚本/无障碍路径也改不动
+            const row = $('hz-row');
+            if (row) { row.setAttribute('aria-hidden', 'true'); }
+            if (t) t.disabled = true;
+            return true;
+        },
+
+        /** 退出隐写模式时恢复汉字开关的可用性（勾选状态不自动恢复） */
+        releaseHanzi() {
+            const t = $('hz-t');
+            if (t) t.disabled = false;
+            const row = $('hz-row');
+            if (row) row.removeAttribute('aria-hidden');
         },
 
         /* ═══ 步骤①完成：拿到 Base64 ═══ */
@@ -632,9 +670,13 @@
             if (step2) step2.style.display = this.enabled ? '' : 'none';
             if ($('st-cancel')) $('st-cancel').style.display = this.busy ? '' : 'none';
 
-            // ── 纯模型模式：隐写开启时隐藏汉字开关整行 ──
+            // ── 纯模型模式：隐写开启时隐藏并强制关闭汉字开关整行 ──
+            // 隐藏只是表观；**必须同时 forceHanziOff**，否则隐藏状态下被
+            // 回填的 checked 仍会驱动 TA.enc() 产出汉字密文（本 bug 根因）。
             const hzRow = $('hz-row');
             if (hzRow) hzRow.style.display = this.enabled ? 'none' : '';
+            if (this.enabled) this.forceHanziOff();
+            else this.releaseHanzi();
 
             // ── 解密区步骤①（还原为 Base64）仅在隐写开启时出现 ──
             const dstep = $('st-dec-step');

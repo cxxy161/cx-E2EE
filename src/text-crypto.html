@@ -573,6 +573,15 @@ const TA = {
     },
     onHz() {
         const on = $('hz-t').checked;
+        /* ⚠ 互斥硬闸：语言隐写开启时密文**必须是 Base64**（步骤②只吃 Base64）。
+         * 汉字开关所在整行在隐写模式下是隐藏的，但隐藏不等于禁用 ——
+         * 脚本赋值、无障碍操作、或旧版遗留的自动勾选都能把 checked 再置 true。
+         * 这里兜住：一旦发现「隐写开 + 汉字开」，立即回退并说明原因。
+         * （权威实现在 stego-ui.js:forceHanziOff，本处只做二次防御） */
+        if (on && typeof StegoUI !== 'undefined' && StegoUI.enabled) {
+            try { StegoUI.forceHanziOff(); } catch (e) {}
+            return T('语言隐写开启中：密文需为 Base64，汉字密文已关闭');
+        }
         $('hz-tag').innerText = on ? '开启' : '关闭';
         try { localStorage.setItem('cx_hz', on ? '1' : '0'); } catch (e) {}
         if (on) T('已开启汉字密文：密文由常用汉字与符号组成，长度约为 Base64 的 55%');
@@ -626,7 +635,12 @@ const TA = {
         try {
             // 一对多：content_key 只加密一次正文，逐收件人 wrap
             const raw = await CX2.encrypt(plain, keys);
-            const useHanzi = $('hz-t').checked;
+            /* ⚠ 语言隐写模式下**必须**输出 Base64：步骤②只吃 Base64。
+             * 这里不看单选框、直接按模式定式，使「隐写开 + 汉字密文」在结构上
+             * 不可能发生 —— 即便前面所有闸门都被绕过，也不会再产出汉字密文。
+             * （前面的 forceHanziOff / 启动兜底负责把 UI 状态也摆正） */
+            const useHanzi = $('hz-t').checked &&
+                !(typeof StegoUI !== 'undefined' && StegoUI.enabled);
             const out = useHanzi ? HanziCodec.encode(Util.b642buf(raw)) : raw;
             $('tct').innerText = out;
             this._lastCipher = out;
@@ -1291,7 +1305,17 @@ ACS.valSpk();
     // 回填上次使用的自我 ID 提示
     if (directory_self_id) ACS._selfId = directory_self_id;
     // 恢复上次的汉字密文开关
-    try { $('hz-t').checked = localStorage.getItem('cx_hz') === '1'; TA.onHzSilent(); } catch (e) {}
+    /* ⚠ 恢复**不能无条件**：语言隐写开着时，汉字密文即使上次存过 '1' 也必须关掉。
+     * 否则刷新后 hz-t.checked 会被回填成 true，而整行是隐藏的 —— 用户看不见、
+     * 却持续按汉字加密，直到点「生成伪装文本」才炸出「密文不是有效 Base64」。
+     * 这里同步把持久化值改回 '0'，避免「隐写开 + 汉字开」这个矛盾态一直存下去。
+     * （顺序务必在 StegoUI.init() 之前，init 内部的 forceHanziOff 只是兜底） */
+    try {
+        const stegoOn = localStorage.getItem('cx_stego') === '1';
+        if (stegoOn) localStorage.setItem('cx_hz', '0');
+        $('hz-t').checked = !stegoOn && localStorage.getItem('cx_hz') === '1';
+        TA.onHzSilent();
+    } catch (e) {}
     // 恢复上次的自动分段开关（默认关）
     try { $('seg-t').checked = localStorage.getItem('cx_seg') === '1'; TA.onSeg(); } catch (e) {}
     // 语言隐写（实验性）初始化：恢复开关、查模型缓存
