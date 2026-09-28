@@ -64,17 +64,29 @@ console.log('浏览器版内核（src/stego.js）对齐验证\n');
     ok(Stego.ready, '① 资产装载成功', `耗时 ${Date.now() - t0}ms`);
     eq(Stego._V.size, 4096, '① 词表 4096 条');
     ok(Stego._V.allowedCount > 3400, '① 可用候选数合理', String(Stego._V.allowedCount));
-    eq(Stego.P.SEG_BYTES, 192, '① 帧长 192');
-    eq(Stego.P.SEG_PAYLOAD, 188, '① 载荷 188');
-    // 档位体系：P.TOPK 是**当前档位**（默认 64），而候选池深度恒为 MAX_TOPK=512
-    eq(Stego.P.TOPK, 64, '① 默认档位 Top-64');
+    /* ── 默认几何 = ver=2 区间编码（288B 帧 / 1 帧每链） ──
+     * 档位（Top-K）体系已随 ver=2 移除；旧 6bit 路径保留供历史文本解码，
+     * 其几何由 applyProfile() 切换（见下方断言）。 */
+    eq(Stego.ver, 2, '① 默认 Codec = 区间编码（ver=2）');
+    eq(Stego.P.SEG_BYTES, 288, '① 帧长 288');
+    eq(Stego.P.SEG_PAYLOAD, 284, '① 载荷 284');
+    eq(Stego.P.CHAIN_FRAMES, 1, '① 每链 1 帧');
+    eq(Stego.RANGE_POOL, 256, '① 候选池 256');
+    eq(Stego.RANGE_BUDGET, 512, '① 每链 token 预算 = RoPE 512');
+    eq(Stego.P.BOS, 1, '① BOS = 1');
+    /* 旧几何仍可切换（历史文本兼容） */
+    Stego.applyProfile(64);
+    eq(Stego.P.SEG_BYTES, 192, '① 旧路径帧长 192');
+    eq(Stego.P.SEG_PAYLOAD, 188, '① 旧路径载荷 188');
+    eq(Stego.P.TOPK, 64, '① 旧路径档位 Top-64');
     eq(Stego.MAX_TOPK, 512, '① 候选池深度 512（足够最深档位递补）');
-    eq(Stego.PROFILES.length, 7, '① 7 档可选（top4~256）');
+    eq(Stego.PROFILES.length, 7, '① 旧路径 7 档可选（top4~256）');
     ok(Stego.PROFILES.every(pf => (pf.segBytes * 8) % pf.bits === 0),
         '① 全部档位帧长对位数整除（无残位）',
         Stego.PROFILES.map(pf => `${pf.topk}:${(pf.segBytes * 8) % pf.bits}`).join(' '));
-    eq(Stego.P.NEED, 64, '① 候选 64');
-    eq(Stego.P.BOS, 1, '① BOS = 1');
+    eq(Stego.P.NEED, 64, '① 旧路径候选 64');
+    Stego.applyRangeGeometry();
+    eq(Stego.ver, 2, '① 切回区间几何');
 }
 
 const gj = JSON.parse(readFileSync(join(PCD, 'golden', 'golden.json'), 'utf8'));
@@ -123,26 +135,24 @@ const gj = JSON.parse(readFileSync(join(PCD, 'golden', 'golden.json'), 'utf8'));
     eq(topOk, gj.n_groups, '③ 浏览器内核 top-64 与 golden 一致');
 }
 
-/* ── ④ 与浏览器内核自身做端到端编解码闭环 ── */
+/* ── ④ 与浏览器内核自身做端到端编解码闭环（ver=2 区间编码） ── */
 {
     const payload = new Uint8Array(60);
     for (let i = 0; i < 60; i++) payload[i] = (i * 7 + 3) & 0xff;
     const msgid = 'ba1';
-    const frame = Stego.buildFrame(payload, msgid, 1);
-    eq(frame.length, 192, '④ 帧长 192');
-
-    // 用内核自身的 forward 做一帧编解码
-    const fwd = Stego.makeForwarder(Stego._M, Stego._V);
-    const segBytes = new Uint8Array(192);
-    segBytes.set(frame, 0);
+    /* ⚠️ src/stego.js 的 buildFrame 签名是 (slice, seq, g)：nonce 由**载荷自身**
+     *    导出（自描述帧），故不需要 msgid；几何必须显式传，否则退回旧档位。 */
+    const frame = Stego.buildFrame(payload, 1, Stego.RANGE_GEOM);
+    eq(frame.length, 288, '④ 帧长 288（区间几何）');
 
     const t0 = Date.now();
-    // 直接复用 encodeAll（单帧）
     const r = await Stego.encodeAll(payload, { msgid });
     const encMs = Date.now() - t0;
     eq(r.frames, 1, '④ 单帧');
     eq(r.segments.length, 1, '④ 单段');
-    ok(r.chars > 250 && r.chars < 400, '④ 字数合理（约 310）', String(r.chars));
+    /* 288B 帧 ≈ 430~450 token，文本约 1300~1400 字
+     * （区间编码每步承载 ~5.2 bit 而非旧 6.00，故同样内容字数更多） */
+    ok(r.chars > 400 && r.chars < 900, '④ 字数合理（约 624）', String(r.chars));
     ok(!/[\s\ufffd]/.test(r.segments[0].body), '④ 无空白/替换字符');
 
     const wire = Stego.segmentEnvelope(1, 1, msgid, r.segments[0].body);
@@ -151,7 +161,7 @@ const gj = JSON.parse(readFileSync(join(PCD, 'golden', 'golden.json'), 'utf8'));
     const decMs = Date.now() - t1;
     ok(Buffer.compare(Buffer.from(dec.bytes), Buffer.from(payload)) === 0, '④ 编解码往返字节一致');
 
-    console.log(`\n  ④ 单帧闭环：编码 ${encMs}ms · 解码 ${decMs}ms · ${r.chars} 字`);
+    console.log(`\n  ④ 单帧闭环：编码 ${encMs}ms · 解码 ${decMs}ms · ${r.chars} 字（288B 帧）`);
 }
 
 /* ── ⑤ 负向：普通文章必须被拒 ── */

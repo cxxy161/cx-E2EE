@@ -152,25 +152,16 @@
                     <span class="st-adv-cur" id="st-adv-cur"></span>
                 </div>
                 <div class="st-adv-bd" id="st-adv-bd" style="display:none">
+                    <!-- 档位（Top-K）控件已随 ver=2 区间编码移除：
+                         候选池为常数，不存在「压缩 ↔ 通顺」的权衡。 -->
                     <div class="st-field">
-                        <label class="st-fl" for="st-topk">
-                            Top-K 候选范围
-                            <span class="st-i" onclick="StegoUI.toggleInfo(event)">i</span>
-                        </label>
-                        <div class="st-i-pop" id="st-i-pop" style="display:none">
-                            <b>每个 token 承载 log₂(K) 比特。</b><br>
-                            K 越大 → 每 token 装得越多、<b>压缩率越好</b>，
-                            但候选要往模型排序的深处挖，那些词模型自己也不看好，
-                            <b>文本会变生硬</b>。<br>
-                            K 越小 → 几乎全是模型首选词，<b>文本最自然</b>，
-                            但同样内容要写更多字。<br><br>
-                            帧长随 K 自动调整（每帧恒 256 token）。
-                            接收端会<b>自动识别</b>发送端用的档位，无需手动指定。
-                        </div>
-                        <input type="range" id="st-topk" min="0" max="6" step="1" value="4"
-                               oninput="StegoUI.onTopkInput()" onchange="StegoUI.onTopkCommit()">
-                        <div class="st-scale">
-                            <span>压缩优先</span><span id="st-scale-mid"></span><span>通顺优先</span>
+                        <label class="st-fl">编码方式</label>
+                        <div class="st-i-pop" id="st-i-pop" style="display:none"></div>
+                        <div class="st-dim" style="line-height:1.7">
+                            <b>定点整数区间编码</b>（ver=2）<br>
+                            每步按模型真实概率分布划分区间，<b>不再均匀抽签</b> ——
+                            文本自然度显著优于旧的固定 6-bit 方案。<br>
+                            帧长 288 字节 / 链，接收端自动识别，无需任何设置。
                         </div>
                     </div>
                 </div>

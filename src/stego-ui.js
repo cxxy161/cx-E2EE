@@ -27,51 +27,53 @@
     /* ── 协议常量（与 src/stego.js 必须一致） ── */
     const C = {
         FRAME_HDR: 4,
-        TOKENS_PER_FRAME: 256,
         SEG_CHAR_LIMIT: 2000,    // QQ 单条上限（**排版**上限，非解码必需）
-        CX2_OVERHEAD: 131,       // v2 单收件人固定开销（3+8+32+12+48+12+16）
+        CX2_OVERHEAD: 131,       // v2 单收件人固定开销 (3+8+32+12+48+12+16)
     };
 
-    /* 每帧产出的**字符数**实测值（真模型 pcd-v3-6M，每档 4 个随机密文样本）。
+    /* ── 每帧产出的**字符数**与 token 数（ver=2 区间编码，真模型实测） ──
      *
-     * 为什么每帧字数各档不同、却都在 300~350 附近：每帧恒 256 个 token，
-     * 字数 ≈ 256 × 平均 token 字数。档位越大候选挖得越深、token 越零碎，
-     * 故字数略降（top4 346 字 → top256 304 字）。
+     * 区间编码每步承载 ~4.6~4.9 bit（模型真实熵），而旧 6bit 路径强制 6.00 ——
+     * 后者高于熵、信息论上不可达，多出的部分只能靠扭曲分布硬挤，
+     * 那正是文本崩坏的根因。代价是同样内容要多写字（文本字节约 6.6x 载荷）。
      *
-     * 分母 payload（每帧净载荷字节）则随档位**线性放大**，于是膨胀率
-     * = 3×chars / payload 从 top4 的 17x 一路降到 top256 的 3.6x。
-     *
-     * ⚠️ 改词表 / 帧长 / 链长后必须重测，否则容量预估会偏。 */
-    const CHARS_PER_FRAME = { 4: 346, 8: 340, 16: 342, 32: 337, 64: 320, 128: 318, 256: 304 };
-    const charsPerFrame = (topk) => CHARS_PER_FRAME[topk] || 320;
+     * 288B 帧实测：约 484 token / 1866 字节 / 624 个字符。
+     * ⚠️ 数值随输入略有波动（token 变长自适应），故按均值 ±25% 使用。
+     * ⚠️ 改词表 / 帧长 / 链长后必须重测，否则容量预估会偏。
+     *    （档位体系已随 ver=2 移除：候选池是常数，不存在压缩↔通顺权衡。） */
+    const CHARS_PER_FRAME = 624;
+    const TOKENS_PER_FRAME = 484;        // 仅用于进度预估，实际变长
+    const charsPerFrame = () => CHARS_PER_FRAME;
     C.charsPerFrame = charsPerFrame;
+    C.TOKENS_PER_FRAME = TOKENS_PER_FRAME;
 
-    /** 当前档位下，每段能装几条链（段上限 ÷ 链字数），至少 1 */
-    function chainsPerSeg(topk) {
+    /** 当前几何下，每段能装几条链（段上限 ÷ 链字数），至少 1 */
+    function chainsPerSeg() {
         const S = global.Stego;
-        const cf = S && S.P ? S.P.CHAIN_FRAMES : 2;
-        const chainChars = charsPerFrame(topk) * cf;
+        const cf = S && S.P ? S.P.CHAIN_FRAMES : 1;
+        const chainChars = CHARS_PER_FRAME * cf;
         return Math.max(1, Math.floor(C.SEG_CHAR_LIMIT / chainChars));
     }
     C.chainsPerSeg = chainsPerSeg;
 
     function framesPerSeg() {
         const S = global.Stego;
-        const cf = S && S.P ? S.P.CHAIN_FRAMES : 2;
-        return chainsPerSeg(topkOf()) * cf;
+        const cf = S && S.P ? S.P.CHAIN_FRAMES : 1;
+        return chainsPerSeg() * cf;
     }
     C.__framesPerSeg = framesPerSeg;
 
-    function topkOf() {
+    /** 当前几何（区间编码，ver=2） */
+    function rangeGeom() {
         const S = global.Stego;
-        return (S && S.P && S.P.TOPK) || 64;
+        return (S && S.RANGE_GEOM) ? S.RANGE_GEOM : { segBytes: 288, payload: 284, ver: 2 };
     }
+    C.rangeGeom = rangeGeom;
 
-    /** 该档位下每段能承载的密文字节数（用于容量预估与分段判断） */
-    function payloadPerSeg(topk) {
+    /** 每段能承载的密文字节数（用于容量预估与分段判断） */
+    function payloadPerSeg() {
         const S = global.Stego;
-        const pf = S && S.profileFor ? S.profileFor(topk) : { payload: 188 };
-        return chainsPerSeg(topk) * (S && S.P ? S.P.CHAIN_FRAMES : 2) * pf.payload;
+        return chainsPerSeg() * (S && S.P ? S.P.CHAIN_FRAMES : 1) * rangeGeom().payload;
     }
     C.payloadPerSeg = payloadPerSeg;
 
@@ -117,16 +119,9 @@
              * （页面启动段已先做过一次，此处覆盖脚本单独调用 init 的情形） */
             if (st) this.forceHanziOff();
 
-            // 档位
-            let tk = 64;
-            try { tk = +(localStorage.getItem('cx_stego_topk') || 64) || 64; } catch (e) { }
-
-            // 档位：优先用内核的 PROFILES（单一真源）
-            if (global.Stego && global.Stego.applyProfile) {
-                const pf = global.Stego.applyProfile(tk);
-                this.topk = pf.topk;
-            } else this.topk = tk;
-            this._syncSlider();
+            // 几何：区间编码（ver=2）为唯一路径，无档位可恢复
+            if (global.Stego && global.Stego.applyRangeGeometry) global.Stego.applyRangeGeometry();
+            this.topk = 0;
 
             // 高级设置展开态
             try {
@@ -232,58 +227,11 @@
             if (p) p.style.display = (p.style.display === 'none' || !p.style.display) ? '' : 'none';
         },
 
-        /** 滑块拖动中：只更新预览文案，不立即改协议（避免拖一次重算一路） */
-        onTopkInput() {
-            const el = $('st-topk');
-            if (!el) return;
-            const S = global.Stego;
-            if (!S || !S.PROFILES) return;
-            const pf = S.PROFILES[+el.value];
-            if (pf) this._renderScale(pf, true);
-        },
-
-        /** 松手提交：真正切换档位 */
-        onTopkCommit() {
-            const el = $('st-topk');
-            if (!el) return;
-            const S = global.Stego;
-            if (!S || !S.applyProfile) return;
-            const pf = S.applyProfile(S.PROFILES[+el.value].topk);
-            this.topk = pf.topk;
-            try { localStorage.setItem('cx_stego_topk', String(pf.topk)); } catch (e) { }
-            this._renderScale(pf, false);
-            this.sync();
-            T('已切换候选范围：Top-' + pf.topk + '（每 token ' + pf.bits + ' bit）');
-        },
-
-        _syncSlider() {
-            const el = $('st-topk');
-            const S = global.Stego;
-            if (!el || !S || !S.PROFILES) return;
-            const i = S.PROFILES.findIndex(p => p.topk === this.topk);
-            if (i >= 0) el.value = String(i);
-            this._renderScale(S.profileFor(this.topk), false);
-        },
-
-        /** 渲染档位说明（滑块下方的动态文案） */
-        _renderScale(pf, preview) {
-            const cur = $('st-adv-cur'), mid = $('st-scale-mid');
-            if (!pf) return;
-            const exp = (pf.segBytes / pf.payload).toFixed(2);
-            if (cur) {
-                cur.innerText = 'Top-' + pf.topk + ' · ' + pf.bits + 'bit · 帧' + pf.segBytes + 'B' +
-                    (preview ? '（预览）' : '');
-            }
-            if (mid) {
-                const S = global.Stego;
-                const info = S && S.profileInfo ? S.profileInfo(pf.topk) : null;
-                const tokPerFrame = 256;
-                const bytesPerFrame = tokPerFrame * 4.1;   // 实测均 token ≈4.1B
-                mid.innerText = 'Top-' + pf.topk + ' · 每帧 ≈' + Math.round(bytesPerFrame) +
-                    '字节文本 · 膨胀 ≈' + (bytesPerFrame / pf.payload).toFixed(1) + 'x' +
-                    (info ? ' · ' + info.sample : '');
-            }
-        },
+        /** 滑块等档位控件已随 ver=2 移除（区间编码下候选池是常数）。
+         *  保留空实现以兼容可能残留的旧 DOM 引用。 */
+        onTopkInput() { },
+        onTopkCommit() { },
+        _syncSlider() { },
 
         /* ═══ 复制输出（必须带段信封，否则接收端无法识别） ═══ */
         copyOutput(btn) {
@@ -375,17 +323,16 @@
          *  ⚠️ 必须读**当前档位**（帧长与每帧字数都随 Top-K 变化）。 */
         estimate(cipherBytes) {
             const S = global.Stego;
-            const pf = (S && S.profileFor) ? S.profileFor(this.topk)
-                : { segBytes: 192, payload: 188, bits: 6, topk: this.topk };
-            const cf = (S && S.P) ? S.P.CHAIN_FRAMES : 2;
-            const frames = Math.max(1, Math.ceil(cipherBytes / pf.payload));
+            const g = rangeGeom();
+            const cf = (S && S.P) ? S.P.CHAIN_FRAMES : 1;
+            const frames = Math.max(1, Math.ceil(cipherBytes / g.payload));
             const chains = Math.ceil(frames / cf);
-            const chars = chains * cf * charsPerFrame(pf.topk);
+            const chars = chains * cf * CHARS_PER_FRAME;
             // 段由**整数条链**组成，故段数按链数 / 每段链数算
-            const cps = chainsPerSeg(pf.topk);
+            const cps = chainsPerSeg();
             const segs = Math.max(1, Math.ceil(chains / cps));
-            return { cipherBytes, frames, chains, chars, segs, profile: pf.topk,
-                     payload: pf.payload, chainsPerSeg: cps };
+            return { cipherBytes, frames, chains, chars, segs,
+                     payload: g.payload, chainsPerSeg: cps, ver: 2 };
         },
 
         _renderEstimate() {

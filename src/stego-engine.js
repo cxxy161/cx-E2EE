@@ -212,8 +212,13 @@
          *   入参 lastTokenId：上一步产出的 token id（首步用 BOS=1）
          *        state      ：KV Cache 不透明状态对象
          *   出参 topK       ：Uint16Array，长度 256（>64，供 prefix-free 过滤后递补）
+         *        logits     ：Float64Array(4096) 原始 int32 定点分数（区间编码需要）
+         *        topScores  ：与 topK 对应的 int32 分数（便于直接建整数 CDF）
          *        nextState  ：推进后的 KV 态
-         */
+         *
+         * ⚠️ logits / topScores 是**区间编码的必需品**：CDF 必须由模型原始
+         *    分数（int32 定点 2^-12）算出，不能用名次代替。旧 6bit 路径
+         *    只读 topK，多出的字段对它无害。 */
         reset() {
             if (!this._loaded) return null;
             return Stego.createState(Stego._M);
@@ -227,7 +232,10 @@
             }
             const st = state || this.reset();
             const r = Stego.stepForward(Stego._M, lastTokenId, st);
-            return { topK: Stego.topKFromLogits(r.logits, Stego.P.TOPK), nextState: st };
+            const topK = Stego.topKFromLogits(r.logits, Stego.P.TOPK);
+            const topScores = new Int32Array(topK.length);
+            for (let i = 0; i < topK.length; i++) topScores[i] = r.logits[topK[i]] | 0;
+            return { topK, logits: r.logits, topScores, nextState: st };
         },
     };
 
