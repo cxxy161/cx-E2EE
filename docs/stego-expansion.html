@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>语言隐写膨胀曲线</title>
+<style>
+  html,body{margin:0;background:#0f1115;font-family:-apple-system,"Segoe UI","Noto Sans CJK SC","Microsoft YaHei",sans-serif}
+  #wrap{width:1240px;height:720px}
+</style>
+</head>
+<body>
+<div id="wrap"><svg id="svg" width="1240" height="720"></svg></div>
+<script>
+/* ══════════════════════════════════════════════════════════════
+ * 语言隐写膨胀曲线（估算值，非实测）
+ *
+ * 模型（与 UI estimate() 同一套公式）：
+ *   密文字节  cy = P_bytes + 131          （P 为原文明文，131 是 CX2 v2 固定开销）
+ *   帧数      F  = max(1, ceil(cy / 284))  （288B 帧 - 4B 帧头）
+ *   隐写字符  S  = F × 624                 （288B 帧实测约 624 字）
+ *   膨胀      膨胀 = S / P_chars           （**字符比字符**）
+ *
+ * 横轴 = 原文字符数 1..1000（按 UTF-8 均 3 字节/汉字折算）
+ * 左纵轴 = 隐写后字符数；右纵轴 = 膨胀倍率
+ * ══════════════════════════════════════════════════════════════ */
+const W=1240, H=720;
+const M={l:96, r:104, t:74, b:78};                 // 边距
+const PW=W-M.l-M.r, PH=H-M.t-M.b;
+
+const CX2_OVERHEAD=131, PAYLOAD=284, CHARS_PER_FRAME=624;
+const BYTES_PER_CHAR=3;                             // 汉字均 3B
+const NMAX=1000;
+
+function stealthChars(pChars){
+  const pBytes=pChars*BYTES_PER_CHAR;
+  const cy=pBytes+CX2_OVERHEAD;
+  const frames=Math.max(1,Math.ceil(cy/PAYLOAD));
+  return frames*CHARS_PER_FRAME;
+}
+function ratioAt(pChars){ return stealthChars(pChars)/pChars; }
+
+/* 采样 */
+const N=240;
+const pts=[];
+for(let i=0;i<=N;i++){
+  const p=1+(NMAX-1)*i/N;
+  pts.push({p, s:stealthChars(p), r:ratioAt(p)});
+}
+
+/* 轴范围 */
+const ySMax=Math.ceil(stealthChars(NMAX)/1000)*1000;      // 左轴：字符数
+const yRMax=200;                                          // 右轴：膨胀倍率（截断显示，短消息更高）
+const x=p=>M.l+(p-1)/(NMAX-1)*PW;
+const yS=s=>M.t+PH-(s/ySMax)*PH;
+const yR=r=>M.t+PH-(Math.min(r,yRMax)/yRMax)*PH;
+
+const el=(t,a,kids)=>{const e=document.createElementNS('http://www.w3.org/2000/svg',t);
+  for(const k in a)e.setAttribute(k,a[k]);(kids||[]).forEach(c=>e.appendChild(c));return e;};
+const txt=(s,a)=>{const e=el('text',a);e.textContent=s;return e;};
+
+const svg=document.getElementById('svg');
+const F='-apple-system,"Segoe UI","Noto Sans CJK SC","Microsoft YaHei",sans-serif';
+
+svg.appendChild(el('rect',{x:0,y:0,width:W,height:H,fill:'#0f1115'}));
+
+/* 标题 */
+svg.appendChild(txt('语言隐写 · 膨胀曲线（估算）',{x:M.l,y:40,fill:'#e8eaed','font-size':22,'font-weight':700,'font-family':F}));
+svg.appendChild(txt('原文字符数 → 隐写后字符数（左轴）／膨胀倍率（右轴）',{x:M.l,y:62,fill:'#8b93a7','font-size':13,'font-family':F}));
+
+/* 网格 + 左轴刻度 */
+const gGrid=el('g',{});
+for(let i=0;i<=5;i++){
+  const v=ySMax*i/5, y=yS(v);
+  gGrid.appendChild(el('line',{x1:M.l,y1:y,x2:M.l+PW,y2:y,stroke:'#232838','stroke-width':1}));
+  gGrid.appendChild(txt(v.toLocaleString('en-US'),{x:M.l-12,y:y+4,fill:'#8b93a7','font-size':12,'text-anchor':'end','font-family':F}));
+}
+svg.appendChild(gGrid);
+
+/* 右轴刻度 */
+for(let i=0;i<=5;i++){
+  const v=yRMax*i/5, y=yR(v);
+  svg.appendChild(txt(v.toFixed(0)+'x',{x:M.l+PW+12,y:y+4,fill:'#c8a24a','font-size':12,'text-anchor':'start','font-family':F}));
+}
+/* 右轴说明 */
+svg.appendChild(txt('膨胀倍率',{x:M.l+PW+12,y:M.t-14,fill:'#c8a24a','font-size':12.5,'font-weight':600,'font-family':F}));
+svg.appendChild(txt('隐写字符数',{x:M.l-12,y:M.t-14,fill:'#8b93a7','font-size':12.5,'font-weight':600,'text-anchor':'end','font-family':F}));
+
+/* X 轴刻度 */
+for(const p of [1,100,200,300,400,500,600,700,800,900,1000]){
+  const px=x(p);                                  // ⚠️ 不能写 `const x=x(p)`：TDZ 自引用会抛错
+  svg.appendChild(el('line',{x1:px,y1:M.t+PH,x2:px,y2:M.t+PH+5,stroke:'#3a4155','stroke-width':1}));
+  svg.appendChild(txt(String(p),{x:px,y:M.t+PH+22,fill:'#8b93a7','font-size':12,'text-anchor':'middle','font-family':F}));
+}
+svg.appendChild(el('line',{x1:M.l,y1:M.t+PH,x2:M.l+PW,y2:M.t+PH,stroke:'#3a4155','stroke-width':1.5}));
+svg.appendChild(txt('原文（字符数）',{x:M.l+PW/2,y:H-22,fill:'#8b93a7','font-size':13,'text-anchor':'middle','font-family':F}));
+
+/* ── 曲线 1：隐写后字符数（左轴，实线 + 面积） ── */
+const lineS=pts.map(q=>`${x(q.p).toFixed(2)},${yS(q.s).toFixed(2)}`).join(' ');
+const areaS=`M${x(pts[0].p).toFixed(2)},${(M.t+PH)} L`+
+  pts.map(q=>`${x(q.p).toFixed(2)},${yS(q.s).toFixed(2)}`).join(' L')+
+  ` L${x(pts[pts.length-1].p).toFixed(2)},${(M.t+PH)} Z`;
+const defs=el('defs',{});
+const lg=el('linearGradient',{id:'gs',x1:0,y1:0,x2:0,y2:1});
+lg.appendChild(el('stop',{offset:'0%','stop-color':'#4f8cff','stop-opacity':0.34}));
+lg.appendChild(el('stop',{offset:'100%','stop-color':'#4f8cff','stop-opacity':0.02}));
+defs.appendChild(lg); svg.appendChild(defs);
+svg.appendChild(el('path',{d:areaS,fill:'url(#gs)'}));
+svg.appendChild(el('polyline',{points:lineS,fill:'none',stroke:'#4f8cff','stroke-width':2.6,'stroke-linejoin':'round'}));
+
+/* ── 曲线 2：膨胀倍率（右轴，虚线，超出 yRMax 的部分截到顶端） ── */
+const lineR=pts.map(q=>`${x(q.p).toFixed(2)},${yR(q.r).toFixed(2)}`).join(' ');
+svg.appendChild(el('polyline',{points:lineR,fill:'none',stroke:'#e0b354','stroke-width':2.2,
+  'stroke-dasharray':'7 5','stroke-linejoin':'round'}));
+
+/* 截断提示：膨胀 > yRMax 的区域涂一层暗色，表示"超出右轴范围" */
+let cutStart=null;
+for(const q of pts){ if(q.r>yRMax){cutStart=q.p;break;} }
+if(cutStart!=null){
+  svg.appendChild(el('rect',{x:x(1),y:M.t,width:Math.max(0,x(cutStart)-x(1)),height:PH,
+    fill:'#e0b354','fill-opacity':0.05}));
+  svg.appendChild(txt('↑ 左侧膨胀 > '+yRMax+'x，曲线已截顶',{x:x(1)+10,y:M.t+18,
+    fill:'#e0b354','font-size':12,'font-family':F}));
+}
+
+/* ── 关键点标注 ── */
+function marker(p,label,dy){
+  const s=stealthChars(p), r=ratioAt(p), cx=x(p), cy=yS(s);
+  svg.appendChild(el('circle',{cx,cy,r:4.5,fill:'#4f8cff',stroke:'#0f1115','stroke-width':2}));
+  const right = cx > M.l+PW*0.62;
+  svg.appendChild(txt(label,{x:cx+(right?-10:10),y:cy+(dy||-12),fill:'#cfd6e6','font-size':12,
+    'text-anchor':right?'end':'start','font-family':F}));
+  svg.appendChild(txt(`${Math.round(s).toLocaleString('en-US')} 字 / ${r.toFixed(1)}x`,
+    {x:cx+(right?-10:10),y:cy+(dy||-12)+15,fill:'#8b93a7','font-size':11,
+     'text-anchor':right?'end':'start','font-family':F}));
+}
+marker(10,'原文 10 字',-16);
+marker(100,'原文 100 字',-16);
+marker(500,'原文 500 字',-16);
+marker(1000,'原文 1000 字',-16);
+
+/* ── 图例（放右下空白区，避开曲线与标注） ── */
+const lx=M.l+PW-244, ly=M.t+PH-56;
+svg.appendChild(el('rect',{x:lx-10,y:ly-18,width:250,height:60,rx:8,
+  fill:'#161a24',stroke:'#252b3a','stroke-width':1}));
+svg.appendChild(el('line',{x1:lx,y1:ly,x2:lx+26,y2:ly,stroke:'#4f8cff','stroke-width':2.6}));
+svg.appendChild(txt('隐写后字符数（左轴）',{x:lx+34,y:ly+4,fill:'#cfd6e6','font-size':12,'font-family':F}));
+svg.appendChild(el('line',{x1:lx,y1:ly+24,x2:lx+26,y2:ly+24,stroke:'#e0b354','stroke-width':2.2,'stroke-dasharray':'7 5'}));
+svg.appendChild(txt('膨胀倍率（右轴）',{x:lx+34,y:ly+28,fill:'#cfd6e6','font-size':12,'font-family':F}));
+
+/* ── 脚注 ── */
+svg.appendChild(txt('估算模型：密文 = 原文 + 131B（CX2 固定开销）· 帧 = ⌈密文/284⌉ · 隐写字符 = 帧 × 624 · 原文按 3B/汉字折算',
+  {x:M.l,y:H-6,fill:'#5d6478','font-size':11.5,'font-family':F}));
+
+window.__svgReady=true;
+</script>
+</body>
+</html>

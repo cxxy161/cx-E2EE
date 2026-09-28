@@ -70,6 +70,13 @@
     }
     C.rangeGeom = rangeGeom;
 
+    /** 每条链含几帧（ver=2 为 1） */
+    function cfNow() {
+        const S = global.Stego;
+        return (S && S.P && S.P.CHAIN_FRAMES) || 1;
+    }
+    C.cfNow = cfNow;
+
     /** 每段能承载的密文字节数（用于容量预估与分段判断） */
     function payloadPerSeg() {
         const S = global.Stego;
@@ -350,18 +357,25 @@
             if (!cyBytes) { el.innerHTML = '<span class="st-dim">输入明文后显示容量预估</span>'; return; }
 
             const e = this.estimate(cyBytes);
-            const outBytes = e.chars * 3;
-            const ratio = (outBytes / Math.max(1, plainBytes)).toFixed(1);
+            /* ── 膨胀率 = 隐写字符数 ÷ **原文字符数** ──
+             * ⚠️ 旧实现是 `e.chars * 3 / Math.max(1, plainBytes)`，有两个错：
+             *  ① 左边把"字"当"字节"（×3），右边是字节 ⇒ 量纲不一致，
+             *     数字虚高 3 倍；
+             *  ② 明文框被清空时 plainBytes=0，Math.max(1,0)=1 造出**1 字节
+             *     的分母** ⇒ 624×3/1 = 1872x 这种离谱数字。
+             * 现在两边都按**字符**算，且明文未知时干脆不显示倍率。 */
+            const plainChars = Array.from(plain).length;   // 按码点，正确处理代理对
+            const ratio = plainChars > 0 ? (e.chars / plainChars).toFixed(1) : '';
             const small = plainBytes < 200;
 
             let h = '密文 <b>' + fmt.n(cyBytes) + '</b> 字节 → <b>' + e.frames + '</b> 帧 → ' +
                 '<b>' + e.segs + '</b> 段<br>' +
                 '伪装文本约 <b>' + fmt.n(e.chars) + '</b> 字';
-            if (plainBytes) h += '（膨胀 ' + ratio + 'x）';
+            if (ratio) h += '（原文 ' + fmt.n(plainChars) + ' 字，膨胀 ' + ratio + 'x）';
             if (!has) h += '<br><span class="st-dim">※ 基于预估；点「执行加密」后按实际密文重算</span>';
             if (e.segs > 1)
                 h += '<br><span class="st-dim">※ 每段 ≤ ' + fmt.n(C.SEG_CHAR_LIMIT) + ' 字（' +
-                    e.chainsPerSeg + ' 链 / ' + (e.chainsPerSeg * 2) + ' 帧）</span>';
+                    e.chainsPerSeg + ' 链 / ' + (e.chainsPerSeg * cfNow()) + ' 帧）</span>';
             if (small) h += '<br><span class="st-warnline">⚠ 明文不足 200 字节：固定开销占比高，膨胀率显著偏高</span>';
 
             el.innerHTML = h;
