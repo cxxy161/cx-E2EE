@@ -89,11 +89,19 @@ ver=3 取 `pi=0` 错开 —— 零成本、零迁移。
 ### 验证
 
 ```bash
-node test/stego/range3.mjs               # 滑窗区间编解码数学原型（53 项）
+# ── 现行 ver=3 ──
+node test/stego/range3.mjs                  # 滑窗区间编解码数学原型（53 项，无需模型）
 node test/stego/range-integration.test.mjs  # 生产文件接入验收（真模型）
-node test/stego/cross-page.test.mjs      # 跨页互操作 + 版本分流
-node test/stego/browser-align.test.mjs   # 内核 golden 对齐（45/45）
+node test/stego/cross-page.test.mjs         # 跨页互操作 + 版本分流
+node test/stego/browser-align.test.mjs      # 内核 golden 对齐（45/45）
+node test/stego/e2e-roundtrip.mjs           # 真机端到端：加密→伪装→还原→解密
+node test/stego/eta-devices.mjs             # 跨设备：倒计时/速度是否自适应
+node test/stego/ui.test.mjs                 # UI 状态机 + 容量预估（headless Chrome）
+
+# ── 以下为 ver=1/2 实验台（自带 mock，不加载 src/stego.js，历史对照用） ──
+#   spec.test.mjs · final-demo.mjs · real-pipeline.test.mjs · nospace.test.mjs
 ```
+
 
 ---
 
