@@ -295,7 +295,9 @@
                 if (p.chunks) parts.push('已解 ' + p.chunks + ' 块');
                 if (p.charsTotal) parts.push(fmt.n(p.chars) + '/' + fmt.n(p.charsTotal) + ' 字节');
                 if (p.bps) parts.push(fmt.bps(p.bps));
-                if (p.etaMs != null && isFinite(p.etaMs) && pctv < 100) parts.push('剩余 ' + fmt.sec(p.etaMs));
+                if (p.etaMs != null && isFinite(p.etaMs) && p.etaMs > 0 && pctv < 100) {
+                    parts.push('剩余 ' + fmt.sec(p.etaMs));
+                }
                 meta.innerText = parts.join(' · ') || '识别中…';
             }
         },
@@ -473,9 +475,16 @@
             const parts = [];
             if (p.chunksTotal > 1) parts.push('第 ' + (p.chunks || 1) + '/' + p.chunksTotal + ' 块');
             else if (p.chunks) parts.push('第 ' + p.chunks + ' 块');
-            if (p.step) parts.push(fmt.n(p.step) + '/' + fmt.n(p.stepsTotal) + ' token');
+            /* stepsTotal 是按实测吞吐**估**的（区间编码 token 数数据相关、无法先知），
+             * 实际可能略超估算值，故显示上取 min，避免出现 "285/283" 这种读数。 */
+            const shownSteps = p.stepsTotal ? Math.min(p.step || 0, p.stepsTotal) : (p.step || 0);
+            if (p.step) parts.push(fmt.n(shownSteps) + (p.stepsTotal ? '/' + fmt.n(p.stepsTotal) : '') + ' token');
             if (p.bps) parts.push(fmt.tok(p.bps));
-            if (p.etaMs != null && isFinite(p.etaMs) && !p.done) parts.push('剩余 ' + fmt.sec(p.etaMs));
+            /* ⚠️ eta 只在**正数**时显示：估算被超出时 (total-step) 为负，
+             *    直接展示会看到"剩余 -14 秒"这种荒唐读数。 */
+            if (p.etaMs != null && isFinite(p.etaMs) && p.etaMs > 0 && !p.done) {
+                parts.push('剩余 ' + fmt.sec(p.etaMs));
+            }
             if (meta) meta.innerText = parts.join(' · ') || '序列化中…';
 
             const pctEl = $('st-prog-pct');
