@@ -146,7 +146,7 @@
         let last = K.P.BOS;
         const parts = [];
         let total = 0;
-        const sig = K.makeSigChar(K.P.TOPK);
+        const sig = K.makeSigChar(1, { topk: K.P.TOPK });
         if (sig) { parts.push(_te.encode(sig)); total += parts[0].length; }
         for (let i = 0; i < units.length; i++) {
             const r = fwd(last, state);
@@ -194,7 +194,7 @@
         let total = 0, steps = 0;
         const totalBits = 8 * segBytes;
 
-        const sig = K.makeSigChar(null, 2, K.RANGE_POOL_IDX, capMode === 'forced');
+        const sig = K.makeSigChar(2, { forced: capMode === 'forced' });
         if (sig) { const b = _te.encode(sig); parts.push(b); total += b.length; }
 
         for (let f = 0; f < nFrames; f++) {

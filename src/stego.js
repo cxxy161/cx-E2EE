@@ -786,7 +786,11 @@
         let rel = 0n;
         for (let i = 0; i < W_INIT_BYTES; i++) rel = (rel << 8n) | BigInt(readAt(ptr++));
 
-        const limit = data.length;    // 已消费字节数达到它即完成
+        /* 步数上界 = 数据长度 + 预取字节数（与解码端对称）。
+         * ⚠️ 不能写成 data.length：预取已消耗 W_INIT_BYTES 个指针位置，
+         *    若按 data.length 收口，解码端可能永远凑不满 need ⇒ 误判 NOT_STEGO。
+         *    越过 data 的读取由 readAt 统一补 0，两端确定性一致。 */
+        const limit = data.length + W_INIT_BYTES;
         while (ptr < limit) {
             if (steps >= RANGE_BUDGET) throw new Error('RANGE_MAX_STEPS: ' + steps);
             const Mv = stepScale(r);
