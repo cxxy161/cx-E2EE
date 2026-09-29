@@ -918,6 +918,8 @@
                 }
                 if (out.length >= need) break;
             }
+            /* 字节级进度：块内也更新，避免长块期间进度条一动不动 */
+            if (opts.onBytes) opts.onBytes(cursor + pre, out.length);
             if ((steps & (YIELD_EVERY - 1)) === 0) {
                 if (opts.onStep) opts.onStep(steps);
                 if (opts.onChars) opts.onChars(cursor + pre);
@@ -926,6 +928,7 @@
             }
         }
         if (opts.onChars) opts.onChars(cursor + pre);
+        if (opts.onBytes) opts.onBytes(cursor + pre, out.length);
 
         const bytes = Uint8Array.from(out);
         return {
@@ -1289,17 +1292,54 @@
             const bodies = [];
             let off = 0, steps = 0;
             const sizes = [];
+            /* ── 进度总量：**必须给 UI 一个 stepsTotal 与时间基线**，否则它
+             *    算不出百分比（pct 恒 0）、速度（bps）与倒计时（etaMs）。
+             *    区间编码的 token 数是数据相关的变长值，无法先知。
+             *
+             *    实测标定（真模型，见交付说明的探针）：256B 随机载荷 ≈445 token
+             *    ⇒ ≈4.6 bit/token。**刻意取下限 4.6 而非均值**，使 stepsTotal
+             *    偏大（进度偏保守）：偏大时进度条到 100% 前仍需工作、收尾再由
+             *    UI 显式拉满；若偏小则进度条会提前卡在 100% 假死。
+             *    只用于显示，估偏不影响正确性。 */
+            const BITS_PER_TOKEN = 4.6;
+            const stepEstimate = (n) => Math.max(8, Math.round((n + 2) * 8 / BITS_PER_TOKEN));
+            let totalStepsEst = 0;
+            for (let o2 = 0; o2 < L; o2 += CHUNK_MAX) {
+                totalStepsEst += stepEstimate(Math.min(CHUNK_MAX, L - o2));
+            }
+            if (totalStepsEst === 0) totalStepsEst = stepEstimate(0);
+            const emitProgress = () => {
+                if (!opt.onProgress) return;
+                const el = Math.max(1, Date.now() - t0) / 1000;
+                const rate = steps / el;                       // token/s
+                opt.onProgress({
+                    step: steps, stepsTotal: totalStepsEst,
+                    chunks: Math.max(1, sizes.length + 1),
+                    chunksTotal: Math.max(1, Math.ceil(L / CHUNK_MAX) || 1),
+                    bps: rate,
+                    etaMs: rate > 0 ? ((totalStepsEst - steps) / rate) * 1000 : null,
+                    done: off >= L,
+                });
+            };
             do {
                 let size = Math.min(CHUNK_MAX, L - off);
                 let done = null;
                 let forced = false;
+                /* ⚠️ baseSteps 必须在**重试循环之外**取一次：
+                 *    若放在循环内，第 1 次尝试（lazy 超预算）已把 steps 推高，
+                 *    重试时 baseSteps 会读到被污染的值，进度与 eta 随之漂移。 */
+                const baseSteps = steps;
                 for (;;) {
                     const data = new Uint8Array(2 + size);
                     data[0] = (size >>> 8) & 0xff; data[1] = size & 0xff;
                     data.set(src.subarray(off, off + size), 2);
+                    steps = baseSteps;          // 每次尝试都从同一基线重算
                     try {
                         done = await encodeChunk3(data, fwd, V,
-                            (s) => { if (opt.onProgress) opt.onProgress({ step: steps + s, chunks: sizes.length + 1 }); },
+                            (s) => {
+                                steps = baseSteps + s;
+                                emitProgress();
+                            },
                             opt.signal, forced ? 'forced' : 'lazy');
                         break;
                     } catch (e) {
@@ -1312,8 +1352,11 @@
                 }
                 bodies.push(done.text);
                 sizes.push(size);
-                steps += done.steps;
+                /* steps 已由回调按 baseSteps+s 累计到本块结束
+                 * （encodeChunk3 收尾还会再回调一次 onStep(done.steps)），
+                 * 此处不重复累加，只把进度播出去。 */
                 off += size;
+                emitProgress();
             } while (off < L);
 
             const text = bodies.join('');
@@ -1347,8 +1390,31 @@
             let sawLegacy = false;
             const useSig = opt.sig !== false && sigSupported();
 
+            /* ── 解码进度：按**已消费的文本字节**推进 ──
+             * 伪装文本总字节数已知，故分母可靠、进度单调；pct 直接由它算。
+             * 原先 decodeText 一个 onProgress 都不发，UI 进度条全程静止。 */
+            const totalBytes = Math.max(1, tb.length);
+            let lastEmit = 0;
+            const progress = (consumedBytes) => {
+                if (!opt.onProgress) return;
+                const now = Date.now();
+                if (now - lastEmit < 80 && consumedBytes < totalBytes) return;   // 节流
+                lastEmit = now;
+                const el = Math.max(1, now - t0) / 1000;
+                const pct = Math.min(1, consumedBytes / totalBytes);
+                opt.onProgress({
+                    pct, chars: consumedBytes, charsTotal: totalBytes,
+                    chunks: chunks, step: steps,
+                    bps: consumedBytes / el,
+                    etaMs: consumedBytes > 0
+                        ? ((totalBytes - consumedBytes) / (consumedBytes / el)) * 1000 : null,
+                });
+            };
             const mkOpts = (extra) => Object.assign({
-                signal: opt.signal, onStep: () => {}, onChars: opt.onChars,
+                signal: opt.signal,
+                onStep: () => { },
+                onChars: opt.onChars,
+                onBytes: (byteOff) => progress(byteOff),
             }, extra || {});
 
             while (cursor < tb.length) {
@@ -1358,8 +1424,14 @@
                 /* ── ① 签名明确：直接照做，不猜 ── */
                 if (sg && sg.ver === 3) {
                     const r = await decodeChunk3(tb, cursor + sg.len, fwd, V,
-                        mkOpts({ sig: false, capMode: sg.mode }));
-                    outParts.push(r.bytes.subarray(0, 2 + r.actualLen));
+                        mkOpts({ sig: false, capMode: sg.mode, onBytes: progress }));
+                    /* ⚠️ 必须取 r.payload（纯载荷），**不能**取 r.bytes ——
+                     *    r.bytes = [u16 BE actual_len][payload]，把长度头一起
+                     *    送出去会让每块多 2 字节：载荷 <256B 时 len_hi 恒为 0x00，
+                     *    于是还原出的密文首字节永远是 0x00，被 CX2 判成
+                     *    「密文版本不支持（0x0）」，同时 Base64 也整体对不上。
+                     *    （这就是历史上那个"版本 0x0 + base64 不一致"的根因。） */
+                    outParts.push(r.payload);
                     steps += r.steps; chunks++;
                     cursor = r.consumed;
                     continue;
@@ -1394,7 +1466,7 @@
                     } catch (e2) { if (!(e2 && e2.code === 'NOT_STEGO')) throw e2; }
                 }
                 if (ok) {
-                    outParts.push(ok.bytes.subarray(0, 2 + ok.actualLen));
+                    outParts.push(ok.payload);          // 同上：只取纯载荷，去掉长度头
                     steps += ok.steps; chunks++; cursor = ok.consumed;
                     continue;
                 }

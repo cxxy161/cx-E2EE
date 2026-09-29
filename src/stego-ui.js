@@ -244,6 +244,13 @@
                     signal: this._abort.signal,
                     onProgress: (p) => this._renderDecProgress(p),
                 });
+                /* 收尾拉满：Codec 的 pct 按已消费字节算，末块可能停在 <100%，
+                 * 这里显式补到 100%，避免进度条看着像没跑完。 */
+                {
+                    const f = $('st-dec-fill'), pe = $('st-dec-pct');
+                    if (f) f.style.width = '100%';
+                    if (pe) pe.innerText = '100%';
+                }
                 // 还原成 Base64 填回输入框，供「执行解密」使用
                 const b64 = global.Util ? global.Util.buf2b64(r.bytes.buffer)
                     : btoa(String.fromCharCode.apply(null, new Uint8Array(r.bytes)));
@@ -274,19 +281,21 @@
         },
 
         _renderDecProgress(p) {
-            const fill = $('st-dec-fill'), meta = $('st-dec-meta'), pct = $('st-dec-pct');
+            const fill = $('st-dec-fill'), meta = $('st-dec-meta'), pctEl = $('st-dec-pct');
             if (!fill) return;
-            /* ⚠️ 进度必须以**全局字符数**为分子。
-             * 原实现分子是「本段内已解 token」、分母是「全消息 token」，
-             * 于是每解完一段分子就归零重来 —— 用户看到进度条跳回 0。
-             * 现在按 chars/charsTotal 计算，天然单调递增。 */
-            const pctv = p.charsTotal ? Math.min(100, p.chars / p.charsTotal * 100) : 0;
+            /* ⚠️ 进度分子必须是**全局**已消费字节/字符，不能是"本段内已解"。
+             * 旧实现分子按段归零，用户看到进度条跳回 0。
+             * Codec 现在直接给 pct（已消费文本字节 ÷ 总字节），天然单调。 */
+            const pctv = p.pct != null ? Math.max(0, Math.min(1, p.pct)) * 100
+                : (p.charsTotal ? Math.min(100, p.chars / p.charsTotal * 100) : 0);
             fill.style.width = pctv.toFixed(1) + '%';
-            if (pct) pct.innerText = pctv.toFixed(0) + '%';
+            if (pctEl) pctEl.innerText = pctv.toFixed(0) + '%';
             if (meta) {
                 const parts = [];
                 if (p.chunks) parts.push('已解 ' + p.chunks + ' 块');
-                if (p.charsTotal) parts.push(fmt.n(p.chars) + '/' + fmt.n(p.charsTotal) + ' 字符');
+                if (p.charsTotal) parts.push(fmt.n(p.chars) + '/' + fmt.n(p.charsTotal) + ' 字节');
+                if (p.bps) parts.push(fmt.bps(p.bps));
+                if (p.etaMs != null && isFinite(p.etaMs) && pctv < 100) parts.push('剩余 ' + fmt.sec(p.etaMs));
                 meta.innerText = parts.join(' · ') || '识别中…';
             }
         },
@@ -462,10 +471,11 @@
             if (box && box.style.display === 'none') box.style.display = '';
 
             const parts = [];
-            if (p.chunks) parts.push('第 ' + p.chunks + ' 块');
-            if (p.step) parts.push(fmt.n(p.step) + ' token');
+            if (p.chunksTotal > 1) parts.push('第 ' + (p.chunks || 1) + '/' + p.chunksTotal + ' 块');
+            else if (p.chunks) parts.push('第 ' + p.chunks + ' 块');
+            if (p.step) parts.push(fmt.n(p.step) + '/' + fmt.n(p.stepsTotal) + ' token');
             if (p.bps) parts.push(fmt.tok(p.bps));
-            if (p.etaMs != null && isFinite(p.etaMs)) parts.push('剩余 ' + fmt.sec(p.etaMs));
+            if (p.etaMs != null && isFinite(p.etaMs) && !p.done) parts.push('剩余 ' + fmt.sec(p.etaMs));
             if (meta) meta.innerText = parts.join(' · ') || '序列化中…';
 
             const pctEl = $('st-prog-pct');
