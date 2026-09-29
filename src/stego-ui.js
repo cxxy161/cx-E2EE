@@ -5,84 +5,52 @@
  * 职责边界（严格）：
  *   本文件只管 DOM 与交互状态机 —— 模式互斥 / 模型按钮与下载进度 /
  *   容量预估 / 两步流程 / 序列化进度与速度 / 取消 / 错误分流。
- *   **不含任何编解码算法**：真正的位流与推理循环在 Stego.* 里。
+ *   **不含任何编解码算法**：位流、区间编码与推理循环在 Stego.* 里；
+ *   段信封、排版分段与容量系数在 StegoTransport 里。
  *
  * ── 两步流程（仅语言隐写模式） ──
  *   ① 点既有「执行加密」→ 产出 Base64 → 进第一个输出框（#tct）
  *   ② 点新增「生成伪装文本」→ 序列化 → 进第二个输出框（#stt）
  *   汉字/Base64 模式保持一步出结果，因此 hz-seg / seg-loop 等既有测试不受影响。
  *
- * ── 期望的 Stego 接口（算法层，模型到位后接上） ──
- *   Stego.encodeAll(cipherBytes, {
- *       msgid, signal,
- *       onProgress({ frame, framesTotal, step, stepsTotal, tokens, tokensTotal, bps, etaMs })
- *   }) -> { segments: [{ seq, total, msgid, body }], frames, chars }
- *   Stego.decodeAll(bodyText, { onProgress, signal }) -> Uint8Array | null
+ * ── 期望的 Stego 接口（算法层） ──
+ *   Stego.encodeBytes(cipherBytes, { signal, onProgress })
+ *       -> { text, chars, chunks, sizes, steps, ms, ver }
+ *   Stego.decodeText(text, { signal, onProgress }) -> { bytes, chunks, ver, legacy }
  */
 (function (global) {
     'use strict';
 
     const $ = (i) => document.getElementById(i);
 
-    /* ── 协议常量（与 src/stego.js 必须一致） ── */
+    /* ── 协议常量（与 src/stego.js / stego-transport.js 必须一致） ── */
     const C = {
-        FRAME_HDR: 4,
-        SEG_CHAR_LIMIT: 2000,    // QQ 单条上限（**排版**上限，非解码必需）
-        CX2_OVERHEAD: 131,       // v2 单收件人固定开销 (3+8+32+12+48+12+16)
+        /* 排版上限来自传输层（单一真源），此处只做引用 */
+        get SEG_CHAR_LIMIT() { return TR().SEG_CHAR_LIMIT; },
     };
 
-    /* ── 每帧产出的**字符数**与 token 数（ver=2 区间编码，真模型实测） ──
-     *
-     * 区间编码每步承载 ~4.6~4.9 bit（模型真实熵），而旧 6bit 路径强制 6.00 ——
-     * 后者高于熵、信息论上不可达，多出的部分只能靠扭曲分布硬挤，
-     * 那正是文本崩坏的根因。代价是同样内容要多写字（文本字节约 6.6x 载荷）。
-     *
-     * 288B 帧实测：约 484 token / 1866 字节 / 624 个字符。
-     * ⚠️ 数值随输入略有波动（token 变长自适应），故按均值 ±25% 使用。
-     * ⚠️ 改词表 / 帧长 / 链长后必须重测，否则容量预估会偏。
-     *    （档位体系已随 ver=2 移除：候选池是常数，不存在压缩↔通顺权衡。） */
-    const CHARS_PER_FRAME = 624;
-    const TOKENS_PER_FRAME = 484;        // 仅用于进度预估，实际变长
-    const charsPerFrame = () => CHARS_PER_FRAME;
-    C.charsPerFrame = charsPerFrame;
-    C.TOKENS_PER_FRAME = TOKENS_PER_FRAME;
-
-    /** 当前几何下，每段能装几条链（段上限 ÷ 链字数），至少 1 */
-    function chainsPerSeg() {
-        const S = global.Stego;
-        const cf = S && S.P ? S.P.CHAIN_FRAMES : 1;
-        const chainChars = CHARS_PER_FRAME * cf;
-        return Math.max(1, Math.floor(C.SEG_CHAR_LIMIT / chainChars));
+    /** 传输层句柄（缺失时退化为最小实现，保证页面不炸） */
+    function TR() {
+        return global.StegoTransport || {
+            SEG_CHAR_LIMIT: 2000, CHARS_PER_BYTE: 2.15,
+            estimate: (n) => {
+                const S = global.Stego;
+                const cm = (S && S.CHUNK_MAX) || 256;
+                const chunks = Math.max(1, Math.ceil(Math.max(0, n) / cm));
+                const chars = Math.ceil((Math.max(0, n) + 2 * chunks) * 2.15);
+                return { payloadBytes: n, chunks, bytesWithHead: n + 2 * chunks, chars, segs: Math.max(1, Math.ceil(chars / 1984)) };
+            },
+            estimateFromPlain: (p) => TR().estimate(p),
+            b64Bytes: (b64) => Math.floor(String(b64 || '').replace(/\s+/g, '').length * 3 / 4),
+        };
     }
-    C.chainsPerSeg = chainsPerSeg;
 
-    function framesPerSeg() {
+    /** 每块明文上限（用于进度预估；真值在 Stego.CHUNK_MAX） */
+    function chunkMax() {
         const S = global.Stego;
-        const cf = S && S.P ? S.P.CHAIN_FRAMES : 1;
-        return chainsPerSeg() * cf;
+        return (S && S.CHUNK_MAX) || 256;
     }
-    C.__framesPerSeg = framesPerSeg;
-
-    /** 当前几何（区间编码，ver=2） */
-    function rangeGeom() {
-        const S = global.Stego;
-        return (S && S.RANGE_GEOM) ? S.RANGE_GEOM : { segBytes: 288, payload: 284, ver: 2 };
-    }
-    C.rangeGeom = rangeGeom;
-
-    /** 每条链含几帧（ver=2 为 1） */
-    function cfNow() {
-        const S = global.Stego;
-        return (S && S.P && S.P.CHAIN_FRAMES) || 1;
-    }
-    C.cfNow = cfNow;
-
-    /** 每段能承载的密文字节数（用于容量预估与分段判断） */
-    function payloadPerSeg() {
-        const S = global.Stego;
-        return chainsPerSeg() * (S && S.P ? S.P.CHAIN_FRAMES : 1) * rangeGeom().payload;
-    }
-    C.payloadPerSeg = payloadPerSeg;
+    C.chunkMax = chunkMax;
 
     const fmt = {
         n: (x) => x.toLocaleString('zh-CN'),
@@ -109,7 +77,6 @@
         busy: false,
         decBusy: false,
         advOpen: false,
-        topk: 64,                // 当前档位
         _dl: null,               // 下载进度快照
         _op: null,               // 序列化进度快照
         _abort: null,
@@ -126,9 +93,8 @@
              * （页面启动段已先做过一次，此处覆盖脚本单独调用 init 的情形） */
             if (st) this.forceHanziOff();
 
-            // 几何：区间编码（ver=2）为唯一路径，无档位可恢复
+            // Codec：ver=3 滑窗为唯一路径，无档位可恢复
             if (global.Stego && global.Stego.applyRangeGeometry) global.Stego.applyRangeGeometry();
-            this.topk = 0;
 
             // 高级设置展开态
             try {
@@ -219,7 +185,7 @@
             this.sync();
         },
 
-        /* ═══ 高级设置：Top-K 档位 ═══ */
+        /* ═══ 高级设置 ═══ */
         toggleAdv() {
             this.advOpen = !this.advOpen;
             const bd = $('st-adv-bd'), c = $('st-adv-caret');
@@ -234,7 +200,7 @@
             if (p) p.style.display = (p.style.display === 'none' || !p.style.display) ? '' : 'none';
         },
 
-        /** 滑块等档位控件已随 ver=2 移除（区间编码下候选池是常数）。
+        /** 档位控件已随 ver=2 移除（区间编码下候选池是常数，无压缩↔通顺权衡）。
          *  保留空实现以兼容可能残留的旧 DOM 引用。 */
         onTopkInput() { },
         onTopkCommit() { },
@@ -274,7 +240,7 @@
             const t0 = Date.now();
 
             try {
-                const r = await global.Stego.decodeAll(raw, {
+                const r = await global.Stego.decodeText(raw, {
                     signal: this._abort.signal,
                     onProgress: (p) => this._renderDecProgress(p),
                 });
@@ -284,8 +250,8 @@
                 if ($('tci')) $('tci').value = b64;
                 if (typeof TA !== 'undefined' && TA.onCipher) TA.onCipher();
                 this._decMsg('ok', '✓ 已还原为 Base64 · ' + r.bytes.length + ' 字节 · ' +
-                    '识别档位 Top-' + (r.profile || '?') + ' · ' + fmt.sec(Date.now() - t0) +
-                    '　→ 现在点「执行解密」');
+                    (r.legacy ? '历史版本' : ('Codec v' + (r.ver || 3))) + ' · ' +
+                    fmt.sec(Date.now() - t0) + '　→ 现在点「执行解密」');
                 T('已还原为 Base64，请继续点「执行解密」');
             } catch (e) {
                 if (e && e.name === 'AbortError') { this._decMsg('', '已取消'); }
@@ -319,27 +285,20 @@
             if (pct) pct.innerText = pctv.toFixed(0) + '%';
             if (meta) {
                 const parts = [];
-                if (p.segmentsTotal > 1) parts.push('第 ' + p.segment + '/' + p.segmentsTotal + ' 段');
+                if (p.chunks) parts.push('已解 ' + p.chunks + ' 块');
                 if (p.charsTotal) parts.push(fmt.n(p.chars) + '/' + fmt.n(p.charsTotal) + ' 字符');
                 meta.innerText = parts.join(' · ') || '识别中…';
             }
         },
-        /** 已知密文长度 → 精确需求；仅有明文时按明文+固定开销估。
-         *  ⚠️ 必须读**当前档位**（帧长随 Top-K 变化），不能用静态常量。 */
-        /** 已知密文长度 → 精确需求；仅有明文时按明文+固定开销估。
-         *  ⚠️ 必须读**当前档位**（帧长与每帧字数都随 Top-K 变化）。 */
+        /** 容量预估（纯线性，单调）。
+         *
+         *  公式：字数 ≈ (PayloadBytes + 2 × 块数) × 2.15
+         *  真实实现与分段规则都在 StegoTransport（传输层），此处只做展示。
+         *
+         *  ⚠️ 已废弃旧阶梯：帧数 = ceil(密文/284)、字数 = 帧数 × 624
+         *     —— 那样会有阶梯跳跃，且短消息因固定开销被显著虚高。 */
         estimate(cipherBytes) {
-            const S = global.Stego;
-            const g = rangeGeom();
-            const cf = (S && S.P) ? S.P.CHAIN_FRAMES : 1;
-            const frames = Math.max(1, Math.ceil(cipherBytes / g.payload));
-            const chains = Math.ceil(frames / cf);
-            const chars = chains * cf * CHARS_PER_FRAME;
-            // 段由**整数条链**组成，故段数按链数 / 每段链数算
-            const cps = chainsPerSeg();
-            const segs = Math.max(1, Math.ceil(chains / cps));
-            return { cipherBytes, frames, chains, chars, segs,
-                     payload: g.payload, chainsPerSeg: cps, ver: 2 };
+            return TR().estimate(cipherBytes || 0);
         },
 
         _renderEstimate() {
@@ -350,33 +309,35 @@
             const plain = ($('tpt') && $('tpt').value) || '';
             const plainBytes = new TextEncoder().encode(plain).length;
             const has = !!this.base64;
-            const cyBytes = has
-                ? Math.floor(this.base64.replace(/\s+/g, '').length * 3 / 4)
-                : (plainBytes ? plainBytes + C.CX2_OVERHEAD : 0);
+            const TRl = TR();
+            /* 有密文：按**实际**载荷字节算（精确）。
+             * 只有明文：按 明文 + 加密层注入的开销 估（overhead 未注册则为 0）。 */
+            const e = has
+                ? TRl.estimate(TRl.b64Bytes(this.base64))
+                : (plainBytes ? TRl.estimateFromPlain(plainBytes) : null);
 
-            if (!cyBytes) { el.innerHTML = '<span class="st-dim">输入明文后显示容量预估</span>'; return; }
+            if (!e || !e.payloadBytes) {
+                el.innerHTML = '<span class="st-dim">输入明文后显示容量预估</span>';
+                return;
+            }
 
-            const e = this.estimate(cyBytes);
             /* ── 膨胀率 = 隐写字符数 ÷ **原文字符数** ──
-             * ⚠️ 旧实现是 `e.chars * 3 / Math.max(1, plainBytes)`，有两个错：
-             *  ① 左边把"字"当"字节"（×3），右边是字节 ⇒ 量纲不一致，
-             *     数字虚高 3 倍；
-             *  ② 明文框被清空时 plainBytes=0，Math.max(1,0)=1 造出**1 字节
-             *     的分母** ⇒ 624×3/1 = 1872x 这种离谱数字。
-             * 现在两边都按**字符**算，且明文未知时干脆不显示倍率。 */
-            const plainChars = Array.from(plain).length;   // 按码点，正确处理代理对
+             * ⚠️ 量纲必须一致：左边曾是"字当字节"（×3）、右边是字节 ⇒ 虚高 3 倍；
+             *    且明文框清空时 Math.max(1,0) 造出 1 字节分母 ⇒ 1872x 那种离谱数字。
+             *    现在两边都按**字符**算，明文未知时干脆不显示倍率。 */
+            const plainChars = Array.from(plain).length;
             const ratio = plainChars > 0 ? (e.chars / plainChars).toFixed(1) : '';
-            const small = plainBytes < 200;
+            const cyBytes = e.payloadBytes;
 
-            let h = '密文 <b>' + fmt.n(cyBytes) + '</b> 字节 → <b>' + e.frames + '</b> 帧 → ' +
-                '<b>' + e.segs + '</b> 段<br>' +
-                '伪装文本约 <b>' + fmt.n(e.chars) + '</b> 字';
-            if (ratio) h += '（原文 ' + fmt.n(plainChars) + ' 字，膨胀 ' + ratio + 'x）';
+            let h = '密文 <b>' + fmt.n(cyBytes) + '</b> 字节 → 伪装文本约 <b>' +
+                fmt.n(e.chars) + '</b> 字';
+            if (e.segs > 1) h += '（分 <b>' + e.segs + '</b> 段）';
+            if (ratio) h += '<br>原文 ' + fmt.n(plainChars) + ' 字，膨胀 ' + ratio + 'x';
             if (!has) h += '<br><span class="st-dim">※ 基于预估；点「执行加密」后按实际密文重算</span>';
-            if (e.segs > 1)
-                h += '<br><span class="st-dim">※ 每段 ≤ ' + fmt.n(C.SEG_CHAR_LIMIT) + ' 字（' +
-                    e.chainsPerSeg + ' 链 / ' + (e.chainsPerSeg * cfNow()) + ' 帧）</span>';
-            if (small) h += '<br><span class="st-warnline">⚠ 明文不足 200 字节：固定开销占比高，膨胀率显著偏高</span>';
+            if (e.segs > 1) {
+                h += '<br><span class="st-dim">※ 每段 ≤ ' + fmt.n(TRl.SEG_CHAR_LIMIT) +
+                    ' 字（长消息自动分段，便于按条发送）</span>';
+            }
 
             el.innerHTML = h;
         },
@@ -430,7 +391,7 @@
             if (this.model !== 'ready') return T('模型未就绪');
 
             const S = global.Stego;
-            if (!S || typeof S.encodeAll !== 'function') {
+            if (!S || typeof S.encodeBytes !== 'function') {
                 return T('序列化内核尚未接入（等模型交付）');
             }
 
@@ -448,24 +409,25 @@
                 const bytes = Util.b642buf(this.base64);
                 if (!bytes) throw new Error('密文不是有效 Base64');
 
-                const r = await S.encodeAll(new Uint8Array(bytes), {
-                    msgid: Math.random().toString(36).slice(2, 6),
+                /* Codec 只吐纯正文；分段与段信封是**传输层**职责。 */
+                const r = await S.encodeBytes(new Uint8Array(bytes), {
                     signal: this._abort.signal,
                     onProgress: (p) => this._renderProgress(p, t0),
                 });
+                const seg = TR().segmentText(r.text, Math.random().toString(36).slice(2, 6));
 
-                this.renderSegments(r);
+                this.renderSegments({ segments: seg.segments, chars: r.chars });
                 const cap = $('st-cap');
                 if (cap) {
                     cap.className = 'cap ok';
-                    cap.innerText = '✓ 伪装文本已生成 · ' + r.segments.length + ' 段 · ' +
-                        fmt.n(r.chars) + ' 字 · ' + fmt.sec(Date.now() - t0);
+                    cap.innerText = '✓ 伪装文本已生成 · ' + seg.segs + ' 段 · ' +
+                        fmt.n(r.chars) + ' 字 · ' + r.chunks + ' 块 · ' + fmt.sec(Date.now() - t0);
                 }
                 const fillEnd = $('st-prog-fill'); if (fillEnd) fillEnd.style.width = '100%';
                 const pctEnd = $('st-prog-pct'); if (pctEnd) pctEnd.innerText = '100%';
                 const out = $('st-out');
                 if (out) { out.classList.add('on'); UI.reveal(out); }
-                T('生成完成，按段复制发送');
+                T(seg.segs > 1 ? '生成完成，按段复制发送' : '生成完成，复制全文即可发送');
             } catch (e) {
                 if (e && e.name === 'AbortError') {
                     T('已取消序列化');
@@ -500,9 +462,8 @@
             if (box && box.style.display === 'none') box.style.display = '';
 
             const parts = [];
-            if (p.framesTotal) parts.push('帧 ' + (p.frame || 1) + '/' + p.framesTotal);
-            if (p.segmentsTotal && p.segmentsTotal > 1) parts.push('第 ' + p.segment + '/' + p.segmentsTotal + ' 段');
-            if (p.step) parts.push(fmt.n(p.step) + '/' + fmt.n(p.stepsTotal) + ' token');
+            if (p.chunks) parts.push('第 ' + p.chunks + ' 块');
+            if (p.step) parts.push(fmt.n(p.step) + ' token');
             if (p.bps) parts.push(fmt.tok(p.bps));
             if (p.etaMs != null && isFinite(p.etaMs)) parts.push('剩余 ' + fmt.sec(p.etaMs));
             if (meta) meta.innerText = parts.join(' · ') || '序列化中…';
@@ -530,9 +491,9 @@
             this.bodyText = segs.map(s => s.body).join('');
             if (out) out.innerText = this.bodyText;
 
-            // 带段头的线上文本（仅用于「复制本段 / 复制全部」）
-            this._segTexts = segs.map(s =>
-                'CX2|' + s.seq + '/' + s.total + '|' + s.msgid + '|' + s.total + ':' + s.seq + '|' + s.body);
+            /* 带段头的线上文本（仅用于「复制本段 / 复制全部」）——
+             * 信封格式由传输层唯一实现，UI 不再自己拼字符串。 */
+            this._segTexts = TR().wires(segs);
 
             if (segs.length <= 1) { box.innerHTML = ''; box.style.display = 'none'; return; }
 
