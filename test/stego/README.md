@@ -1,7 +1,105 @@
 # 语言隐写适配层（Linguistic Stego Adapter）· 外围管线实验台
 
-> 状态：**外围管线已跑通，等模型交付**。本目录是模型到货前的独立实验台，
-> 不侵入 `src/`，不碰现有加密链路。
+> ⚠️ **状态：ver=3 纯流式变长改造已完成**（2026-09）。
+> 本文档中标注「定长桶 / 192B 定长帧 / PRF 填充 / 288B」的章节
+> **描述的是已被废除的 ver=1/2 设计**，保留作为历史记录与 legacy 冻结件的说明。
+> 现行协议见第零节。
+>
+> 现行实现：
+> - `src/stego.js` —— ver=3 滑窗重归一化区间编解码（纯二进制 ↔ 伪装文本）
+> - `src/stego-legacy.js` —— ver=1/2 冻结解码器（只读，仅解历史文本）
+> - `src/stego-transport.js` —— 段信封 / 排版分段 / 容量预估（传输层，非 Codec）
+
+---
+
+## 零、现行协议（ver=3）
+
+### 边界
+
+```
+加密系统 CX2（机密性 + 鉴权）
+    │  纯二进制 Payload（Uint8Array）
+    ▼
+语言隐写 Codec（src/stego.js）—— 二进制 ↔ 伪装文本，流式无损转换
+    │  伪装文本
+    ▼
+传输层（src/stego-transport.js + stego-ui.js）—— 段信封 / 排版分段
+```
+
+Codec **不认识**密钥、公钥、加密开销。加密开销由加密层经
+`StegoTransport.registerCrypto({overheadBytes})` 推送（原先硬编码 131）。
+
+### 数据布局
+
+```
+[链首 1 汉字签名] + Σ_chunk 区间编码流
+
+每 chunk:  [uint16 BE actual_len][payload: actual_len 字节]
+```
+
+- **长度头**：2 字节大端 uint16，记录后续真实载荷字节数。
+- **变长分块**：每块明文 ≤ `CHUNK_MAX = 256` 字节；**末块有多少编多少**，
+  绝不向上补齐（定长桶与 PRF 填充已彻底删除）。
+- **即时刹车**：解码端解出前 2 字节得 `actual_len`，每还原 1 个有效字节
+  计数 +1，累计到 `2 + actual_len` **立即终止**前向推演与状态回环，
+  尾部多余比特丢弃。
+
+### 滑窗重归一化（取代整块坍缩）
+
+| | ver=2（已废） | ver=3（现行） |
+|---|---|---|
+| 终止条件 | `hi-lo == 1`（整块坍缩） | 已产出字节数 ≥ 需求 |
+| 块长 | 必须预知（288B 定长桶） | **无需预知**（长度头自带） |
+| 解码端 | 必须演完整块 | 解够即停，尾部丢弃 |
+| 填充 | PRF 补齐到桶长 | 无 |
+
+**角色是反的**：隐写编码器 = 区间**解码器**角色（吃字节吐 token）；
+隐写解码器 = 区间**编码器**角色（吃 token 吐字节）。
+
+两条实测踩出来的硬约束：
+1. 重归一化守卫**不能**写 `r > 1n && topDet(...)` —— `r==1` 时 `topDet` 恒真，
+   而那正是唯一解脱出口，加了 `r>1` 会永久卡死。
+2. 候选池深**必须 ≤ M**（`stepScale(r)`）—— 重归一化后 `r` 可能只剩 2~3，
+   此时 `M` 可能只有 2，池深必须随之收紧，否则 CDF 无法归一化。
+
+### 签名位布局（版本判别零迁移）
+
+```
+idx(11) = [ver:1][sub:1][mode:1][pi:1][rnd:6]
+
+[1024,1535]  ver=1 六位抽签
+[1536,1599]  ver=3 lazy    (pi=0)
+[1600,1663]  ver=2 lazy    (pi=1)   ← 历史文本原样
+[1664,1727]  ver=3 forced  (pi=0)
+[1728,1791]  ver=2 forced  (pi=1)   ← 历史文本原样
+```
+
+历史上 `pi` 恒为 1，故把它借用为版本判别位：ver=2 的全部合法索引原封不动，
+ver=3 取 `pi=0` 错开 —— 零成本、零迁移。
+
+### 容量预估（纯线性）
+
+```
+字数 ≈ (PayloadBytes + 2 × 块数) × 2.15
+```
+
+单字平均承载 ≈3.69 bit。已删除旧阶梯（帧数 = ceil(密文/284)、
+字数 = 帧数 × 624）与「明文不足 200 字节虚高」告警。
+
+### 验证
+
+```bash
+node test/stego/range3.mjs               # 滑窗区间编解码数学原型（53 项）
+node test/stego/range-integration.test.mjs  # 生产文件接入验收（真模型）
+node test/stego/cross-page.test.mjs      # 跨页互操作 + 版本分流
+node test/stego/browser-align.test.mjs   # 内核 golden 对齐（45/45）
+```
+
+---
+
+
+> 状态（**历史章节，ver=1/2 设计**）：外围管线已跑通，等模型交付。
+> 本目录一度是模型到货前的独立实验台，不侵入 `src/`，不碰现有加密链路。
 >
 > 运行：`node test/stego/spec.test.mjs`
 > 快速回归：`STEGO_SWEEP=40 node test/stego/spec.test.mjs`（2.7s，全量 235s）
@@ -105,7 +203,11 @@ PRF 填充保留（成本为零，且让尾部不是一片 0，对"知道有此�
 
 ---
 
-## 四、实测指标（mock 词表，`avg_token_bytes = 6.93 B`）
+## 四、实测指标（**历史章节 · ver=1 定长桶时代**，mock 词表）
+
+> ⚠️ 本节的下表建立在「192B 定长桶 + 每段末尾对齐浪费最高 187B」之上，
+> 那些浪费已随 ver=3 废除。现行容量预估见第零节「容量预估（纯线性）」。
+> 保留本节是为了记录"为什么短消息膨胀高"这个历史结论。
 
 膨胀率对**载荷**：`8 × 6.93 / 6 = 9.24x`
 （每 token 承载 6 bit；token 平均 6.93 UTF-8 字节 ≈ 2.3 汉字）
@@ -143,15 +245,26 @@ PRF 填充保留（成本为零，且让尾部不是一片 0，对"知道有此�
 
 ---
 
-## 五、落地顺序（对齐项目既有接缝）
+## 五、落地顺序（**历史章节 · ver=1 计划**）
 
-1. **BitStream + 定长帧 + Magic⊕nonce** ✅ 本目录已完成
-2. **Codec 抽象层**（`encode/decode/detect` 三件套，Base64 路径原样保留）
-3. **Mock 1..3000 全长度回环** ✅ 已完成
-4. **字节层分段 + 段头**（`frame.mjs:segmentEnvelope/mergeSegments` 与
-   `text-crypto.html:_mergeSegments` 同构，替换时保持 `CX2|<seq>/<total>|<msgid>|<total>:<seq>|<body>` 不变）
-5. **Worker + KV Cache**（`IModelEngine` 接口已定型）
-6. **模型到货**：换 `engine-mock.mjs` → 测 `avg_token_bytes` → 加 Golden Vectors
+> 该计划已执行完毕，最终形态与当时设想不同：定长帧方案被整体废弃。
+> 现实落地顺序见下方对照。
+
+1. ~~BitStream + 定长帧 + Magic⊕nonce~~ → **已废除**（ver=3 无帧）
+2. **Codec 抽象层** ✅ 现为 `encodeBytes/decodeText`
+3. ~~Mock 1..3000 全长度回环~~ ✅ 曾完成，ver=3 由 `range3.mjs` 取代
+4. **字节层分段 + 段头** ✅ 段信封保留，但已**移出 Codec**（见 `stego-transport.js`）
+5. **Worker + KV Cache** ✅ `IModelEngine` 已定型
+6. **模型到货** ✅ 已接真模型（`pcd-v3-6M-fixedpoint`）→ Golden 45/45 对齐通过
+
+### 现行落地顺序（对照）
+
+1. **ver=1/2 冻结** → `src/stego-legacy.js`（只读，仅解历史文本）
+2. **ver=3 滑窗区间编解码** → `src/stego.js`（`encodeChunk3` / `decodeChunk3`）
+3. **数学原型验证** → `test/stego/range3.mjs`（53 项，无模型依赖）
+4. **生产接入验收** → `test/stego/range-integration.test.mjs`（真模型）
+5. **传输层剥离** → `src/stego-transport.js`
+6. **回归** → `browser-align` / `cross-page` / `ui.test.mjs`
 
 接缝位置（不动 CX2 / SC / HKDF / GCM）：
 - 加密：`src/text-crypto.html:522`（`HanziCodec.encode` 处）
