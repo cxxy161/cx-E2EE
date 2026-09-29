@@ -5,7 +5,7 @@
 //   ② 分段开关**不因隐写锁定**（分段只是发送排版，与是否用模型无关）
 //   ③ 实验横幅与面板显隐
 //   ④ 模型状态机：未部署 → missing/error，按钮可用（重试），不伪造进度
-//   ⑤ 容量预估：短消息告警、帧/段/字数计算
+//   ⑤ 容量预估：纯线性单调、字数/段数（短消息虚高告警已删除）
 //   ⑥ 两步流程：语言模式下「执行加密」后出现步骤②按钮；汉字/Base64 模式不出现
 //   ⑦ 步骤②在模型未就绪时禁用且给出原因
 //   ⑧ 既有汉字模式路径未被破坏（回归）
@@ -131,32 +131,47 @@ console.log('语言隐写 UI 测试（无算法依赖）\n');
     ok(!/已就绪/.test(s.stateText), 'T3 未部署时绝不谎报就绪');
 }
 
-/* ═══ T4 容量预估 ═══ */
+/* ═══ T4 容量预估（纯线性，无阶梯） ═══ */
 {
     const s = await ev(`(function(){
         const t=document.getElementById('tpt');
-        // 20 个汉字 = 60 字节明文 → +131 固定开销 = 191B 密文，属"短消息"
+        // 短消息与长消息都必须给出**平滑线性**的字数（不再有硬阈值告警）
         t.value='测试'.repeat(20); TA.onPlain(); StegoUI.sync();
         const small=document.getElementById('st-est').innerText;
         t.value='测试内容'.repeat(400); TA.onPlain(); StegoUI.sync();
         const big=document.getElementById('st-est').innerText;
-        return { small, big, consts: { TOK:StegoConst.TOKENS_PER_FRAME, LIM:StegoConst.SEG_CHAR_LIMIT,
-                 SEGB:Stego.P.SEG_BYTES, PAY:Stego.P.SEG_PAYLOAD, TOPK:Stego.P.TOPK } };
+        return { small, big, consts: {
+            LIM: StegoConst.SEG_CHAR_LIMIT,
+            CHUNK: Stego.CHUNK_MAX,
+            SEGB: Stego.P.SEG_BYTES, PAY: Stego.P.SEG_PAYLOAD } };
     })()`);
-    // 帧长/载荷**随档位变化**（segBytes = 32 × bits），故断言当前档位的自洽关系，
-    // 而不是写死 192/188 —— 档位一改那对常量就不成立了。
-    eq(s.consts.SEGB, 32 * Math.log2(s.consts.TOPK), 'T4 帧长 = 32 × log2(TopK)');
-    eq(s.consts.PAY, s.consts.SEGB - 4, 'T4 载荷 = 帧长 - 4 字节帧头');
-    eq(s.consts.TOK, 256, 'T4 每帧 256 token');
     eq(s.consts.LIM, 2000, 'T4 单段 2000 字上限');
-    ok(/帧/.test(s.big) && /段/.test(s.big), 'T4 预估给出帧数与段数', s.big.slice(0, 80));
-    ok(/不足 200 字节/.test(s.small), 'T4 短消息给出高膨胀告警', s.small.slice(0, 90));
-    // 188B/帧：564B = 3×188 恰好 3 帧；565B 必须进位到 4 帧
-    const est3 = JSON.parse(await ev(`JSON.stringify(StegoUI.estimate(564))`));
-    const est4 = JSON.parse(await ev(`JSON.stringify(StegoUI.estimate(565))`));
-    eq(est3.frames, 3, 'T4 564B → 3 帧（整好整除）');
-    eq(est4.frames, 4, 'T4 565B → 4 帧（进位）');
-    ok(est3.segs >= 1, 'T4 段数 ≥1');
+    eq(s.consts.CHUNK, 256, 'T4 每块明文上限 256B');
+    // 新路径不再有定长几何：这两个字段恒为 0（任何新代码读它都是 bug）
+    eq(s.consts.SEGB, 0, 'T4 新路径 SEG_BYTES = 0（定长桶已废除）');
+    eq(s.consts.PAY, 0, 'T4 新路径 SEG_PAYLOAD = 0（定长桶已废除）');
+    ok(/伪装文本约/.test(s.big), 'T4 预估给出字数', s.big.slice(0, 80));
+    ok(!/帧/.test(s.big), 'T4 预估不再出现"帧"', s.big.slice(0, 80));
+    ok(!/不足 200 字节/.test(s.small), 'T4 短消息不再有虚高告警（已删除）');
+
+    /* ── 线性单调：字数随载荷单调不减，且无阶梯跳变 ── */
+    const mono = await ev(`(function(){
+        const out=[];
+        for (const n of [0,1,2,100,255,256,257,258,512,513,1000,2000]) out.push(StegoUI.estimate(n).chars);
+        return out;
+    })()`);
+    let monotone = true;
+    for (let i = 1; i < mono.length; i++) if (mono[i] < mono[i-1]) monotone = false;
+    ok(monotone, 'T4 预估随载荷单调不减（无阶梯回退）', mono.join(','));
+
+    /* 同一块内严格线性：字数增量 == 载荷增量 × 2.15 */
+    const a = JSON.parse(await ev(`JSON.stringify(StegoUI.estimate(100))`));
+    const b = JSON.parse(await ev(`JSON.stringify(StegoUI.estimate(200))`));
+    const slope = (b.chars - a.chars) / 100;
+    ok(Math.abs(slope - 2.15) < 0.02, 'T4 块内斜率 == 2.15 字符/字节', slope.toFixed(3));
+
+    ok(a.segs >= 1, 'T4 段数 ≥1');
+    console.log(`  预估线性：${mono.join(' → ')} 字`);
 }
 
 /* ═══ T5 步骤②门禁 ═══ */
