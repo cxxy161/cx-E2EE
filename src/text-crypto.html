@@ -281,9 +281,11 @@
 <script src="core.js?v=3.1"></script>
 <script src="cx-crypto.js?v=1.0"></script>
 <script src="cx2.js?v=2.1"></script>
-<script src="stego.js?v=0.1"></script>
-<script src="stego-engine.js?v=0.1"></script>
-<script src="stego-ui.js?v=0.1"></script>
+<script src="stego-legacy.js?v=0.2"></script>
+<script src="stego.js?v=0.2"></script>
+<script src="stego-transport.js?v=0.2"></script>
+<script src="stego-engine.js?v=0.2"></script>
+<script src="stego-ui.js?v=0.2"></script>
 <script>
 /* ═══════════════════════════════════════════════════════════════════
    UI 工具层：主题 / 密钥显隐 / 模态 / 浮层选择器 / busy
@@ -641,7 +643,15 @@ const TA = {
             this._renderIfOn(out);
             UI.reveal($('trc'));
             // 语言隐写模式：把 Base64 交给步骤②，并刷新容量预估
-            if (typeof StegoUI !== 'undefined' && StegoUI.enabled) StegoUI.onCipherReady(out);
+            if (typeof StegoUI !== 'undefined' && StegoUI.enabled) {
+                /* 加密开销由**加密层自己**告知传输层（按实际收件人数）。
+                 * 隐写侧不再硬编码 131 —— 群发时开销随收件人数变化，
+                 * 由 CX2.overheadBytes() 按线格式结构算出。 */
+                if (typeof StegoTransport !== 'undefined' && typeof CX2 !== 'undefined') {
+                    StegoTransport.registerCrypto({ overheadBytes: CX2.overheadBytes(keys.length) });
+                }
+                StegoUI.onCipherReady(out);
+            }
             T('加密完成，记得用「复制密文」发给对方');
         } catch (e) {
             T('加密失败：' + (e && e.message ? e.message : e));

@@ -211,5 +211,19 @@ const CX2 = (function () {
         } catch (e) { return null; }
     }
 
-    return { VERSION, encrypt, decrypt, inspect, IDX_LEN, WRAP_LEN, EPH_LEN, IV_LEN, recLen: IDX_LEN + EPH_LEN + IV_LEN + WRAP_LEN };
+    /* ── 固定开销（**加密层自己的知识**，供传输层做容量预估） ──
+     *   3B 头（ver ‖ flags ‖ N）
+     * + N × 100B 收件人记录（idx 8 + eph_pk 32 + iv 12 + wrapped 48）
+     * + 12B 正文 iv + 16B GCM tag
+     * 单收件人 = 131B，与历史硬编码值一致（此处由结构算出，不再是魔数）。 */
+    function overheadBytes(recipients) {
+        const N = Math.max(1, recipients == null ? 1 : recipients | 0);
+        return 3 + N * (IDX_LEN + EPH_LEN + IV_LEN + WRAP_LEN) + IV_LEN + 16;
+    }
+
+    return {
+        VERSION, encrypt, decrypt, inspect, overheadBytes,
+        IDX_LEN, WRAP_LEN, EPH_LEN, IV_LEN,
+        recLen: IDX_LEN + EPH_LEN + IV_LEN + WRAP_LEN,
+    };
 })();
