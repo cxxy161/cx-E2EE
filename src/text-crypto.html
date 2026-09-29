@@ -152,18 +152,9 @@
                     <span class="st-adv-cur" id="st-adv-cur"></span>
                 </div>
                 <div class="st-adv-bd" id="st-adv-bd" style="display:none">
-                    <!-- 档位（Top-K）控件已随 ver=2 区间编码移除：
-                         候选池为常数，不存在「压缩 ↔ 通顺」的权衡。 -->
-                    <div class="st-field">
-                        <label class="st-fl">编码方式</label>
-                        <div class="st-i-pop" id="st-i-pop" style="display:none"></div>
-                        <div class="st-dim" style="line-height:1.7">
-                            <b>定点整数区间编码</b>（ver=2）<br>
-                            每步按模型真实概率分布划分区间，<b>不再均匀抽签</b> ——
-                            文本自然度显著优于旧的固定 6-bit 方案。<br>
-                            帧长 288 字节 / 链，接收端自动识别，无需任何设置。
-                        </div>
-                    </div>
+                    <!-- 空：ver=3 无任何可调项。
+                         Top-K 档位随 ver=2 移除（池深为常数），
+                         定长桶/帧长随之废除，故不保留任何说明性文本。 -->
                 </div>
             </div>
         </div>
