@@ -1,0 +1,65 @@
+# GitHub Pages 部署：只发布纯静态前端（src/）
+#
+# 为什么用 Actions 而不是「从分支发布」：
+#   1) 前端真源在 src/ 而非仓库根。分支发布会把整个仓库当站点
+#      （连同 test/、single-file/、.pcd/ 里的 6.7MB 二进制），既臃肿又暴露无关文件。
+#   2) 隐写模型资产真源在 .pcd/pcd-v3-6M-fixedpoint/model/，而 Pages 没有
+#      Express 的 /stego-model 路由（server/server.js 提供）。src/stego-engine.js
+#      用的是相对路径 base='stego-model/'，所以构建期把它复制到 src/stego-model/
+#      即可，无需改任何前端代码。
+#      这样做仓库里不存第二份相同二进制，避免模型更新后两份不同步。
+#
+# 前提：仓库 Settings → Pages → Source 必须选 "GitHub Actions"。
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只跑一个部署。进行中的发布不打断（取消会让线上处于半更新状态），
+# 但排队中的旧任务会被新推送取消。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: 注入隐写模型资产（构建期复制，不入库第二份）
+        run: |
+          set -euo pipefail
+          mkdir -p src/stego-model
+          cp .pcd/pcd-v3-6M-fixedpoint/model/* src/stego-model/
+          ls -la src/stego-model/
+          # 缺 weights.bin 会让隐写静默失效，这里直接让构建失败而不是发个残站
+          test -f src/stego-model/weights.bin
+
+      - name: 关闭 Jekyll 处理
+        # Actions 产物发布本就不跑 Jekyll，这里是防止将来改用分支发布时
+        # 下划线开头的文件被 Jekyll 吞掉。
+        run: touch src/.nojekyll
+
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
+
+      - name: 打包站点产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: src
+
+      - name: 部署
+        id: deployment
+        uses: actions/deploy-pages@v4

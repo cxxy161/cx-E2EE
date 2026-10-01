@@ -12,6 +12,17 @@
     <a href="index.html" class="nav-home">← 返回控制台</a>
     <h1>公钥库账户管理</h1>
 
+    <!-- 静态托管（GitHub Pages）下无 /api 后端，只读演示；自托管站不显示 -->
+    <div id="static-note" class="card" style="display:none;border-color:#8a6d3b">
+        <div class="ht" style="color:#e0b050">⚠ 演示环境：公钥库后端不可用</div>
+        <div style="font-size:.85rem;color:var(--ts);line-height:1.6">
+            本页部署在 <b>GitHub Pages</b>（纯静态托管，没有服务器进程），
+            因此<b>上传 / 更新公钥</b>与<b>按 ID 检索</b>无法工作。<br>
+            下方「派生密钥对」是纯浏览器本地计算，<b>仍可正常使用</b>。<br>
+            需要完整公钥库功能，请部署含 <code>server/server.js</code> 的自托管版本。
+        </div>
+    </div>
+
     <div class="card">
         <div class="ht">身份凭证</div>
         <label>用户 ID</label>
@@ -107,6 +118,13 @@ var ACC = {
     },
 
     async submit() {
+        // 静态托管无后端：提前拦下，避免走完 PoW（可能耗时几秒）才失败
+        if (StaticHost.is) {
+            var sx = $('status');
+            sx.classList.add('on');
+            sx.innerHTML = '<div style="color:var(--e);font-weight:700">✕ ' + StaticHost.msg + '</div>';
+            return;
+        }
         var id = $('uid').value.trim();
         var spk = $('spk').value.trim();
         var epk = $('epk').value.trim();
@@ -185,6 +203,19 @@ var ACC = {
         }
     }
 };
+
+// 静态托管：亮出顶部说明条，并禁用「上传/更新」按钮（PoW 会白跑几秒）
+if (StaticHost.is) {
+    var sn = $('static-note');
+    if (sn) sn.style.display = '';
+    var sb = document.querySelector('button.btn.green');
+    if (sb) {
+        sb.disabled = true;
+        sb.style.opacity = '.45';
+        sb.style.cursor = 'not-allowed';
+        sb.title = StaticHost.msg;
+    }
+}
 </script>
 </body>
 </html>

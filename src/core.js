@@ -7,6 +7,22 @@ window.addEventListener('unhandledrejection', (e) => {
 
 const $ = (i) => document.getElementById(i);
 
+/* ── 部署形态判定 ──
+ * GitHub Pages 是纯静态托管，没有 server/server.js 提供的 PKI API。
+ * 那里 fetch('/api/...') 会被 Pages 当成不存在的路径，返回 404（且响应体是 HTML
+ * 而非 JSON），若不拦截就会把「后端根本不存在」误报成「未找到该ID」——
+ * 指向完全错误的原因，极难排查。这里显式判定并给出准确说明。
+ * 自托管的生产站（有 Express 后端）会走正常路径，完全不受影响。 */
+const StaticHost = {
+    get is() {
+        const h = location.hostname;
+        return /\.github\.io$/i.test(h) || /\.githubpages\.com$/i.test(h);
+    },
+    get msg() {
+        return '本页部署在 GitHub Pages（纯静态、无后端），公钥库功能不可用';
+    }
+};
+
 // 动态注入全局 Toast（复制失败不再弹回退框：内容本就在页面输出框里，用户可直接选中复制）
 document.addEventListener("DOMContentLoaded", () => {
     if (!$('tst')) {
@@ -102,6 +118,8 @@ const Directory = {
 
     async pullFromRemote(id) {
         if (!id || !id.trim()) throw '请输入ID';
+        // 静态托管上没有 /api 路由，提前抛出准确原因（否则会误报「未找到该ID」）
+        if (StaticHost.is) throw StaticHost.msg;
         const resp = await fetch('/api/pubkey/' + encodeURIComponent(id.trim()));
         if (!resp.ok) {
             if (resp.status === 404) throw '未找到该ID';

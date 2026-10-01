@@ -13,3 +13,8 @@ __pycache__/
 # 模型分发包：.pcd/ 已是单一真源且整包入库，
 # 这个 zip 只是同内容的再打包（逐文件 sha256 一致），不入库以免双份 6.2MB
 pcd-v3-6M-fixedpoint.zip
+
+# GitHub Pages 构建期产物：CI 从 .pcd/.../model/ 复制而来（见
+# .github/workflows/pages.yml），不是真源。若本地手动跑过同样的复制，
+# 这里兜住，避免把同一份 6.7MB 二进制重复入库。
+src/stego-model/

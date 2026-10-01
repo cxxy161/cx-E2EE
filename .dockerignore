@@ -13,3 +13,6 @@ sin
 server.log
 nginx-cx-e2ee.conf
 cx-pubkey.service
+# Pages 构建期产物（若本地跑过 workflow 的复制步骤会存在）：
+# 镜像里模型只认 .pcd/ 那一份，这份重复的 6.7MB 不该进镜像
+src/stego-model
