@@ -1,0 +1,508 @@
+{
+ "last_node_id": 9,
+ "last_link_id": 10,
+ "nodes": [
+  {
+   "id": 1,
+   "type": "LoadImage",
+   "pos": [
+    40,
+    60
+   ],
+   "size": [
+    330,
+    330
+   ],
+   "flags": {},
+   "order": 0,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      1,
+      3
+     ],
+     "slot_index": 0
+    },
+    {
+     "name": "MASK",
+     "type": "MASK",
+     "links": null,
+     "slot_index": 1
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "LoadImage"
+   },
+   "widgets_values": [
+    "ref_1152x1920.jpg"
+   ]
+  },
+  {
+   "id": 2,
+   "type": "UltralyticsDetectorProvider",
+   "pos": [
+    400,
+    60
+   ],
+   "size": [
+    340,
+    80
+   ],
+   "flags": {},
+   "order": 1,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "BBOX_DETECTOR",
+     "type": "BBOX_DETECTOR",
+     "links": [
+      2
+     ],
+     "slot_index": 0
+    },
+    {
+     "name": "SEGM_DETECTOR",
+     "type": "SEGM_DETECTOR",
+     "links": null,
+     "slot_index": 1
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "UltralyticsDetectorProvider"
+   },
+   "widgets_values": [
+    "bbox/face_yolov8m.pt"
+   ]
+  },
+  {
+   "id": 3,
+   "type": "BboxDetectorSEGS",
+   "pos": [
+    400,
+    220
+   ],
+   "size": [
+    330,
+    200
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "bbox_detector",
+     "type": "BBOX_DETECTOR",
+     "link": 2
+    },
+    {
+     "name": "image",
+     "type": "IMAGE",
+     "link": 1
+    },
+    {
+     "name": "detailer_hook",
+     "type": "DETAILER_HOOK",
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "name": "SEGS",
+     "type": "SEGS",
+     "links": [
+      4,
+      9
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "BboxDetectorSEGS"
+   },
+   "widgets_values": [
+    0.5,
+    10,
+    1.0,
+    10,
+    "all"
+   ]
+  },
+  {
+   "id": 4,
+   "type": "CX_RegionScramble",
+   "pos": [
+    40,
+    440
+   ],
+   "size": [
+    420,
+    320
+   ],
+   "flags": {},
+   "order": 3,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "image",
+     "type": "IMAGE",
+     "link": 3
+    },
+    {
+     "name": "segs",
+     "type": "SEGS",
+     "link": 4
+    },
+    {
+     "name": "bbox",
+     "type": "BBOX",
+     "link": null
+    },
+    {
+     "name": "mask",
+     "type": "MASK",
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      5,
+      8
+     ],
+     "slot_index": 0
+    },
+    {
+     "name": "MASK",
+     "type": "MASK",
+     "links": [
+      6
+     ],
+     "slot_index": 1
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "CX_RegionScramble"
+   },
+   "widgets_values": [
+    20240117,
+    "mask",
+    0,
+    32,
+    0.5,
+    "",
+    true,
+    8,
+    false,
+    "",
+    "xywh",
+    "",
+    "error",
+    false
+   ]
+  },
+  {
+   "id": 5,
+   "type": "SaveImage",
+   "pos": [
+    520,
+    440
+   ],
+   "size": [
+    400,
+    420
+   ],
+   "flags": {},
+   "order": 4,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 5
+    }
+   ],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "SaveImage"
+   },
+   "widgets_values": [
+    "CX_scramble"
+   ]
+  },
+  {
+   "id": 6,
+   "type": "MaskToImage",
+   "pos": [
+    520,
+    900
+   ],
+   "size": [
+    330,
+    60
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "mask",
+     "type": "MASK",
+     "link": 6
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      7
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "MaskToImage"
+   },
+   "widgets_values": []
+  },
+  {
+   "id": 7,
+   "type": "PreviewImage",
+   "pos": [
+    900,
+    900
+   ],
+   "size": [
+    400,
+    420
+   ],
+   "flags": {},
+   "order": 6,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 7
+    }
+   ],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "PreviewImage"
+   },
+   "widgets_values": []
+  },
+  {
+   "id": 8,
+   "type": "CX_RegionUnscramble",
+   "pos": [
+    40,
+    1000
+   ],
+   "size": [
+    420,
+    320
+   ],
+   "flags": {},
+   "order": 7,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "image",
+     "type": "IMAGE",
+     "link": 8
+    },
+    {
+     "name": "segs",
+     "type": "SEGS",
+     "link": 9
+    },
+    {
+     "name": "bbox",
+     "type": "BBOX",
+     "link": null
+    },
+    {
+     "name": "mask",
+     "type": "MASK",
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      10
+     ],
+     "slot_index": 0
+    },
+    {
+     "name": "MASK",
+     "type": "MASK",
+     "links": null,
+     "slot_index": 1
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "CX_RegionUnscramble"
+   },
+   "widgets_values": [
+    20240117,
+    "mask",
+    0,
+    32,
+    0.5,
+    "",
+    true,
+    8,
+    false,
+    "",
+    "xywh",
+    "",
+    "error"
+   ]
+  },
+  {
+   "id": 9,
+   "type": "PreviewImage",
+   "pos": [
+    520,
+    1000
+   ],
+   "size": [
+    400,
+    420
+   ],
+   "flags": {},
+   "order": 8,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 10
+    }
+   ],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "PreviewImage"
+   },
+   "widgets_values": []
+  }
+ ],
+ "links": [
+  [
+   1,
+   1,
+   0,
+   3,
+   1,
+   "IMAGE"
+  ],
+  [
+   2,
+   2,
+   0,
+   3,
+   0,
+   "BBOX_DETECTOR"
+  ],
+  [
+   3,
+   1,
+   0,
+   4,
+   0,
+   "IMAGE"
+  ],
+  [
+   4,
+   3,
+   0,
+   4,
+   1,
+   "SEGS"
+  ],
+  [
+   5,
+   4,
+   0,
+   5,
+   0,
+   "IMAGE"
+  ],
+  [
+   6,
+   4,
+   1,
+   6,
+   0,
+   "MASK"
+  ],
+  [
+   7,
+   6,
+   0,
+   7,
+   0,
+   "IMAGE"
+  ],
+  [
+   8,
+   4,
+   0,
+   8,
+   0,
+   "IMAGE"
+  ],
+  [
+   9,
+   3,
+   0,
+   8,
+   1,
+   "SEGS"
+  ],
+  [
+   10,
+   8,
+   0,
+   9,
+   0,
+   "IMAGE"
+  ]
+ ],
+ "groups": [],
+ "config": {},
+ "extra": {},
+ "version": 0.4
+}
