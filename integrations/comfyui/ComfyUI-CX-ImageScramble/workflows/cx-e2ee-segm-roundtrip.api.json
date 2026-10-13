@@ -1,0 +1,202 @@
+{
+ "1": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "ref_1152x1920.jpg"
+  }
+ },
+ "2": {
+  "class_type": "UltralyticsDetectorProvider",
+  "inputs": {
+   "model_name": "segm/person_yolov8m-seg.pt"
+  }
+ },
+ "3": {
+  "class_type": "SegmDetectorSEGS",
+  "inputs": {
+   "segm_detector": [
+    "2",
+    1
+   ],
+   "image": [
+    "1",
+    0
+   ],
+   "threshold": 0.5,
+   "dilation": 10,
+   "crop_factor": 1.0,
+   "drop_size": 10,
+   "labels": "all"
+  }
+ },
+ "4": {
+  "class_type": "CX_RegionScramble",
+  "inputs": {
+   "image": [
+    "1",
+    0
+   ],
+   "key": 20240117,
+   "region_shape": "bbox",
+   "pad": 0,
+   "max_regions": 32,
+   "mask_threshold": 0.5,
+   "label_filter": "",
+   "sort_regions": true,
+   "unit": 8,
+   "soft": false,
+   "password": "cx-demo",
+   "box_mode": "xywh",
+   "segs": [
+    "3",
+    0
+   ],
+   "aabb": "",
+   "no_region_policy": "error",
+   "embed_meta": true
+  }
+ },
+ "5": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "4",
+    0
+   ],
+   "filename_prefix": "CX_segm_scrambled"
+  }
+ },
+ "6": {
+  "class_type": "MaskToImage",
+  "inputs": {
+   "mask": [
+    "4",
+    1
+   ]
+  }
+ },
+ "7": {
+  "class_type": "PreviewImage",
+  "inputs": {
+   "images": [
+    "6",
+    0
+   ]
+  }
+ },
+ "8": {
+  "class_type": "CX_RegionUnscramble",
+  "inputs": {
+   "image": [
+    "4",
+    0
+   ],
+   "key": 20240117,
+   "region_shape": "bbox",
+   "pad": 0,
+   "max_regions": 32,
+   "mask_threshold": 0.5,
+   "label_filter": "",
+   "sort_regions": true,
+   "unit": 8,
+   "soft": false,
+   "password": "cx-demo",
+   "box_mode": "xywh",
+   "aabb": "",
+   "no_region_policy": "error"
+  }
+ },
+ "9": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "8",
+    0
+   ],
+   "filename_prefix": "CX_segm_restored"
+  }
+ },
+ "10": {
+  "class_type": "CX_RegionScramble",
+  "inputs": {
+   "image": [
+    "1",
+    0
+   ],
+   "key": 20240117,
+   "region_shape": "mask",
+   "pad": 0,
+   "max_regions": 32,
+   "mask_threshold": 0.5,
+   "label_filter": "",
+   "sort_regions": true,
+   "unit": 8,
+   "soft": false,
+   "password": "cx-demo",
+   "box_mode": "xywh",
+   "segs": [
+    "3",
+    0
+   ],
+   "aabb": "",
+   "no_region_policy": "error",
+   "embed_meta": false
+  }
+ },
+ "11": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "10",
+    0
+   ],
+   "filename_prefix": "CX_segm_shape_scrambled"
+  }
+ },
+ "12": {
+  "class_type": "CX_RegionUnscramble",
+  "inputs": {
+   "image": [
+    "10",
+    0
+   ],
+   "key": 20240117,
+   "region_shape": "mask",
+   "pad": 0,
+   "max_regions": 32,
+   "mask_threshold": 0.5,
+   "label_filter": "",
+   "sort_regions": true,
+   "unit": 8,
+   "soft": false,
+   "password": "cx-demo",
+   "box_mode": "xywh",
+   "segs": [
+    "3",
+    0
+   ],
+   "aabb": "",
+   "no_region_policy": "error"
+  }
+ },
+ "13": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "12",
+    0
+   ],
+   "filename_prefix": "CX_segm_shape_restored"
+  }
+ },
+ "14": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "1",
+    0
+   ],
+   "filename_prefix": "CX_segm_original"
+  }
+ }
+}

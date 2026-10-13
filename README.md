@@ -32,6 +32,8 @@ cx-E2EE/
 ├── single-file/            # 单文件压缩版（离线分发，双击即用，无服务器依赖）
 │   ├── CX秘制安全终端-V6.html  # 合并 8 信道的单页产物 (~134KB)
 │   └── COMPRESSION.md          # 合并/压缩过程文档
+├── integrations/           # 可选外围集成（不参与本项目运行与构建）
+│   └── comfyui/            # ComfyUI 自定义节点：图片区域打码 / 还原（Python 等价移植 + 对照测试）
 ├── data/                   # 运行时数据（gitignore：公钥库 JSON 等）
 ├── archive/                # 测试素材留档（gitignore）
 └── package.json / package-lock.json / .gitignore / .dockerignore
@@ -44,6 +46,14 @@ cx-E2EE/
 | **生产 Web 版** | `src/` + `server/server.js` + `deploy/` | 前端与后端整体部署在一台服务器：浏览器访问页面，account 页写/查 PKI API |
 | **本地版** | `src/` + `node server/serve.js` | 纯静态本地预览（9091），离线可用（PQ 模块经本地 http 加载） |
 | **单文件版** | `single-file/CX秘制安全终端-V6.html` | 全部页面+算法合并为一个 HTML，可离线分发/双击打开，不含 PKI 服务端 |
+
+## 生态集成
+
+[`integrations/comfyui/`](integrations/comfyui/) —— 把图片混淆（区域打码 + 边框元数据）的同一套算法
+做成 **ComfyUI 自定义节点**，用来批量处理、或先让检测模型框出目标再打码：
+同样的图 + 同样的区域 + 同样的密码，输出与浏览器端**逐字节相同**，PNG 打码图两端互认。
+属于可选外围集成（`src/` 与构建流程零改动），详见
+[`integrations/comfyui/README.md`](integrations/comfyui/README.md)。
 
 ## 快速开始
 

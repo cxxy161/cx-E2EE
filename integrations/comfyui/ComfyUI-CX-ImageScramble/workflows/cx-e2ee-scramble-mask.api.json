@@ -1,0 +1,110 @@
+{
+ "1": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "ref_1152x1920.jpg"
+  }
+ },
+ "2": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "cx_demo_mask.png"
+  }
+ },
+ "3": {
+  "class_type": "ImageToMask",
+  "inputs": {
+   "image": [
+    "2",
+    0
+   ],
+   "channel": "red"
+  }
+ },
+ "4": {
+  "class_type": "MaskToSEGS",
+  "inputs": {
+   "mask": [
+    "3",
+    0
+   ],
+   "combined": false,
+   "crop_factor": 1.0,
+   "bbox_fill": false,
+   "drop_size": 10,
+   "contour_fill": false
+  }
+ },
+ "5": {
+  "class_type": "CX_RegionScramble",
+  "inputs": {
+   "image": [
+    "1",
+    0
+   ],
+   "key": 20240117,
+   "region_shape": "mask",
+   "pad": 0,
+   "max_regions": 32,
+   "mask_threshold": 0.5,
+   "label_filter": "",
+   "sort_regions": true,
+   "unit": 8,
+   "soft": false,
+   "password": "",
+   "box_mode": "xywh",
+   "segs": [
+    "4",
+    0
+   ],
+   "aabb": "",
+   "no_region_policy": "error",
+   "embed_meta": false
+  }
+ },
+ "6": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "5",
+    0
+   ],
+   "filename_prefix": "CX_maskpath"
+  }
+ },
+ "7": {
+  "class_type": "CX_RegionUnscramble",
+  "inputs": {
+   "image": [
+    "5",
+    0
+   ],
+   "key": 20240117,
+   "region_shape": "mask",
+   "pad": 0,
+   "max_regions": 32,
+   "mask_threshold": 0.5,
+   "label_filter": "",
+   "sort_regions": true,
+   "unit": 8,
+   "soft": false,
+   "password": "",
+   "box_mode": "xywh",
+   "segs": [
+    "4",
+    0
+   ],
+   "aabb": "",
+   "no_region_policy": "error"
+  }
+ },
+ "8": {
+  "class_type": "PreviewImage",
+  "inputs": {
+   "images": [
+    "7",
+    0
+   ]
+  }
+ }
+}

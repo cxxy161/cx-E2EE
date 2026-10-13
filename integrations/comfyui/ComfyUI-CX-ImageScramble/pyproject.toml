@@ -1,0 +1,17 @@
+[project]
+name = "comfyui-cx-image-scramble"
+description = "CX 图片区域混淆（打码/还原）：直接吃检测模型的打框数据（SEGS/BBOX/MASK），算法与 cx-E2EE 网页端逐位等价，支持「解密只要图+密码」的 V3 元数据路径"
+version = "1.1.0"
+requires-python = ">= 3.9"
+dependencies = ["numpy"]
+classifiers = [
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+]
+
+[project.urls]
+Repository = "https://github.com/your-name/ComfyUI-CX-ImageScramble"
+
+[tool.comfy]
+DisplayName = "ComfyUI-CX-ImageScramble"
+Icon = ""
