@@ -22,7 +22,11 @@ const path = require('path');
 const crypto = require('crypto');
 
 const APP_ROOT = path.resolve(__dirname, '..');
-const DETECT_ROOT = path.join(APP_ROOT, 'models', 'detect');
+// 模型目录默认在仓库里；部署时可以用 CX_DETECT_ROOT 指向挂载卷
+// （镜像只 COPY server/ src/，所以容器里默认没有 models/ —— 见 docs/detect-auto-box.md 的部署一节）
+const DETECT_ROOT = process.env.CX_DETECT_ROOT
+    ? path.resolve(process.env.CX_DETECT_ROOT)
+    : path.join(APP_ROOT, 'models', 'detect');
 const BUILD_DIR = path.join(DETECT_ROOT, 'build');
 const RUNTIME_DIR = path.join(APP_ROOT, 'src', 'vendor', 'ort');
 const EXPORT_PY = path.join(APP_ROOT, 'tools', 'detect-export.py');
@@ -45,6 +49,7 @@ const state = {
     logs: [],
     startedAt: null,
     scanning: false,
+    dirError: null,
 };
 
 function log(msg) {
@@ -54,9 +59,33 @@ function log(msg) {
     console.log(line);
 }
 
+/**
+ * 建目录：**故意吞掉异常**。
+ * 部署形态里可能有只读根文件系统 / 非 root 用户 / 未挂载卷 —— 那时候自动打框本来就该降级，
+ * 但绝不能因此让整个站点起不来（本函数历史上跑在 listen 之后的异步流程里，
+ * 一旦抛出会成为 unhandled rejection，Node 16+ 默认直接退出进程）。
+ */
 function ensureDirs() {
-    fs.mkdirSync(BUILD_DIR, { recursive: true });
-    for (const k of KINDS) fs.mkdirSync(path.join(DETECT_ROOT, k), { recursive: true });
+    try {
+        fs.mkdirSync(BUILD_DIR, { recursive: true });
+        for (const k of KINDS) fs.mkdirSync(path.join(DETECT_ROOT, k), { recursive: true });
+        return true;
+    } catch (e) {
+        state.dirError = String((e && e.message) || e);
+        log(`模型目录不可写（${DETECT_ROOT}）：${state.dirError} —— 自动打框将不可用，其余功能不受影响`);
+        return false;
+    }
+}
+
+/** 诊断脱敏：默认只回 basename，避免公网部署暴露服务器路径；排查时可开 CX_DETECT_EXPOSE_DIAG=1 */
+const EXPOSE_DIAG = process.env.CX_DETECT_EXPOSE_DIAG === '1';
+function maskPath(p) {
+    if (!p || EXPOSE_DIAG) return p;
+    return path.basename(String(p));
+}
+function maskLogLine(line) {
+    if (EXPOSE_DIAG) return line;
+    return String(line).replace(/[A-Za-z]:\\[^\s，,、）)]+|\/(?:home|app|root|mnt|opt|usr)\/[^\s，,、）)]+/g, (m) => path.basename(m));
 }
 
 function sha256File(p) {
@@ -244,18 +273,26 @@ async function pump() {
 }
 
 async function start() {
-    state.startedAt = Date.now();
-    ensureDirs();
-    checkPython();
-    log(`初始化：root=${path.relative(APP_ROOT, DETECT_ROOT)}，python=${state.python.cmd || '未找到'}` +
-        (state.python.ok ? '' : '（自动打框将不可用）'));
-    await scanAndEnqueue({ force: FORCE });
-    if (!AUTOCONVERT) {
-        log('CX_DETECT_AUTOCONVERT=0：只扫描不转译（可 POST /api/detect/rescan 手动触发）');
-        state.pending = [];
-        return;
+    // 整个初始化都包在 try 里：这段代码跑在 listen 之后的异步流程中，
+    // 任何未捕获异常在 Node 16+ 会成为 unhandled rejection 并**杀掉进程** ——
+    // 一个可选功能绝不能把整个站点带走（只读文件系统、缺 python、目录不存在都要能活）。
+    try {
+        state.startedAt = Date.now();
+        const ok = ensureDirs();
+        checkPython();
+        log(`初始化：root=${DETECT_ROOT === path.join(APP_ROOT, 'models', 'detect') ? 'models/detect' : '(CX_DETECT_ROOT 指定)'}` +
+            `，python=${state.python.cmd || '未找到'}` + (state.python.ok ? '' : '（自动打框将不可用）'));
+        if (!ok) return;                       // 目录不可写：直接降级，不再做任何 FS 操作
+        await scanAndEnqueue({ force: FORCE });
+        if (!AUTOCONVERT) {
+            log('CX_DETECT_AUTOCONVERT=0：只扫描不转译（可 POST /api/detect/rescan 手动触发）');
+            state.pending = [];
+            return;
+        }
+        pump().catch((e) => log('转译队列异常（已忽略，不影响服务）：' + e.message));   // 后台跑，异常自己消化
+    } catch (e) {
+        log('初始化失败（已降级，不影响服务）：' + ((e && e.message) || e));
     }
-    pump();   // 故意不 await：HTTP 已经起来了，转译在后台跑
 }
 
 async function rescan({ force = false, convert = true } = {}) {
@@ -277,7 +314,7 @@ function payload() {
     models.sort((a, b) => (a.kind === b.kind ? a.id.localeCompare(b.id) : a.kind.localeCompare(b.kind)));
     return {
         available: state.python.ok,
-        python: state.python,
+        python: Object.assign({}, state.python, { cmd: maskPath(state.python.cmd) }),
         runtime: {
             dir: '/detect-runtime/',
             installed: fs.existsSync(path.join(RUNTIME_DIR, 'ort.min.js')),
@@ -289,10 +326,19 @@ function payload() {
         models,
         queue: { pending: state.pending.slice(), running: state.running, done: state.stats.done, failed: state.stats.failed },
         scanning: state.scanning,
-        logs: state.logs.slice(-12),
-        hint: state.python.ok
-            ? (models.length ? null : '把模型（.pt / .onnx）放进 models/detect/segm/ 或 models/detect/bbox/，然后 POST /api/detect/rescan 或重启服务。')
-            : state.python.hint,
+        dir: {
+            // root 也脱敏：仓库内给相对路径，仓库外只给 basename（避免公网部署暴露服务器目录结构）
+            root: EXPOSE_DIAG ? DETECT_ROOT
+                : (DETECT_ROOT.startsWith(APP_ROOT) ? path.relative(APP_ROOT, DETECT_ROOT)
+                    : path.basename(DETECT_ROOT)),
+            writable: !state.dirError, error: state.dirError || null,
+        },
+        logs: state.logs.slice(-12).map(maskLogLine),
+        hint: state.dirError
+            ? ('模型目录不可写：' + state.dirError + '（用 CX_DETECT_ROOT 指向可写目录，或给容器挂一个卷）')
+            : (state.python.ok
+                ? (models.length ? null : '把模型（.pt / .onnx）放进 models/detect/segm/ 或 models/detect/bbox/，然后 POST /api/detect/rescan 或重启服务。')
+                : state.python.hint),
     };
 }
 

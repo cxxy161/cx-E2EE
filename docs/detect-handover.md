@@ -117,6 +117,8 @@ src/detect/detect-ui.mjs ─► detect-ort.mjs（ORT 会话缓存）─► detec
 | 13 | python 发现顺序 | `CX_PYTHON` → `python3` → `python`；缺依赖时整条功能降级（`available:false` + 可执行提示），**不影响**加密解密与公钥库 |
 | 14 | 仓库行尾 | 工作区可能是 CRLF 而索引是 LF；改既有文件时先从索引版本重建 LF 再改（否则整文件变红） |
 | 15 | 权重与运行时 | 一律不入库（许可 + 体积）；`.gitignore` 已写好，靠 `fetch-ort.mjs` 与自备 `.pt` 复原 |
+| 16 | **可选功能不能带崩服务** | `start()` 跑在 `listen` 之后的异步流程里，未捕获的 promise rejection 在 Node 16+ 会**退出进程** → 建目录/扫描/转译全部 try/catch + 失败降级；容器只 `COPY server/ src/`（镜像里没有 `models/`、没有 python），这些场景都必须能正常服务。实测 ENOTDIR 场景：站点 200、`available:false`、进程存活 |
+| 17 | 部署时可外挂模型目录 | `CX_DETECT_ROOT` 指定模型目录（挂卷用）；诊断默认脱敏（`python.cmd` 只回 basename、日志抹绝对路径），排查时开 `CX_DETECT_EXPOSE_DIAG=1` |
 
 ## 5. 接口契约
 
@@ -124,7 +126,7 @@ src/detect/detect-ui.mjs ─► detect-ort.mjs（ORT 会话缓存）─► detec
 
 | 路由 | 返回 |
 |---|---|
-| `GET /api/detect/models` | `{available, python{cmd,version,missing,hint}, runtime{installed,files}, autoconvert, paths, models[{id,kind,task,status,classes,imgsz,files,urls,source,error}], queue{pending,running,done,failed}, logs[], hint}` |
+| `GET /api/detect/models` | `{available, python{cmd,version,missing,hint}, runtime{installed,files}, autoconvert, paths, dir{root,writable,error}, models[{id,kind,task,status,classes,imgsz,files,urls,source,error}], queue{pending,running,done,failed}, logs[], hint}`；**默认脱敏**（cmd 只 basename、日志与 dir.root 抹绝对路径），`CX_DETECT_EXPOSE_DIAG=1` 给全量 |
 | `POST /api/detect/rescan?force=1` | 同结构（重新扫描并入队） |
 | `GET /detect-model/<id>.{fp32,int8}.onnx` | build 产物（带缓存） |
 | `GET /detect-runtime/<ort 文件>` | ORT 的 js/wasm（带缓存） |

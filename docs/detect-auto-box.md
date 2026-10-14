@@ -84,6 +84,8 @@ src/detect/detect-ui.mjs  ──►  detect-ort.mjs（ORT 会话）──►  de
 | `CX_DETECT_FORCE` | `0` | `1` = 忽略缓存强制重转 |
 | `CX_DETECT_IMGSZ` / `CX_DETECT_OPSET` | `640` / `17` | 导出参数 |
 | `CX_DETECT_TIMEOUT_MS` | `600000` | 单模型转译上限 |
+| `CX_DETECT_ROOT` | `models/detect` | 模型目录；**部署时可用它指向挂载卷**（镜像里默认没有 `models/`） |
+| `CX_DETECT_EXPOSE_DIAG` | `0` | `1` = 接口返回完整的解释器路径与原始日志（默认脱敏，只给 basename） |
 
 ## 前端
 
@@ -187,6 +189,38 @@ curl http://127.0.0.1:3000/api/detect/models
 - `npm run detect:sweep` → 换模型/调阈值后的回归抽样（看漏检与误报倾向，不进 CI：需要真实权重与图）
 - CI：`.github/workflows/detect-tests.yml` 在 `src/detect/**`、`test/detect/**`、
   `server/detect-models.js`、`tools/detect-*.py` 等路径变动时跑语法自检 + 单测
+
+## 上云部署影响（三种交付形态 + 一条硬约束）
+
+先说清楚：这个项目**不是纯前端**——README 的「生产 Web 版」是 `src/` + `server/server.js` + `deploy/`
+（后端提供静态托管与 PKI API）；作者的"纯前端"指的应是**加密/解密全在浏览器、服务器不接触明文与私钥**。
+本功能遵守同一条线：**推理也在浏览器本机，服务器只多了一个静态目录 + 4 个只读路由**。
+
+| 交付形态 | 影响 | 说明 |
+|---|---|---|
+| 静态托管（GitHub Pages / CDN / 对象存储） | **零影响** | `src/detect/*` 会随 `src/` 一起发布；`/api/detect/models` 404 → 面板经 `StaticHost` 判断显示"静态托管下不可用"。运行时（`src/vendor/ort/`，gitignore）与权重本来就不在产物里。也不影响单文件版与隐写等其它信道 |
+| Docker / 自托管（`deploy/`） | **零新增依赖**，需注意两点 | ① 镜像只 `COPY server/ src/`，所以镜像里**没有 `models/` 也没有 python** → `available:false`，面板显示原因，站点其余功能照常；② 想在容器里用：挂一个卷放模型（`-v .../detect:/app/models/detect` 并配 `CX_DETECT_ROOT`），镜像内再装 python 侧依赖（torch/ultralytics/onnxruntime，体积较大，按需自行决定） |
+| 单文件版 `single-file/` | **零影响** | 它没有服务端与多文件路由；面板只存在于 `src/image-crypto.html` |
+
+**硬约束：可选功能绝不能带崩服务。** `detect-models.start()` 跑在 `app.listen` 之后的异步流程里，
+而 Node 16+ 会把**未捕获的 promise rejection 直接当致命错误退出进程**。所以：
+
+- 建目录、扫描、转译全部包在 try/catch 里，失败只 warning + 降级（`available:false` + 可执行 hint）；
+- 目录不可写时直接停手（不再做任何 FS 操作），并支持 `CX_DETECT_ROOT` 改指可写目录/挂载卷；
+- 实测（把 `CX_DETECT_ROOT` 指向一个普通文件制造 `ENOTDIR`）：站点 `GET /image-crypto.html` 仍 200、
+  `/api/detect/models` 返回 `available:false` 且 hint 写明 `ENOTDIR: not a directory, mkdir ...`、
+  进程存活可继续服务；修复前这个场景会把整个 Node 进程带走。
+
+**首屏字节**：`detect-ort.mjs`（连同 ORT 运行时）改成**展开面板 / 点识别时**才 `await import()`，
+所以静态托管下每个访客首屏只多 `deps.js`(1KB) + `detect-core.mjs`（纯数学，约 10KB，gzip 后 3~4KB）。
+
+**公网部署的两点提醒**（不阻塞合并，交给部署者判断）：
+
+1. `/api/detect/models` 默认**已脱敏**（解释器只回 basename、日志与目录抹掉绝对路径）；
+   需要排查时开 `CX_DETECT_EXPOSE_DIAG=1`。
+2. `/api/detect/rescan` 是**无鉴权的 POST**：它只做"扫描 + 对未转译的模型入队"，
+   没有模型文件变动时既不会重复转译、开销也只是一次 sha256；但如果站点暴露在公网，
+   建议在反代层对它限速，或加一个 `CX_DETECT_ENABLE_RESCAN=0` 之类的开关（当前未实现，按需再加）。
 
 ## 降级与边界
 

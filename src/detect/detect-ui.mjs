@@ -20,7 +20,14 @@ import {
     letterbox, buildRegions, expandRegions, normalizeRegion, capRegions, encodeProjection,
     DEFAULT_OPTS,
 } from './detect-core.mjs';
-import { backendInfo, runModel, pickVariant } from './detect-ort.mjs';
+// detect-ort.mjs（连同 ORT 运行时）**故意不在这里静态 import**：
+// 它只在这块功能真的被用到时才需要，静态 import 会让每个访客的首屏都多拉一份模块。
+// 首屏只留 detect-core（纯数学，约 10KB）与 1KB 的 deps.js。
+let _ort = null;
+async function ort() {
+    if (!_ort) _ort = await import('./detect-ort.mjs');
+    return _ort;
+}
 
 const deps = () => (window.__CX_DETECT || {});
 const $ = (id) => document.getElementById(id);
@@ -129,7 +136,7 @@ async function loadModels() {
     }
     // 先确定后端再渲染：列表里的体积是"当前后端会用到的那个变体"，
     // 而 state.ep 需要异步探测（WebGPU 有没有适配器），顺序反了会显示成另一种变体的体积
-    const bi = await backendInfo();
+    const bi = await (await ort()).backendInfo();
     if (!state.ep) state.ep = bi.webgpu ? 'webgpu' : 'wasm';
     renderModels(bi);
 }
@@ -197,7 +204,7 @@ async function rescan() {
     try {
         const res = await fetch('/api/detect/rescan', { method: 'POST' });
         state.payload = await res.json();
-        renderModels(await backendInfo());
+        renderModels(await (await ort()).backendInfo());
         toast('已重新扫描模型目录');
     } catch (e) { setStatus('扫描失败', 'bad'); toast('扫描失败：' + e.message); }
 }
@@ -311,7 +318,7 @@ async function run() {
         const diagnostics = [];
         for (const m of ready) {
             setStatus(`识别中（${outputs.length + 1}/${ready.length}）…`);
-            const r = await runModel(m, MOB.img, {
+            const r = await (await ort()).runModel(m, MOB.img, {
                 ep: state.ep, runtimeDir: undefined,
                 onProgress: (p) => setStatus(p.stage === 'fetch' ? `载入模型 ${m.id}…` : `建会话 ${m.id}…`),
             });
