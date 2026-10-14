@@ -10,7 +10,7 @@ classifiers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/your-name/ComfyUI-CX-ImageScramble"
+Repository = "https://github.com/cxxy161/cx-E2EE"
 
 [tool.comfy]
 DisplayName = "ComfyUI-CX-ImageScramble"

@@ -8,6 +8,8 @@
 ```
 cx-E2EE/
 ├── src/                    # 前端唯一真源（页面 + 样式 + 脚本 + PQ 算法模块）
+│   └── detect/             # 自动打框前端模块（面板 / ONNX Runtime / 纯逻辑）
+├── models/detect/          # 自动打框用的检测模型（segm//bbox/，权重不入库，启动期转译 ONNX）
 │   ├── index.html          # 控制台首页
 │   ├── text-crypto.html    # 文本信道 (Curve25519)
 │   ├── image-crypto.html   # 图片加密 (Canvas)
@@ -54,6 +56,15 @@ cx-E2EE/
 同样的图 + 同样的区域 + 同样的密码，输出与浏览器端**逐字节相同**，PNG 打码图两端互认。
 属于可选外围集成（`src/` 与构建流程零改动），详见
 [`integrations/comfyui/README.md`](integrations/comfyui/README.md)。
+
+## 自动打框（可选）
+
+「图片混淆」页的 V3 区域打码面板里带一块**默认折叠**的「🧠 自动打框」：把本地检测模型
+（放在 `models/detect/segm|bbox/`，服务端启动时自动转译成 ONNX）在浏览器里跑一遍，
+自动填出打码区域，并可按比例/像素统一扩张（手绘的框也能一起扩张）。
+推理全程在本机，图片不上传；没有模型或没装 python 时整块功能降级，不影响加密与解密。
+
+实现说明、参数口径与实测数据见 [docs/detect-auto-box.md](docs/detect-auto-box.md)。
 
 ## 快速开始
 

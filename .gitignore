@@ -18,3 +18,17 @@ pcd-v3-6M-fixedpoint.zip
 # .github/workflows/pages.yml），不是真源。若本地手动跑过同样的复制，
 # 这里兜住，避免把同一份 6.7MB 二进制重复入库。
 src/stego-model/
+
+# 自动打框（检测模型）：目录结构与脚本入库，**权重不入库**（许可多为 AGPL/训练者自定义，
+# 且单个 20~100MB）。把 .pt 丢进下面两个目录即可，启动期会被转译到 build/。
+models/detect/segm/*
+models/detect/bbox/*
+!models/detect/segm/README.md
+!models/detect/bbox/README.md
+# 转译产物（由 tools/detect-export.py 生成，可随时重建）
+models/detect/build/
+# ONNX Runtime 运行时（由 tools/fetch-ort.mjs 下载，带 sha256 校验）
+src/vendor/ort/
+
+# 新测试目录：上面的 test/* 会把 test/ 一级全部忽略，这里按 test/stego/ 的同样做法放行
+!test/detect/

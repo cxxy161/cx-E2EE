@@ -95,7 +95,37 @@
 .scan-photo:active { filter:brightness(.92); }
 .scan-diag { background:rgba(255,255,255,.08); color:#9cc4ff; border:1px solid rgba(90,168,255,.45); border-radius:10px; padding:8px 14px; font-size:.78rem; cursor:pointer; width:100%; }
 .scan-diag:active { background:rgba(90,168,255,.2); }
-    </style>
+    
+    /* ===== 🧠 自动打框面板（沿用 v3-* 的视觉，无外部依赖） ===== */
+    .abox{margin:2px 0 12px;border:1px solid var(--b);border-radius:12px;background:#fff;overflow:hidden}
+    .abox-hd{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;user-select:none;background:#f6f9ff}
+    .abox-hd:hover{background:#eef5ff}
+    .abox-tt{font-weight:700;color:#1f6feb;font-size:.86rem}
+    .abox-sub{font-weight:400;color:#7d9ac0;font-size:.7rem;margin-left:6px}
+    .abox-st{margin-left:auto;font-size:.7rem;color:#7d9ac0}
+    .abox-caret{color:#7d9ac0;font-size:.8rem;transition:.2s}
+    .abox.open .abox-caret{transform:rotate(90deg)}
+    .abox.off .abox-hd{background:#fafafa}
+    .abox.off .abox-tt{color:#9aa9bf}
+    .abox-bd{padding:10px 12px 12px;border-top:1px solid var(--b)}
+    .abox-cols{display:flex;gap:14px;flex-wrap:wrap}
+    .abox-col{flex:1 1 210px;min-width:190px}
+    .abox-col>label{font-size:.76rem;color:#5d7ba3;font-weight:600}
+    .abox-models{max-height:150px;overflow:auto;margin:4px 0 0}
+    .abox-mi{display:flex;align-items:center;gap:6px;padding:5px 7px;border:1px solid #dce7f8;border-radius:8px;margin-bottom:5px;font-size:.75rem;cursor:pointer}
+    .abox-mi:hover{background:#f4f8ff}
+    .abox-mi .abox-kind{font-size:.65rem;padding:1px 5px;border-radius:5px;background:#e8f0ff;color:#3b6fd4}
+    .abox-mi .abox-size{margin-left:auto;color:#93a8c6;font-size:.68rem}
+    .abox-mi .abox-err{color:#d9534f;font-size:.68rem}
+    .abox-row{display:flex;align-items:center;gap:6px;margin-top:6px}
+    .abox-row .abox-lb{font-size:.74rem;color:#5d7ba3;min-width:58px}
+    .abox-row select{flex:1;padding:4px 6px;font-size:.74rem;border:1px solid var(--b);border-radius:8px;background:#fff;color:#35507a}
+    .abox-row input[type=range]{flex:1}
+    .abox-link{background:none;border:none;color:#1f6feb;font-size:.74rem;cursor:pointer;padding:0;text-decoration:underline}
+    .abox-src{margin-top:8px;font-size:.72rem;color:#5d7ba3;max-height:120px;overflow:auto}
+    .abox-src .abox-si{display:flex;gap:6px;padding:3px 0;border-bottom:1px dashed #e6eefb}
+    .abox-src .abox-si b{color:#2f7bff}
+</style>
 </head>
 <body>
 <div class="box">
@@ -135,6 +165,56 @@
             <!-- ===== V3 区域打码面板 ===== -->
             <div id="pa-v3" style="display:none">
                 <div class="v3-wrap">
+                    <!-- ===== 🧠 自动打框（本机识别，图片不上传；失败自动降级，不影响加密/解密） ===== -->
+                    <div class="abox off" id="abox">
+                        <div class="abox-hd" id="abox-hd">
+                            <span class="abox-tt">🧠 自动打框<span class="abox-sub">本机识别 · 图片不上传</span></span>
+                            <span class="abox-st" id="abox-st">未启用</span>
+                            <span class="abox-caret" id="abox-caret">▸</span>
+                        </div>
+                        <div class="abox-bd" id="abox-bd" style="display:none">
+                            <div class="abox-cols">
+                                <div class="abox-col">
+                                    <label>识别模型（可多选，输出合并）</label>
+                                    <div class="abox-models" id="abox-models"></div>
+                                </div>
+                                <div class="abox-col">
+                                    <label>识别框扩张</label>
+                                    <div class="abox-row"><span class="abox-lb">方式</span>
+                                        <select id="abox-mode"><option value="scale">等比缩放</option><option value="pad">固定像素</option></select>
+                                    </div>
+                                    <div class="abox-row" id="abox-scale-row"><span class="abox-lb">倍数</span>
+                                        <input type="range" id="abox-factor" min="100" max="200" step="5" value="125"><span class="vt" id="abox-factor-v">1.25×</span>
+                                    </div>
+                                    <div class="abox-row" id="abox-pad-row" style="display:none"><span class="abox-lb">外扩</span>
+                                        <input type="range" id="abox-pad" min="0" max="128" step="4" value="16"><span class="vt" id="abox-pad-v">16px</span>
+                                    </div>
+                                    <div class="abox-row"><span class="abox-lb">作用对象</span>
+                                        <select id="abox-target"><option value="all">模型框 + 手动框</option><option value="model">仅模型框</option></select>
+                                    </div>
+                                    <div class="abox-row"><span class="abox-lb">合并</span>
+                                        <select id="abox-merge"><option value="near">邻近合并（推荐）</option><option value="union">合并为外接框</option><option value="none">不合并</option></select>
+                                    </div>
+                                    <div class="abox-row"><span class="abox-lb">置信度</span>
+                                        <input type="range" id="abox-conf" min="10" max="60" step="5" value="30"><span class="vt" id="abox-conf-v">0.30</span>
+                                    </div>
+                                    <div class="abox-row"><span class="abox-lb">标注</span>
+                                        <select id="abox-label">
+                                            <option value="generic">敏感部位（隐藏类别）</option>
+                                            <option value="cls">显示模型类别名</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="v3-bar" style="margin-top:8px">
+                                <button class="v3-b2 prim" id="abox-run">🔍 开始自动识别</button>
+                                <button class="v3-b2" id="abox-apply">⤢ 应用到现有框</button>
+                                <button class="v3-b2" id="abox-revert" disabled>↺ 还原扩张</button>
+                            </div>
+                            <div class="v3-tip" id="abox-msg"></div>
+                            <div class="abox-src" id="abox-src"></div>
+                        </div>
+                    </div>
                     <div class="v3-hint">✏️ 在图上用手指/鼠标框选要打码的多个区域</div>
                     <div class="v3-stage" id="v3-stage">
                         <div class="v3-empty" id="v3-empty">先载入原图，即可拖拽框选加密区域</div>
@@ -247,5 +327,7 @@
     </div>
     <script src="core.js?v=3.0"></script>
     <script src="image-crypto.js?v=3.10"></script>
+    <script src="detect/deps.js?v=1.0"></script>
+    <script type="module" src="detect/detect-ui.mjs?v=1.0"></script>
 </body>
 </html>

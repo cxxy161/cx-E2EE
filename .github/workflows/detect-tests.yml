@@ -1,0 +1,61 @@
+# 自动打框的纯逻辑单测（不需要浏览器、不需要模型、不需要 GPU）
+#
+# 为什么单独一条工作流而不是并进现有 CI：
+#   · 仓库目前的 Actions 只有 Pages 部署（push 到 main 才跑），没有测试类工作流；
+#   · 这条只跑 test/detect（几毫秒级，无外部依赖），改动相关路径才触发，
+#     不会给其它提交制造噪音；要扩到 test/stego 时再单独加一条。
+#
+# 依赖：只有 Node（test/detect/detect-core.test.mjs 是纯 JS，fixture 是仓库内的 JSON）。
+name: detect tests
+
+on:
+  push:
+    paths:
+      - 'src/detect/**'
+      - 'test/detect/**'
+      - 'server/detect-models.js'
+      - 'tools/detect-*.py'
+      - 'tools/fetch-ort.mjs'
+      - '.github/workflows/detect-tests.yml'
+  pull_request:
+    paths:
+      - 'src/detect/**'
+      - 'test/detect/**'
+      - 'server/detect-models.js'
+      - 'tools/detect-*.py'
+      - 'tools/fetch-ort.mjs'
+      - '.github/workflows/detect-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 语法自检（浏览器侧模块与服务端模块）
+        run: |
+          set -euo pipefail
+          for f in src/detect/detect-core.mjs src/detect/detect-ort.mjs src/detect/detect-ui.mjs \
+                   src/detect/deps.js server/detect-models.js tools/fetch-ort.mjs; do
+            node --check "$f"
+            echo "  syntax ok: $f"
+          done
+
+      - name: 纯逻辑单测（解码 / NMS / 跨模型合并 / 扩张 / 整块对齐 / 上限）
+        run: node test/detect/detect-core.test.mjs
+
+      - name: Python 脚本语法自检（转译器与回归抽样；不跑模型，故无需 torch）
+        run: |
+          set -euo pipefail
+          for f in tools/detect-export.py tools/detect-make-fixture.py tools/detect-sweep.py; do
+            [ -f "$f" ] || continue
+            python -m py_compile "$f"
+            echo "  syntax ok: $f"
+          done
