@@ -24,7 +24,7 @@
    "password": "",
    "box_mode": "xywh",
    "aabb": "",
-   "no_region_policy": "error"
+   "no_region_policy": "passthrough"
   }
  },
  "3": {

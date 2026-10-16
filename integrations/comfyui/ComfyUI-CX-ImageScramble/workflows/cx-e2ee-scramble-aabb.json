@@ -111,7 +111,7 @@
     "",
     "xywh",
     "101,57,200,150",
-    "error",
+    "passthrough",
     false
    ]
   },
@@ -289,7 +289,7 @@
     "",
     "xywh",
     "101,57,200,150",
-    "error"
+    "passthrough"
    ]
   },
   {

@@ -58,7 +58,7 @@
     0
    ],
    "aabb": "",
-   "no_region_policy": "error",
+   "no_region_policy": "passthrough",
    "embed_meta": false
   }
  },
@@ -95,7 +95,7 @@
     0
    ],
    "aabb": "",
-   "no_region_policy": "error"
+   "no_region_policy": "passthrough"
   }
  },
  "8": {

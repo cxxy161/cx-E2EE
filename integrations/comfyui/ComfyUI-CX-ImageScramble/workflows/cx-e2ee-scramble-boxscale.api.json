@@ -1,0 +1,182 @@
+{
+ "1": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "ref_1152x1920.jpg"
+  }
+ },
+ "2": {
+  "class_type": "UltralyticsDetectorProvider",
+  "inputs": {
+   "model_name": "bbox/face_yolov8m.pt"
+  }
+ },
+ "3": {
+  "class_type": "BboxDetectorSEGS",
+  "inputs": {
+   "bbox_detector": [
+    "2",
+    0
+   ],
+   "image": [
+    "1",
+    0
+   ],
+   "threshold": 0.5,
+   "dilation": 10,
+   "crop_factor": 1.0,
+   "drop_size": 10,
+   "labels": "all"
+  }
+ },
+ "4": {
+  "class_type": "ImpactDecomposeSEGS",
+  "inputs": {
+   "segs": [
+    "3",
+    0
+   ]
+  }
+ },
+ "5": {
+  "class_type": "ImpactScaleBy_BBOX_SEG_ELT",
+  "inputs": {
+   "seg": [
+    "4",
+    1
+   ],
+   "scale_by": 1.5
+  }
+ },
+ "6": {
+  "class_type": "ImpactAssembleSEGS",
+  "inputs": {
+   "seg_header": [
+    "4",
+    0
+   ],
+   "seg_elt": [
+    "5",
+    0
+   ]
+  }
+ },
+ "7": {
+  "class_type": "ImpactCount_Elts_in_SEGS",
+  "inputs": {
+   "segs": [
+    "3",
+    0
+   ]
+  }
+ },
+ "8": {
+  "class_type": "PreviewAny",
+  "inputs": {
+   "source": [
+    "7",
+    0
+   ]
+  }
+ },
+ "9": {
+  "class_type": "CX_RegionScramble",
+  "inputs": {
+   "image": [
+    "1",
+    0
+   ],
+   "key": 20240117,
+   "region_shape": "bbox",
+   "pad": 0,
+   "max_regions": 32,
+   "mask_threshold": 0.5,
+   "label_filter": "",
+   "sort_regions": true,
+   "unit": 8,
+   "soft": false,
+   "password": "",
+   "box_mode": "xywh",
+   "segs": [
+    "6",
+    0
+   ],
+   "aabb": "",
+   "no_region_policy": "passthrough",
+   "embed_meta": false
+  }
+ },
+ "10": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "9",
+    0
+   ],
+   "filename_prefix": "CX_boxscale_scrambled"
+  }
+ },
+ "11": {
+  "class_type": "MaskToImage",
+  "inputs": {
+   "mask": [
+    "9",
+    1
+   ]
+  }
+ },
+ "12": {
+  "class_type": "PreviewImage",
+  "inputs": {
+   "images": [
+    "11",
+    0
+   ]
+  }
+ },
+ "13": {
+  "class_type": "CX_RegionUnscramble",
+  "inputs": {
+   "image": [
+    "9",
+    0
+   ],
+   "key": 20240117,
+   "region_shape": "bbox",
+   "pad": 0,
+   "max_regions": 32,
+   "mask_threshold": 0.5,
+   "label_filter": "",
+   "sort_regions": true,
+   "unit": 8,
+   "soft": false,
+   "password": "",
+   "box_mode": "xywh",
+   "segs": [
+    "6",
+    0
+   ],
+   "aabb": "",
+   "no_region_policy": "passthrough"
+  }
+ },
+ "14": {
+  "class_type": "PreviewImage",
+  "inputs": {
+   "images": [
+    "13",
+    0
+   ]
+  }
+ },
+ "15": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "1",
+    0
+   ],
+   "filename_prefix": "CX_boxscale_original"
+  }
+ }
+}

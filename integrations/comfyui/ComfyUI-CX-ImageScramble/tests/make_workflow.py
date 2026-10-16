@@ -7,6 +7,12 @@ make_workflow.py — 生成「CX 图片区域混淆」示例工作流（UI 格�
   mask    分割掩膜：LoadImage(+掩膜图) → ImageToMask → MaskToSEGS → CX(segs=…)
   aabb    手写坐标：LoadImage → CX(aabb=…)
 
+标记框后处理交给**外部节点**（本包不管框的缩放/合并），两条现成示例：
+  boxscale  按轴心缩放：BboxDetectorSEGS → ImpactDecomposeSEGS → ImpactScaleBy_BBOX_SEG_ELT
+                        → ImpactAssembleSEGS → CX(segs=…)
+  boxmerge  标记框合并：BboxDetectorSEGS → ImpactSEGSMerge → CX(segs=…)
+  （实测脚本见 tests/test_segs_tools.py；两个节点的语义与实测数字见包内 README）
+
 控件值顺序不手写：直接从目标服务的 /object_info 取（required→optional 顺序、
 socket 类型不算控件），没被覆盖的控件用 schema 默认值，所以不同 ComfyUI 版本都不会错位。
 
@@ -370,6 +376,128 @@ def build_segm_roundtrip(oi, img, model, key, password):
     return g
 
 
+def build_boxscale(oi, img, model, key, scale=1.5):
+    """
+    标记框「按轴心缩放」——由**外部节点**做（我们节点不掺和框的处理）：
+      BboxDetectorSEGS → ImpactDecomposeSEGS → ImpactScaleBy_BBOX_SEG_ELT(scale_by)
+                      → ImpactAssembleSEGS → CX_RegionScramble / CX_RegionUnscramble
+    缩放规则（Impact 源码 modules/impact/segs_nodes.py:1223）：
+      dw=int((w*scale_by-w)/2) → bbox=(x1-dw, y1-dh, x2+dw, y2+dh)，即框中心不动、宽高按比例。
+    打码与还原必须吃**同一份**缩放后的 SEGS，所以同一条线拉两路。
+    """
+    g = Graph(oi)
+    ld = g.add("LoadImage", (40, 60), {"image": img}, (330, 330), "0. 原图")
+    det = g.add("UltralyticsDetectorProvider", (400, 60), {"model_name": model}, (340, 80),
+                "1. bbox 模型")
+    sg = g.add("BboxDetectorSEGS", (400, 200), {"crop_factor": 1.0, "dilation": 10,
+                                                "drop_size": 10, "threshold": 0.5,
+                                                "labels": "all"}, (330, 200),
+               "2. 检测 → SEGS（标记框）")
+    dec = g.add("ImpactDecomposeSEGS", (780, 200), {}, (280, 60),
+                "3. SEGS → (表头 + SEG_ELT 列表)")
+    scl = g.add("ImpactScaleBy_BBOX_SEG_ELT", (1100, 200), {"scale_by": scale}, (300, 90),
+                "4. 按框中心缩放 %.2f×（外部节点）" % scale)
+    asm = g.add("ImpactAssembleSEGS", (1440, 200), {}, (280, 90), "5. 装回 SEGS")
+    cnt = g.add("ImpactCount_Elts_in_SEGS", (1440, 340), {}, (280, 60), "6. 框数")
+    prv_cnt = g.add("PreviewAny", (1760, 340), {}, (330, 220),
+                    "7. 框数（0 = 没检到框 → CX 原图直出，流程不卡）")
+    scr = g.add("CX_RegionScramble", (40, 440),
+                {"aabb": "", "key": key, "region_shape": "bbox"}, (430, 420),
+                "8. 打码（用缩放后的框；pad 留 0，缩放交给上面的节点）")
+    save = g.add("SaveImage", (500, 440), {"filename_prefix": "CX_boxscale_scrambled"}, (400, 420),
+                 "9. 打码图")
+    m2i = g.add("MaskToImage", (500, 900), {}, (330, 60), "10. 实际打码区域")
+    prev_m = g.add("PreviewImage", (860, 900), {}, (400, 420), "11. 实际被打码的块（核对框对不对）")
+    back = g.add("CX_RegionUnscramble", (960, 440),
+                 {"aabb": "", "key": key, "region_shape": "bbox"}, (430, 420),
+                 "12. 还原（同一份缩放后的 SEGS）")
+    prev_b = g.add("PreviewImage", (1420, 440), {}, (400, 420), "13. 还原图（应与原图一致）")
+    save_o = g.add("SaveImage", (960, 60), {"filename_prefix": "CX_boxscale_original"}, (400, 260),
+                   "14. 原图（对比用）")
+    g.connect(ld, 0, sg, "image")
+    g.connect(det, 0, sg, "bbox_detector")
+    g.connect(sg, 0, dec, "segs")
+    g.connect(dec, 1, scl, "seg")                 # slot 1 = SEG_ELT 列表（自动逐项映射）
+    g.connect(dec, 0, asm, "seg_header")          # slot 0 = SEGS_HEADER
+    g.connect(scl, 0, asm, "seg_elt")
+    g.connect(sg, 0, cnt, "segs")
+    g.connect(cnt, 0, prv_cnt, "source")
+    g.connect(ld, 0, scr, "image")
+    g.connect(asm, 0, scr, "segs")
+    g.connect(scr, 0, save, "images")
+    g.connect(scr, 1, m2i, "mask")
+    g.connect(m2i, 0, prev_m, "images")
+    g.connect(scr, 0, back, "image")
+    g.connect(asm, 0, back, "segs")
+    g.connect(back, 0, prev_b, "images")
+    g.connect(ld, 0, save_o, "images")
+    return g
+
+
+def build_boxmerge(oi, img, model, key):
+    """
+    标记框「合并」——同样由**外部节点**做：
+      BboxDetectorSEGS → ImpactSEGSMerge（多框 → 1 框：bbox 取并集、掩膜取并集、label=merged）
+                      → CX_RegionScramble / CX_RegionUnscramble
+    同时留一条**不合并**的对照支路，一眼能看出合并前后的区别。
+    """
+    g = Graph(oi)
+    ld = g.add("LoadImage", (40, 60), {"image": img}, (330, 330), "0. 原图")
+    det = g.add("UltralyticsDetectorProvider", (400, 60), {"model_name": model}, (340, 80),
+                "1. bbox 模型")
+    sg = g.add("BboxDetectorSEGS", (400, 200), {"crop_factor": 1.0, "dilation": 10,
+                                                "drop_size": 10, "threshold": 0.5,
+                                                "labels": "all"}, (330, 200),
+               "2. 检测 → SEGS（标记框）")
+    mrg = g.add("ImpactSEGSMerge", (780, 200), {}, (300, 80),
+                "3. 标记框合并：多框 → 1 框（外部节点）")
+    cnt = g.add("ImpactCount_Elts_in_SEGS", (780, 340), {}, (280, 60), "4. 合并后的框数（=1）")
+    prv_cnt = g.add("PreviewAny", (1100, 340), {}, (330, 220), "5. 框数")
+    scr = g.add("CX_RegionScramble", (40, 440),
+                {"aabb": "", "key": key, "region_shape": "bbox"}, (430, 420),
+                "6. 打码（合并后的框：一个并集外接框）")
+    save = g.add("SaveImage", (500, 440), {"filename_prefix": "CX_boxmerge_merged"}, (400, 420),
+                 "7. 合并后打码图")
+    m2i = g.add("MaskToImage", (500, 900), {}, (330, 60), "8. 合并后实际打码区域")
+    prev_m = g.add("PreviewImage", (860, 900), {}, (400, 420), "9. 合并后的打码块")
+    back = g.add("CX_RegionUnscramble", (960, 440),
+                 {"aabb": "", "key": key, "region_shape": "bbox"}, (430, 420),
+                 "10. 还原（同一份合并后 SEGS）")
+    prev_b = g.add("PreviewImage", (1420, 440), {}, (400, 420), "11. 还原图（应与原图一致）")
+    scr2 = g.add("CX_RegionScramble", (40, 1000),
+                 {"aabb": "", "key": key, "region_shape": "mask"}, (430, 440),
+                 "12. 对照：合并后的框 + 掩膜口味（region_shape=mask，按分割形状打）")
+    m2i2 = g.add("MaskToImage", (500, 1000), {}, (330, 60), "13. 两种口径的有效区域（上=外接框）")
+    prev_m2 = g.add("PreviewImage", (860, 1000), {}, (400, 420), "14. 掩膜口径的打码块")
+    scr3 = g.add("CX_RegionScramble", (40, 1520),
+                 {"aabb": "", "key": key, "region_shape": "bbox"}, (430, 400),
+                 "15. 对照：**不合并**的原始框")
+    m2i3 = g.add("MaskToImage", (500, 1520), {}, (330, 60), "16. 不合并时的有效区域")
+    prev_m3 = g.add("PreviewImage", (860, 1520), {}, (400, 420), "17. 不合并时的打码块（多块）")
+    g.connect(ld, 0, sg, "image")
+    g.connect(det, 0, sg, "bbox_detector")
+    g.connect(sg, 0, mrg, "segs")
+    g.connect(mrg, 0, cnt, "segs")
+    g.connect(cnt, 0, prv_cnt, "source")
+    g.connect(ld, 0, scr, "image")
+    g.connect(mrg, 0, scr, "segs")
+    g.connect(scr, 0, save, "images")
+    g.connect(scr, 1, m2i, "mask")
+    g.connect(m2i, 0, prev_m, "images")
+    g.connect(scr, 0, back, "image")
+    g.connect(mrg, 0, back, "segs")
+    g.connect(back, 0, prev_b, "images")
+    g.connect(ld, 0, scr2, "image")
+    g.connect(mrg, 0, scr2, "segs")
+    g.connect(scr2, 1, m2i2, "mask")
+    g.connect(m2i2, 0, prev_m2, "images")
+    g.connect(ld, 0, scr3, "image")
+    g.connect(sg, 0, scr3, "segs")
+    g.connect(scr3, 1, m2i3, "mask")
+    g.connect(m2i3, 0, prev_m3, "images")
+    return g
+
+
 def verify(server, prompt, label, timeout=600):
     try:
         pid = post(server + "/prompt", {"prompt": prompt, "client_id": "cx-wf"})["prompt_id"]
@@ -405,7 +533,9 @@ def main():
     ap.add_argument("--copy-to", action="append", default=[])
     ap.add_argument("--meta-image", default="cx_meta_demo.png",
                     help="元数据还原路线用的「带元数据打码图」（需存在于 input）")
-    ap.add_argument("--only", default="", help="只生成/验证这些：detect,mask,aabb,metawrite,metaread")
+    ap.add_argument("--only", default="", help="只生成/验证这些：detect,mask,aabb,metawrite,metaread,segm,"
+                                              "boxscale,boxmerge")
+    ap.add_argument("--box-scale", type=float, default=1.5, help="boxscale 工作流里的缩放倍数")
     ap.add_argument("--skip-verify", default="", help="跳过真机验证的计划（逗号分隔，如 detect）")
     ap.add_argument("--no-verify", action="store_true")
     args = ap.parse_args()
@@ -433,10 +563,15 @@ def main():
          build_meta_read(oi, args.meta_image, args.key)),
         ("cx-e2ee-segm-roundtrip", "segm 模型打码 + 纯 图/密码 解码（一体）",
          build_segm_roundtrip(oi, args.image, args.segm_model, args.key, args.password)),
+        ("cx-e2ee-scramble-boxscale", "标记框按轴心缩放（外部 Impact 节点）→ 打码/还原",
+         build_boxscale(oi, args.image, args.model, args.key, args.box_scale)),
+        ("cx-e2ee-scramble-boxmerge", "标记框合并（外部 Impact 节点）→ 打码/还原",
+         build_boxmerge(oi, args.image, args.model, args.key)),
     ]
     if args.only:
         want = {x.strip() for x in args.only.split(",") if x.strip()}
-        short = {"detect": 0, "mask": 1, "aabb": 2, "metawrite": 3, "metaread": 4, "segm": 5}
+        short = {"detect": 0, "mask": 1, "aabb": 2, "metawrite": 3, "metaread": 4, "segm": 5,
+                 "boxscale": 6, "boxmerge": 7}
         plans = [plans[short[w]] for w in want if w in short]
 
     made = []

@@ -203,7 +203,7 @@
     "",
     "xywh",
     "",
-    "error",
+    "passthrough",
     false
    ]
   },
@@ -381,7 +381,7 @@
     "",
     "xywh",
     "",
-    "error"
+    "passthrough"
    ]
   },
   {

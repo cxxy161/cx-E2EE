@@ -14,6 +14,18 @@
 - 在此之上加了「块级门（block gate）」：`region_shape=mask` 时按分割掩膜形状逐块打码，
   而不是只打一个矩形。
 
+## 1.1.1 改了什么（相对 1.1.0）
+
+- **没标记框不再打断工作流**：`no_region_policy` 的默认值从 `error` 改成 `passthrough` ——
+  检测器在某张图/某一帧没检到框、`label_filter` 把框全过滤掉、掩膜为空、框太小或全在图像外，
+  以及「只给图 + 密码」还原时图里没有元数据，这些都**原图直出**（IMAGE 原样透传、MASK 全 0）+ 控制台告警，
+  批处理里不会再因为一张没框的图整批中断。老行为（尽早报错）把 `no_region_policy` 设成 `error` 即可；
+  **密码不对依旧报错**（那是数据完整性问题，不静默）。
+- **标记框的缩放 / 合并交给外部节点**（本节点不新增「框缩放」参数），并补上实测：
+  新增示例工作流 [`workflows/cx-e2ee-scramble-boxscale.json`](workflows/cx-e2ee-scramble-boxscale.json)、
+  [`workflows/cx-e2ee-scramble-boxmerge.json`](workflows/cx-e2ee-scramble-boxmerge.json) 与实测脚本
+  [`tests/test_segs_tools.py`](tests/test_segs_tools.py)，节点与数字见下面「标记框的缩放 / 合并」一节。
+
 ## 节点
 
 | 节点 | 输出 |
@@ -37,14 +49,14 @@
 | `mask_threshold` | FLOAT | 块级门阈值：块内掩膜占比 ≥ 该值的块才参与打码（0.5 = 多数表决） |
 | `label_filter` | STRING | 只取这些 label（逗号/空格分隔，不区分大小写）。留空=全部 |
 | `sort_regions` | BOOLEAN | 按 `(label,y,x,w,h)` 稳定排序后再分配 seed，使结果与检测器返回顺序无关（建议开） |
-| `no_region_policy` | COMBO | 解析出 0 个区域时：`error`（默认，直接报错）/ `passthrough`（原图直出，批处理友好） |
+| `no_region_policy` | COMBO | 解析出 0 个区域时怎么办（没检到标记框 / `label_filter` 全过滤掉 / 掩膜为空 / 框太小或全在图像外）：`passthrough`＝**默认**，原图直出（IMAGE 原样、MASK 全 0）+ 控制台告警，某张图或某帧没框时不中断整批；`error`＝直接报错（想尽早暴露接线/参数写错时选它） |
 | `embed_meta` | BOOLEAN | **打码时**把区域表写进外扩 8px 边框（LSB），输出＝网页端那种「自带怎么还原」的图；**还原时不用勾**（没接打框数据就自动去读） |
 | `unit` / `soft` | COMBO / BOOL | 置换单元边长（8=PNG 路径 / 16=JPEG 拍屏路径）；JPEG 友好亮度域 |
 | `password` | STRING | **唯一密码**（网页端也是只用这一个）。填了它，`int (key)` 被忽略 |
 | `box_mode` | COMBO | 四个数字怎么解释：`xywh`(默认) / `xyxy`。作用于 `aabb` 文本与 `bbox` 口 |
 
 **优先级**：`segs` > `bbox` > `mask` > `aabb`（同时连多个时只用优先级最高的那个，控制台会提示忽略了谁）。
-四个都没给 → 报错，不会静默出图。
+四个都没给 → 走 `no_region_policy`（默认原图直出，不报错）。
 
 ### 打框数据的几个实测口子（踩过的坑）
 
@@ -71,6 +83,57 @@ LoadImage（同一张）──────────────────�
 
 分割路线：`SAM / 分割模型 → MASK → CX_RegionScramble(mask=…, region_shape=mask)`。
 建议把 `segs` / `mask` 用同一条连线分别接到两个 CX 节点（不要各跑一次检测器）。
+
+### 标记框的缩放 / 合并：交给**外部节点**（本包不掺和框的加工）
+
+本节点**不提供**「框缩放倍数」这类参数 —— 标记框的加工留在 SEGS 线上，用现成节点做，本节点只按最终区域打码。
+（我们的 `pad` 只是「四边各外扩 N 像素」的手感微调；比例缩放 / 合并 / 去重请用下表的外部节点。）
+
+| 想做的事 | 现成节点（本机 ComfyUI-Impact-Pack V8.28.3 实测可用） | 接法 |
+|---|---|---|
+| **按轴心缩放**（框中心不动、宽高按比例） | `ImpactScaleBy_BBOX_SEG_ELT`（`scale_by` 0.01~8.0） | `SEGS → ImpactDecomposeSEGS → ImpactScaleBy_BBOX_SEG_ELT → ImpactAssembleSEGS → SEGS`（见下） |
+| **标记框合并**（多框 → 1 框：bbox 并集、掩膜并集、label=`merged`） | `ImpactSEGSMerge` | `SEGS → ImpactSEGSMerge → CX(segs=…)` |
+| 拼接两批框 | `ImpactSEGSConcat` | `SEGS1 + SEGS2 → ImpactSEGSConcat`（UI 里由 Impact 的 JS 动态加口；脚本/API 直接写 `segs2`） |
+| 重叠去重 | `ImpactSEGSNMSFilter`（按掩膜 IoU） | `SEGS → ImpactSEGSNMSFilter(iou_threshold) → CX` |
+| 只要最大的那个框 | `ImpactSEGSOrderedFilter` / `ImpactSEGSRangeFilter` | `target=area(=w*h)` 排序/范围过滤 |
+| 数一下检到几个框 | `ImpactCount_Elts_in_SEGS` → `PreviewAny` | 出文本，UI 上直接看（`0` = 没框 → 本节点默认原图直出） |
+| 掩膜膨胀/收缩（像素级，不是比例） | `ImpactDilateMaskInSEGS`（±512） | 只改 `cropped_mask`，**bbox 不动** → `region_shape=bbox` 时无效果，`region_shape=mask` 才影响打码形状 |
+
+`ImpactScaleBy_BBOX_SEG_ELT` 是 **SEG_ELT 级**节点（一次一个框），所以必须配
+`ImpactDecomposeSEGS`（`SEGS → (SEGS_HEADER, [SEG_ELT…])`，第二个输出是列表）+ `ImpactAssembleSEGS`
+（`INPUT_IS_LIST`，装回 SEGS）：ComfyUI 会自动把列表逐项喂给它，不用手写循环。
+
+```
+BboxDetectorSEGS ─SEGS─► ImpactDecomposeSEGS ─┬─(SEG_ELT 列表)─► ImpactScaleBy_BBOX_SEG_ELT(scale_by=1.5)─┐
+                                             └─(SEGS_HEADER)─────────────────────────► ImpactAssembleSEGS ─┴─SEGS─► CX_RegionScramble
+```
+
+缩放规则（Impact 源码 `modules/impact/segs_nodes.py` 的 `doit`）：
+`dw = int((w*scale_by - w)/2)`、`dh = int((h*scale_by - h)/2)`、`bbox = (x1-dw, y1-dh, x2+dw, y2+dh)`
+—— **以框中心为轴**按比例缩放；`crop_region` 不动，掩膜在新框之外清零。
+
+**实测数字**（`tests/test_segs_tools.py`，真服务端跑，逐像素与 `cx_core` 参考核对）：
+
+| 操作 | 框数 | 有效打码块 | 结论 |
+|---|---|---|---|
+| 不后处理（掩膜 3 个斑块 → `MaskToSEGS`） | 3 | 14912 px | 基线 |
+| `ImpactScaleBy_BBOX_SEG_ELT(1.5)` | 3 | 33024 px | 中心不变（0 偏差）、尺寸 ×1.5（±0 块） |
+| `ImpactScaleBy_BBOX_SEG_ELT(0.6)` | 3 | 6144 px | 中心不变、尺寸 ×0.6 |
+| `ImpactSEGSMerge` | 1 | 101376 px（外接框口径）/ 14208 px（掩膜口径） | bbox 与掩膜都取并集，label=`merged` |
+| `ImpactSEGSConcat`（同一份接两次） | 6 | 14912 px | 重合框叠加，区域不变 |
+| `ImpactSEGSConcat` → `ImpactSEGSNMSFilter(0.5)` | 3 | 14912 px | 回到基线，打码结果与基线**逐像素相同** |
+
+三条容易踩的地方：
+
+1. **还原端必须接同一份「加工后」的 SEGS**（缩放/合并之后那份）。把后处理结果拉两条线，分别接打码和还原，
+   别在还原端重跑一遍检测器。
+2. **`region_shape=mask` 时放大框不会增加打码面积**：`ImpactScaleBy_BBOX_SEG_ELT` 只把掩膜在新框之外清零，
+   放大后掩膜照旧，而本节点的门只看掩膜 → 想真多打一点，用 `ImpactDilateMaskInSEGS`（像素级膨胀）
+   或改 `region_shape=bbox`。
+3. **合并后是「一个框 + 一张并集掩膜」**：`region_shape=bbox` 连两个斑块之间那片也一起打（实测 101376 px），
+   只想打分割形状就配 `region_shape=mask`（实测 14208 px）。
+   另外 `ImpactSEGSMerge` 在**空 SEGS** 上会造出一个畸形框（`crop_region=(maxsize,…0,0)`），本节点会整个丢掉
+   → 走 `no_region_policy`（默认原图直出），不会报错。
 
 ### `aabb` 文本格式（手写兜底 / 与网页端互通时用）
 
@@ -105,6 +168,8 @@ all                             # 整张图
 | [`workflows/cx-e2ee-scramble-meta-write.json`](workflows/cx-e2ee-scramble-meta-write.json) | **打码 + 写元数据**：`LoadImage → CX(aabb=…, embed_meta=True) → SaveImage`（输出＝网页端那种自带区域表的打码图） |
 | [`workflows/cx-e2ee-scramble-meta-read.json`](workflows/cx-e2ee-scramble-meta-read.json) | **只给图 + 密码还原**：`LoadImage(打码图) → CX_RegionUnscramble(只填 key)` |
 | [`workflows/cx-e2ee-segm-roundtrip.json`](workflows/cx-e2ee-segm-roundtrip.json) | **一体验证**：segm 模型（`segm/person_yolov8m-seg.pt`）→ 打码（元数据版 + 形状版两条支路）→ 元数据那条**只给「图 + 密码」**就还原，跑一遍同时验证"segm 打码"与"纯图+密码解码" |
+| [`workflows/cx-e2ee-scramble-boxscale.json`](workflows/cx-e2ee-scramble-boxscale.json) | **标记框按轴心缩放（外部节点）**：`BboxDetectorSEGS → ImpactDecomposeSEGS → ImpactScaleBy_BBOX_SEG_ELT(1.5) → ImpactAssembleSEGS → CX`，另带 `ImpactCount_Elts_in_SEGS → PreviewAny` 看框数 |
+| [`workflows/cx-e2ee-scramble-boxmerge.json`](workflows/cx-e2ee-scramble-boxmerge.json) | **标记框合并（外部节点）**：`BboxDetectorSEGS → ImpactSEGSMerge → CX`（外接框口径 + 掩膜口径两条支路，另留一条不合并的对照） |
 
 同一目录还有 `*.api.json`（同拓扑的 API 格式，脚本用）。生成脚本：`tests/make_workflow.py`
 （控件顺序是从目标服务 `/object_info` 读出来的，不手写，换 ComfyUI 版本也不会错位）。
@@ -173,7 +238,8 @@ LoadImage ─IMAGE─► CX_RegionScramble(aabb="101,57,200,150") ─IMAGE─►
   预览里白色的地方就是实际会被打码的块。打框数据接错了这里立刻能看出来。
 - 还原节点的所有参数要与打码节点**逐项一致**（key/region_shape/pad/max_regions/label_filter/
   sort_regions/unit/soft/password/box_mode），建议直接把打码节点的参数复制过去，或两边都用同一份工作流里复制出来的节点。
-- 检测器某帧没检到东西时，`no_region_policy` 选 `passthrough` 可以让该帧原图直出而不是中断整批（默认 `error`，会报错）。
+- 检测器某帧没检到东西时，默认就会**原图直出**（`no_region_policy=passthrough`，IMAGE 原样、MASK 全 0，
+  控制台给告警）：批处理里某一帧没有标记框不会中断整批。想让它报错就显式把 `no_region_policy` 设成 `error`。
 - 走 API/脚本调用时注意：ComfyUI 的 prompt 校验**不会**给 required 输入补默认值，所有 required 都要显式给
   （见 `workflows/*.api.json`）。
 
@@ -297,6 +363,10 @@ set CX_COMFY_ROOT=%COMFY_ROOT%
 :: 4) 端到端：真服务跑 aabb / MASK / SEGS 三条链路（需先起服务）
 ::    venv\Scripts\python.exe main.py --port 8195 --cpu
 %COMFY_ROOT%\venv\Scripts\python.exe %PKG%\tests\test_e2e_server.py --server http://127.0.0.1:8195
+
+:: 5) 标记框后处理（外部 Impact 节点：按轴心缩放 / 合并 / 拼接 / 去重 / 空框直出）× 本节点
+::    需要服务端装了 ComfyUI-Impact-Pack；缩放的数学、合并的口径、空框直出都在这里实测
+%COMFY_ROOT%\venv\Scripts\python.exe %PKG%\tests\test_segs_tools.py --server http://127.0.0.1:8195
 ```
 
 `test_parity.py` / `test_meta.py` 不写死真源路径：`tests/js_parity/cx_src.py` 按
@@ -316,6 +386,7 @@ set CX_COMFY_ROOT=%COMFY_ROOT%
 | 真服务端 `LoadImage→打码→还原→SaveImage`（aabb / ImageToMask+MASK / ImageToMask+MaskToSEGS 真 SEGS） | 输出与 NumPy 参考 `max\|Δ\|=0`，框外像素零改动，节点 MASK 输出与参考**逐像素相同** |
 | 真服务端 元数据链路：打码(embed_meta)→存 PNG→只给图+key→还原 | 尺寸/质量/框外像素与显式 aabb 一致；错 key 报「签名不符」 |
 | 元数据层 vs 网页端 JS | `metaBytes`/`borderOrd`/`wMetaPng` 写出像素**逐字节相同**，双向交叉可读 |
+| 真服务端 标记框后处理（`test_segs_tools.py`）：`ImpactScaleBy_BBOX_SEG_ELT` 1.5×/0.6×、`ImpactSEGSMerge`、`ImpactSEGSConcat`、`ImpactSEGSNMSFilter` × 打码/还原 | 后处理后的区域与 `cx_core` 参考**逐像素相同**；缩放中心不变、尺寸按比例；合并后外接框=并集、掩膜口径=并集掩膜；NMS 去重后与基线逐像素等价；**空框默认原图直出** |
 
 对照图脚本：`tests\make_demo.py --preset boxes`（或 `--preset aabb`）。
 
@@ -330,13 +401,14 @@ ComfyUI-CX-ImageScramble/
 ├── pyproject.toml                  # ComfyUI Registry 元数据
 ├── README.md
 ├── docs/img/                       # 3 张实拍对照图
-├── workflows/                      # 六组示例工作流（UI 格式 + .api.json）
+├── workflows/                      # 八组示例工作流（UI 格式 + .api.json）
 └── tests/
     ├── test_parity.py              # 与网页端 JS 的逐位等价性
     ├── test_meta.py                # V3 元数据层（区域表 LSB，与 JS 逐字节对照）
     ├── test_regions.py             # 打框数据 → 区域（SEGS/BBOX/MASK/aabb）
     ├── test_nodes.py               # 节点级测试
     ├── test_e2e_server.py          # 真服务端端到端（aabb / MASK / SEGS 三条链路）
+    ├── test_segs_tools.py          # 标记框后处理交给外部节点（缩放/合并/拼接/去重）× 本节点，真服务实测
     ├── make_demo.py                # 生成对照图
     ├── make_workflow.py            # 生成/验证示例工作流
     ├── test_workflows.py           # 工作流文件的前端契约校验（能否被正常打开）

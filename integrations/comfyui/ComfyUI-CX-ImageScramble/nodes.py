@@ -80,9 +80,17 @@ _META_DOC = (
     "     元数据只存矩形区域（会强制 region_shape=bbox、unit=8、soft=False）。"
 )
 _POLICY_DOC = (
-    "打框数据解析出 0 个区域时怎么办：\n"
-    "  error       = 直接报错（默认，配置错了会立刻暴露）；\n"
-    "  passthrough = 原图直出 + 控制台告警（检测模型在某帧没检到东西时，不中断整批）。"
+    "打框数据解析出 0 个区域时怎么办。以下都算 0 区域：\n"
+    "  · 检测器这张图/这一帧没检到标记框（SEGS/BBOX 为空）；\n"
+    "  · label_filter 把框全过滤掉了；\n"
+    "  · 掩膜是空的（全 0）；\n"
+    "  · 框太小/全落在图像外，按 unit 对齐后凑不出一个块。\n"
+    "  passthrough = **默认**：原图直出（IMAGE 原样透传、MASK 全 0）+ 控制台告警。\n"
+    "                某一张图/某一帧没有标记框时不会中断整批，工作流不卡住。\n"
+    "  error       = 直接报错（想尽早暴露接线/参数写错时选它）。\n"
+    "还原节点同理：没框时把输入原样透传（此时输出的就是「没被动过的那张图」）。\n"
+    "「只给图 + 密码」的元数据路径也归它管：图里没有元数据 → 直出（告警）；\n"
+    "密码不对仍然报错（那是数据完整性问题，不静默）。"
 )
 _MODES_DOC = "aabb 里四个数字怎么解释：xywh=(x,y,宽,高) / xyxy=(x1,y1,x2,y2)"
 
@@ -110,6 +118,42 @@ def _fmt_regions(regions, labels, limit=8):
     if len(regions) > limit:
         items.append("…共 %d 个" % len(regions))
     return " ".join(items)
+
+
+class _NoMetaData(Exception):
+    """图里没有 CX V3 打码元数据。
+
+    单独一个类型，是为了把「没有元数据」（= 没什么可还原的，按 no_region_policy 走）
+    与「密码不对/签名不符」（= 数据完整性问题，永远报错）分开。
+    """
+
+
+def _is_passthrough(policy) -> bool:
+    """no_region_policy 的判定：只有显式写 error 才报错，其余（含 None/空串）= 直出。
+
+    默认给 passthrough，是为了「没检到标记框」不再打断整批工作流；
+    想尽早暴露接线/参数错误就显式选 error。
+    """
+    p = "" if policy is None else str(policy).strip().lower()
+    if p in ("error", "strict", "raise"):
+        return False
+    if p not in ("", "passthrough", "pass", "through"):
+        print("[CX][注意] no_region_policy=%r 不是 error/passthrough，按 passthrough（原图直出）处理"
+              % (policy,))
+    return True
+
+
+def _empty_out(image, B, H, W, policy, msg, label):
+    """0 个区域时的统一出口（打码/还原/元数据写 三条路径共用）。
+
+    passthrough（默认）：原图直出（IMAGE 原样、MASK 全 0）+ 控制台告警；
+    error：抛出 —— 想尽早发现接线/参数写错时用。
+    """
+    if _is_passthrough(policy):
+        print("[CX] %s: %s → passthrough 原图直出（IMAGE 原样、MASK 全 0；"
+              "想改成报错就把 no_region_policy 设为 error）" % (label, msg))
+        return image, torch.zeros((B, H, W), dtype=torch.float32, device=image.device)
+    raise ValueError(msg + "；若希望这时原图直出（不中断工作流），把 no_region_policy 设成 passthrough")
 
 
 def _run(image, segs, bbox, mask, aabb, box_mode, shape, pad, threshold, label_filter,
@@ -177,15 +221,22 @@ def _run(image, segs, bbox, mask, aabb, box_mode, shape, pad, threshold, label_f
                 label_filter=label_filter, H=H, W=W, max_regions=int(max_regions),
                 sort_regions=bool(sort_regions))
             if not regs:
-                if str(no_region_policy).strip().lower() == "passthrough":
-                    print("[CX] 元数据模式：0 个区域 → passthrough 原图直出")
-                    return image, torch.zeros((B, H, W), dtype=torch.float32, device=image.device)
-                raise ValueError("没有可用的区域数据，无法写元数据（连接 segs/bbox/mask 或填 aabb）")
-            frames, effs = _run_meta_write(image, arr, regs, key, password, MB, label)
+                return _empty_out(image, B, H, W, no_region_policy,
+                                  "元数据模式：打框数据解析出 0 个区域，没有可写进边框的区域表",
+                                  label)
+            box = _run_meta_write(image, arr, regs, key, password, MB, label)
+            if box is None:                     # 区域按 unit 对齐后为空（框比一个块还小）
+                return _empty_out(image, B, H, W, no_region_policy,
+                                  "元数据模式：区域按 unit 对齐后为空（框比一个块还小？）", label)
+            frames, effs = box
             return _fin_meta(frames, effs, image, squeeze)
-        else:
+        try:
             frames, effs = _run_meta_read(arr, key, password, MB, label)
-            return _fin_meta(frames, effs, image, squeeze)
+        except _NoMetaData as e:
+            # 图里没有元数据 = 没什么可还原的：默认直出，不打断整批（想报错就选 error）
+            return _empty_out(image, B, H, W, no_region_policy,
+                              "只给图+密码的还原路径：%s" % e, label)
+        return _fin_meta(frames, effs, image, squeeze)
 
     eff = np.zeros((B, H, W), bool)
     done_total = 0
@@ -215,14 +266,10 @@ def _run(image, segs, bbox, mask, aabb, box_mode, shape, pad, threshold, label_f
             label_filter=label_filter, H=H, W=W, max_regions=max_regions,
             sort_regions=bool(sort_regions))
         if not regions:
-            if str(no_region_policy).strip().lower() == "passthrough":
-                print("[CX] %s: 打框数据解析出 0 个区域 → passthrough 原图直出（%s）"
-                      % (label, "aabb=%r 解析后为空" % aabb if aabb.strip() else "未连接 segs/bbox/mask"))
-                return image, torch.zeros((B, H, W), dtype=torch.float32, device=image.device)
-            raise ValueError(
-                "没有可用的区域数据：请连接 segs / bbox / mask，或在 aabb 里写坐标"
-                + ("（已给的 aabb=%r 解析后为空）" % aabb if aabb.strip() else "")
-                + "；若希望空框时原图直出，把 no_region_policy 设为 passthrough")
+            return _empty_out(image, B, H, W, no_region_policy,
+                              "解析出 0 个区域（%s；连接 segs / bbox / mask 或填 aabb 才能打码）"
+                              % ("aabb=%r 解析后为空" % aabb.strip() if aabb.strip()
+                                 else "segs/bbox/mask/aabb 一个都没给"), label)
         regions0, labels0 = regions, labels
         per_frame = 0
         for b in range(B):
@@ -233,10 +280,9 @@ def _run(image, segs, bbox, mask, aabb, box_mode, shape, pad, threshold, label_f
         eff[:] = cx_core.effective_block_mask(H, W, regions, gates, unit, threshold)
 
     if done_total == 0:
-        if str(no_region_policy).strip().lower() == "passthrough":
-            print("[CX] %s: 没有任何有效区域 → passthrough 原图直出" % label)
-            return image, torch.zeros((B, H, W), dtype=torch.float32, device=image.device)
-        raise ValueError("打框数据解析后没有任何有效区域（label 过滤掉了？框太小？框在图像外？）")
+        return _empty_out(image, B, H, W, no_region_policy,
+                          "没有任何有效区域（label 过滤掉了？框太小？框在图像外？掩膜是空的？）",
+                          label)
 
     secret_from, warn = cx_core.describe_secret(key, password)
     if warn:
@@ -274,12 +320,15 @@ def _fin_meta(frames, effs, like, squeeze):
 
 
 def _run_meta_write(image, arr, regions, key, password, B, label):
-    """打码并把区域表写进外扩边框：输出 = 网页端 PNG 打码图（(H+2B)×(W+2B)）。"""
+    """打码并把区域表写进外扩边框：输出 = 网页端 PNG 打码图（(H+2B)×(W+2B)）。
+
+    区域按 unit 对齐后为空 → 返回 None（由调用方按 no_region_policy 决定直出还是报错）。
+    """
     secret = cx_core.secret_text(key, password)
     H, W = arr.shape[1], arr.shape[2]
     aligned = cx_core.align_regions_web(regions, W, H, B)
     if not aligned:
-        raise ValueError("区域按 unit 对齐后为空（框比一个块还小？）")
+        return None
     shifted = [(x + B, y + B, w, h) for (x, y, w, h) in aligned]
     frames, effs = [], []
     for b in range(arr.shape[0]):
@@ -298,15 +347,20 @@ def _run_meta_write(image, arr, regions, key, password, B, label):
 
 
 def _run_meta_read(arr, key, password, B, label):
-    """只给图 + 密码：从边框读回区域表 → 校验密码签名 → 逆变换 → 裁掉边框。"""
+    """只给图 + 密码：从边框读回区域表 → 校验密码签名 → 逆变换 → 裁掉边框。
+
+    读不到元数据 → 抛 _NoMetaData（调用方按 no_region_policy 决定直出还是报错）；
+    签名不符（密码不对）→ 抛 ValueError（永远报错，不静默）。
+    """
     secret = cx_core.secret_text(key, password)
     frames, effs = [], []
     for b in range(arr.shape[0]):
         pm = cx_core.v3_read_meta(arr[b], B)
         if pm is None:
-            raise ValueError(
-                "这张图里没有 CX V3 打码元数据（边框 LSB）。请确认它是「带元数据的打码图」"
-                "并且全程无损（PNG、未缩放）；否则就要显式接 segs/bbox/mask/aabb 再还原。")
+            raise _NoMetaData(
+                "这张图里没有 CX V3 打码元数据（边框 LSB）。要么它本来就是原图，"
+                "要么它不是「带元数据的打码图」/ 中途被压过 JPEG、缩放过；"
+                "否则就要显式接 segs/bbox/mask/aabb 再还原。")
         if pm["stored"] != cx_core.v3_signature(pm["cnt"], pm["regions"], secret):
             raise ValueError("密码不对：元数据签名不符（当前密码来源=%s，唯一秘密=%s）"
                              % (cx_core.describe_secret(key, password)[0],
@@ -355,7 +409,7 @@ def _common_optional_inputs(with_boxes=True, with_meta=False):
         io.Combo.Input("box_mode", options=list(cx_core.BOX_MODES), default="xywh",
                        advanced=True, tooltip=_MODES_DOC),
         # ↓ 以下两项是后加的：**必须留在末尾**，否则已保存工作流里的控件值会整体位移
-        io.Combo.Input("no_region_policy", options=["error", "passthrough"], default="error",
+        io.Combo.Input("no_region_policy", options=["passthrough", "error"], default="passthrough",
                        optional=True, advanced=True, tooltip=_POLICY_DOC),
     ]
     if with_meta:
@@ -391,7 +445,7 @@ class CXRegionScramble(io.ComfyNode):
     @classmethod
     def execute(cls, image, segs=None, bbox=None, mask=None, aabb="", key=0,
                 region_shape="bbox", pad=0, max_regions=32, mask_threshold=0.5,
-                label_filter="", sort_regions=True, no_region_policy="error",
+                label_filter="", sort_regions=True, no_region_policy="passthrough",
                 embed_meta=False, unit=8, soft=False,
                 password="", box_mode="xywh") -> io.NodeOutput:
         img, m = _run(image, segs, bbox, mask, aabb, box_mode, region_shape, pad,
@@ -427,7 +481,7 @@ class CXRegionUnscramble(io.ComfyNode):
     @classmethod
     def execute(cls, image, segs=None, bbox=None, mask=None, aabb="", key=0,
                 region_shape="bbox", pad=0, max_regions=32, mask_threshold=0.5,
-                label_filter="", sort_regions=True, no_region_policy="error",
+                label_filter="", sort_regions=True, no_region_policy="passthrough",
                 embed_meta=False, unit=8, soft=False,
                 password="", box_mode="xywh") -> io.NodeOutput:
         img, m = _run(image, segs, bbox, mask, aabb, box_mode, region_shape, pad,

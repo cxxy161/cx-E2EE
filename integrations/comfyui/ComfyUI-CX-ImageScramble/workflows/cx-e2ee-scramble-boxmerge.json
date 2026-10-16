@@ -1,0 +1,1009 @@
+{
+ "last_node_id": 18,
+ "last_link_id": 21,
+ "nodes": [
+  {
+   "id": 1,
+   "type": "LoadImage",
+   "pos": [
+    40,
+    60
+   ],
+   "size": [
+    330,
+    330
+   ],
+   "flags": {},
+   "order": 0,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      1,
+      6,
+      14,
+      18
+     ],
+     "slot_index": 0
+    },
+    {
+     "name": "MASK",
+     "type": "MASK",
+     "links": null,
+     "slot_index": 1
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "LoadImage"
+   },
+   "widgets_values": [
+    "ref_1152x1920.jpg"
+   ],
+   "title": "0. 原图"
+  },
+  {
+   "id": 2,
+   "type": "UltralyticsDetectorProvider",
+   "pos": [
+    400,
+    60
+   ],
+   "size": [
+    340,
+    80
+   ],
+   "flags": {},
+   "order": 1,
+   "mode": 0,
+   "inputs": [],
+   "outputs": [
+    {
+     "name": "BBOX_DETECTOR",
+     "type": "BBOX_DETECTOR",
+     "links": [
+      2
+     ],
+     "slot_index": 0
+    },
+    {
+     "name": "SEGM_DETECTOR",
+     "type": "SEGM_DETECTOR",
+     "links": null,
+     "slot_index": 1
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "UltralyticsDetectorProvider"
+   },
+   "widgets_values": [
+    "bbox/face_yolov8m.pt"
+   ],
+   "title": "1. bbox 模型"
+  },
+  {
+   "id": 3,
+   "type": "BboxDetectorSEGS",
+   "pos": [
+    400,
+    200
+   ],
+   "size": [
+    330,
+    200
+   ],
+   "flags": {},
+   "order": 2,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "bbox_detector",
+     "type": "BBOX_DETECTOR",
+     "link": 2
+    },
+    {
+     "name": "image",
+     "type": "IMAGE",
+     "link": 1
+    },
+    {
+     "name": "detailer_hook",
+     "type": "DETAILER_HOOK",
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "name": "SEGS",
+     "type": "SEGS",
+     "links": [
+      3,
+      19
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "BboxDetectorSEGS"
+   },
+   "widgets_values": [
+    0.5,
+    10,
+    1.0,
+    10,
+    "all"
+   ],
+   "title": "2. 检测 → SEGS（标记框）"
+  },
+  {
+   "id": 4,
+   "type": "ImpactSEGSMerge",
+   "pos": [
+    780,
+    200
+   ],
+   "size": [
+    300,
+    80
+   ],
+   "flags": {},
+   "order": 3,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "segs",
+     "type": "SEGS",
+     "link": 3
+    }
+   ],
+   "outputs": [
+    {
+     "name": "SEGS",
+     "type": "SEGS",
+     "links": [
+      4,
+      7,
+      12,
+      15
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "ImpactSEGSMerge"
+   },
+   "widgets_values": [],
+   "title": "3. 标记框合并：多框 → 1 框（外部节点）"
+  },
+  {
+   "id": 5,
+   "type": "ImpactCount_Elts_in_SEGS",
+   "pos": [
+    780,
+    340
+   ],
+   "size": [
+    280,
+    60
+   ],
+   "flags": {},
+   "order": 4,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "segs",
+     "type": "SEGS",
+     "link": 4
+    }
+   ],
+   "outputs": [
+    {
+     "name": "INT",
+     "type": "INT",
+     "links": [
+      5
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "ImpactCount_Elts_in_SEGS"
+   },
+   "widgets_values": [],
+   "title": "4. 合并后的框数（=1）"
+  },
+  {
+   "id": 6,
+   "type": "PreviewAny",
+   "pos": [
+    1100,
+    340
+   ],
+   "size": [
+    330,
+    220
+   ],
+   "flags": {},
+   "order": 5,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "source",
+     "type": "INT",
+     "link": 5
+    }
+   ],
+   "outputs": [
+    {
+     "name": "STRING",
+     "type": "STRING",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "PreviewAny"
+   },
+   "widgets_values": [],
+   "title": "5. 框数"
+  },
+  {
+   "id": 7,
+   "type": "CX_RegionScramble",
+   "pos": [
+    40,
+    440
+   ],
+   "size": [
+    430,
+    420
+   ],
+   "flags": {},
+   "order": 6,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "image",
+     "type": "IMAGE",
+     "link": 6
+    },
+    {
+     "name": "segs",
+     "type": "SEGS",
+     "link": 7
+    },
+    {
+     "name": "bbox",
+     "type": "BBOX",
+     "link": null
+    },
+    {
+     "name": "mask",
+     "type": "MASK",
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      8,
+      11
+     ],
+     "slot_index": 0
+    },
+    {
+     "name": "MASK",
+     "type": "MASK",
+     "links": [
+      9
+     ],
+     "slot_index": 1
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "CX_RegionScramble"
+   },
+   "widgets_values": [
+    20240117,
+    "bbox",
+    0,
+    32,
+    0.5,
+    "",
+    true,
+    8,
+    false,
+    "",
+    "xywh",
+    "",
+    "passthrough",
+    false
+   ],
+   "title": "6. 打码（合并后的框：一个并集外接框）"
+  },
+  {
+   "id": 8,
+   "type": "SaveImage",
+   "pos": [
+    500,
+    440
+   ],
+   "size": [
+    400,
+    420
+   ],
+   "flags": {},
+   "order": 7,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 8
+    }
+   ],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "SaveImage"
+   },
+   "widgets_values": [
+    "CX_boxmerge_merged"
+   ],
+   "title": "7. 合并后打码图"
+  },
+  {
+   "id": 9,
+   "type": "MaskToImage",
+   "pos": [
+    500,
+    900
+   ],
+   "size": [
+    330,
+    60
+   ],
+   "flags": {},
+   "order": 8,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "mask",
+     "type": "MASK",
+     "link": 9
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      10
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "MaskToImage"
+   },
+   "widgets_values": [],
+   "title": "8. 合并后实际打码区域"
+  },
+  {
+   "id": 10,
+   "type": "PreviewImage",
+   "pos": [
+    860,
+    900
+   ],
+   "size": [
+    400,
+    420
+   ],
+   "flags": {},
+   "order": 9,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 10
+    }
+   ],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "PreviewImage"
+   },
+   "widgets_values": [],
+   "title": "9. 合并后的打码块"
+  },
+  {
+   "id": 11,
+   "type": "CX_RegionUnscramble",
+   "pos": [
+    960,
+    440
+   ],
+   "size": [
+    430,
+    420
+   ],
+   "flags": {},
+   "order": 10,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "image",
+     "type": "IMAGE",
+     "link": 11
+    },
+    {
+     "name": "segs",
+     "type": "SEGS",
+     "link": 12
+    },
+    {
+     "name": "bbox",
+     "type": "BBOX",
+     "link": null
+    },
+    {
+     "name": "mask",
+     "type": "MASK",
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      13
+     ],
+     "slot_index": 0
+    },
+    {
+     "name": "MASK",
+     "type": "MASK",
+     "links": null,
+     "slot_index": 1
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "CX_RegionUnscramble"
+   },
+   "widgets_values": [
+    20240117,
+    "bbox",
+    0,
+    32,
+    0.5,
+    "",
+    true,
+    8,
+    false,
+    "",
+    "xywh",
+    "",
+    "passthrough"
+   ],
+   "title": "10. 还原（同一份合并后 SEGS）"
+  },
+  {
+   "id": 12,
+   "type": "PreviewImage",
+   "pos": [
+    1420,
+    440
+   ],
+   "size": [
+    400,
+    420
+   ],
+   "flags": {},
+   "order": 11,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 13
+    }
+   ],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "PreviewImage"
+   },
+   "widgets_values": [],
+   "title": "11. 还原图（应与原图一致）"
+  },
+  {
+   "id": 13,
+   "type": "CX_RegionScramble",
+   "pos": [
+    40,
+    1000
+   ],
+   "size": [
+    430,
+    440
+   ],
+   "flags": {},
+   "order": 12,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "image",
+     "type": "IMAGE",
+     "link": 14
+    },
+    {
+     "name": "segs",
+     "type": "SEGS",
+     "link": 15
+    },
+    {
+     "name": "bbox",
+     "type": "BBOX",
+     "link": null
+    },
+    {
+     "name": "mask",
+     "type": "MASK",
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    },
+    {
+     "name": "MASK",
+     "type": "MASK",
+     "links": [
+      16
+     ],
+     "slot_index": 1
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "CX_RegionScramble"
+   },
+   "widgets_values": [
+    20240117,
+    "mask",
+    0,
+    32,
+    0.5,
+    "",
+    true,
+    8,
+    false,
+    "",
+    "xywh",
+    "",
+    "passthrough",
+    false
+   ],
+   "title": "12. 对照：合并后的框 + 掩膜口味（region_shape=mask，按分割形状打）"
+  },
+  {
+   "id": 14,
+   "type": "MaskToImage",
+   "pos": [
+    500,
+    1000
+   ],
+   "size": [
+    330,
+    60
+   ],
+   "flags": {},
+   "order": 13,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "mask",
+     "type": "MASK",
+     "link": 16
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      17
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "MaskToImage"
+   },
+   "widgets_values": [],
+   "title": "13. 两种口径的有效区域（上=外接框）"
+  },
+  {
+   "id": 15,
+   "type": "PreviewImage",
+   "pos": [
+    860,
+    1000
+   ],
+   "size": [
+    400,
+    420
+   ],
+   "flags": {},
+   "order": 14,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 17
+    }
+   ],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "PreviewImage"
+   },
+   "widgets_values": [],
+   "title": "14. 掩膜口径的打码块"
+  },
+  {
+   "id": 16,
+   "type": "CX_RegionScramble",
+   "pos": [
+    40,
+    1520
+   ],
+   "size": [
+    430,
+    400
+   ],
+   "flags": {},
+   "order": 15,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "image",
+     "type": "IMAGE",
+     "link": 18
+    },
+    {
+     "name": "segs",
+     "type": "SEGS",
+     "link": 19
+    },
+    {
+     "name": "bbox",
+     "type": "BBOX",
+     "link": null
+    },
+    {
+     "name": "mask",
+     "type": "MASK",
+     "link": null
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    },
+    {
+     "name": "MASK",
+     "type": "MASK",
+     "links": [
+      20
+     ],
+     "slot_index": 1
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "CX_RegionScramble"
+   },
+   "widgets_values": [
+    20240117,
+    "bbox",
+    0,
+    32,
+    0.5,
+    "",
+    true,
+    8,
+    false,
+    "",
+    "xywh",
+    "",
+    "passthrough",
+    false
+   ],
+   "title": "15. 对照：**不合并**的原始框"
+  },
+  {
+   "id": 17,
+   "type": "MaskToImage",
+   "pos": [
+    500,
+    1520
+   ],
+   "size": [
+    330,
+    60
+   ],
+   "flags": {},
+   "order": 16,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "mask",
+     "type": "MASK",
+     "link": 20
+    }
+   ],
+   "outputs": [
+    {
+     "name": "IMAGE",
+     "type": "IMAGE",
+     "links": [
+      21
+     ],
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "MaskToImage"
+   },
+   "widgets_values": [],
+   "title": "16. 不合并时的有效区域"
+  },
+  {
+   "id": 18,
+   "type": "PreviewImage",
+   "pos": [
+    860,
+    1520
+   ],
+   "size": [
+    400,
+    420
+   ],
+   "flags": {},
+   "order": 17,
+   "mode": 0,
+   "inputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "link": 21
+    }
+   ],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
+   "properties": {
+    "Node name for S&R": "PreviewImage"
+   },
+   "widgets_values": [],
+   "title": "17. 不合并时的打码块（多块）"
+  }
+ ],
+ "links": [
+  [
+   1,
+   1,
+   0,
+   3,
+   1,
+   "IMAGE"
+  ],
+  [
+   2,
+   2,
+   0,
+   3,
+   0,
+   "BBOX_DETECTOR"
+  ],
+  [
+   3,
+   3,
+   0,
+   4,
+   0,
+   "SEGS"
+  ],
+  [
+   4,
+   4,
+   0,
+   5,
+   0,
+   "SEGS"
+  ],
+  [
+   5,
+   5,
+   0,
+   6,
+   0,
+   "INT"
+  ],
+  [
+   6,
+   1,
+   0,
+   7,
+   0,
+   "IMAGE"
+  ],
+  [
+   7,
+   4,
+   0,
+   7,
+   1,
+   "SEGS"
+  ],
+  [
+   8,
+   7,
+   0,
+   8,
+   0,
+   "IMAGE"
+  ],
+  [
+   9,
+   7,
+   1,
+   9,
+   0,
+   "MASK"
+  ],
+  [
+   10,
+   9,
+   0,
+   10,
+   0,
+   "IMAGE"
+  ],
+  [
+   11,
+   7,
+   0,
+   11,
+   0,
+   "IMAGE"
+  ],
+  [
+   12,
+   4,
+   0,
+   11,
+   1,
+   "SEGS"
+  ],
+  [
+   13,
+   11,
+   0,
+   12,
+   0,
+   "IMAGE"
+  ],
+  [
+   14,
+   1,
+   0,
+   13,
+   0,
+   "IMAGE"
+  ],
+  [
+   15,
+   4,
+   0,
+   13,
+   1,
+   "SEGS"
+  ],
+  [
+   16,
+   13,
+   1,
+   14,
+   0,
+   "MASK"
+  ],
+  [
+   17,
+   14,
+   0,
+   15,
+   0,
+   "IMAGE"
+  ],
+  [
+   18,
+   1,
+   0,
+   16,
+   0,
+   "IMAGE"
+  ],
+  [
+   19,
+   3,
+   0,
+   16,
+   1,
+   "SEGS"
+  ],
+  [
+   20,
+   16,
+   1,
+   17,
+   0,
+   "MASK"
+  ],
+  [
+   21,
+   17,
+   0,
+   18,
+   0,
+   "IMAGE"
+  ]
+ ],
+ "groups": [],
+ "config": {},
+ "extra": {},
+ "version": 0.4
+}

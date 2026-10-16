@@ -209,7 +209,7 @@
     "cx-demo",
     "xywh",
     "",
-    "error",
+    "passthrough",
     true
    ],
    "title": "3A. segm 打码（元数据版：区域表写进边框）"
@@ -235,7 +235,14 @@
      "link": 5
     }
    ],
-   "outputs": [],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
    "properties": {
     "Node name for S&R": "SaveImage"
    },
@@ -302,7 +309,14 @@
      "link": 7
     }
    ],
-   "outputs": [],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
    "properties": {
     "Node name for S&R": "PreviewImage"
    },
@@ -377,7 +391,7 @@
     "cx-demo",
     "xywh",
     "",
-    "error"
+    "passthrough"
    ],
    "title": "6A. 解码：只给这张图 + 密码"
   },
@@ -402,7 +416,14 @@
      "link": 9
     }
    ],
-   "outputs": [],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
    "properties": {
     "Node name for S&R": "SaveImage"
    },
@@ -480,7 +501,7 @@
     "cx-demo",
     "xywh",
     "",
-    "error",
+    "passthrough",
     false
    ],
    "title": "3B. 对照：按分割形状打码（region_shape=mask）"
@@ -506,7 +527,14 @@
      "link": 12
     }
    ],
-   "outputs": [],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
    "properties": {
     "Node name for S&R": "SaveImage"
    },
@@ -583,7 +611,7 @@
     "cx-demo",
     "xywh",
     "",
-    "error"
+    "passthrough"
    ],
    "title": "6B. 形状版解码：必须接同一份 SEGS"
   },
@@ -608,7 +636,14 @@
      "link": 15
     }
    ],
-   "outputs": [],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
    "properties": {
     "Node name for S&R": "SaveImage"
    },
@@ -638,7 +673,14 @@
      "link": 16
     }
    ],
-   "outputs": [],
+   "outputs": [
+    {
+     "name": "images",
+     "type": "IMAGE",
+     "links": null,
+     "slot_index": 0
+    }
+   ],
    "properties": {
     "Node name for S&R": "SaveImage"
    },

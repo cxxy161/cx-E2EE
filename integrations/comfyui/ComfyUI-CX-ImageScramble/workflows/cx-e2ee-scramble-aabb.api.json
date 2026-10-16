@@ -24,7 +24,7 @@
    "password": "",
    "box_mode": "xywh",
    "aabb": "101,57,200,150",
-   "no_region_policy": "error",
+   "no_region_policy": "passthrough",
    "embed_meta": false
   }
  },
@@ -75,7 +75,7 @@
    "password": "",
    "box_mode": "xywh",
    "aabb": "101,57,200,150",
-   "no_region_policy": "error"
+   "no_region_policy": "passthrough"
   }
  },
  "7": {

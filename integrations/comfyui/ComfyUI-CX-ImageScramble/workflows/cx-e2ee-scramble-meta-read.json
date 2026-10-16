@@ -110,7 +110,7 @@
     "",
     "xywh",
     "",
-    "error"
+    "passthrough"
    ]
   },
   {
