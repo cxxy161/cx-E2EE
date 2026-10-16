@@ -1,0 +1,22 @@
+{
+ "id": "foot_prebuilt",
+ "kind": "bbox",
+ "task": "detect",
+ "classes": {},
+ "imgsz": 640,
+ "opset": null,
+ "adopted": true,
+ "source": {
+  "file": "foot_prebuilt.onnx",
+  "bytes": 12238787,
+  "sha256": "09599634264dc0c88ffd3fa52e1f9e5a4a52f9d03ca79bf3e9fc1f67fd0552ea"
+ },
+ "files": {
+  "fp32": {
+   "file": "foot_prebuilt.fp32.onnx",
+   "bytes": 12238787
+  }
+ },
+ "exported_at": "2026-10-15T13:06:42.810Z",
+ "note": "现成 .onnx：由服务端直接拷贝采用（未跑任何模型代码，不需要 python），类别表未知"
+}

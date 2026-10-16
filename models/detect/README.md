@@ -8,7 +8,8 @@
 models/detect/
 ├── segm/     分割模型（有掩膜）：区域取「掩膜外接框」，比整框更贴合
 ├── bbox/     检测模型（只有框）：区域直接用框
-└── build/    转译产物（自动生成，不入库）：<id>.fp32.onnx / <id>.int8.onnx / <id>.json
+└── build/    构建产物：<id>.fp32.onnx / <id>.int8.onnx / <id>.json
+              （本 fork 随库附带，见下节「附带内容」；<id>@<imgsz> 是多尺度构建）
 ```
 
 ## 怎么用
@@ -20,11 +21,33 @@ models/detect/
 转译是**增量**的：源文件 sha256 + imgsz + opset 与 `build/<id>.json` 一致就跳过，
 所以第二次启动几乎是零成本。要强制重转：`CX_DETECT_FORCE=1`。
 
-## 为什么权重不入库
+## 附带内容（本 fork 直接随库分发）
 
-这些权重多为 **AGPL-3.0**（Ultralytics 系）或训练者自定义许可，且单个 20~100 MB；
-仓库里只保留目录结构、说明与转译脚本。需要固定分发时请单独确认许可后再决定。
-（`.gitignore` 已忽略 `segm/*`、`bbox/*`，只放行本目录的 README。）
+为了让「clone 下来就能用」，本分支把**权重与构建产物一并入库**
+（单文件最大 39 MB，低于 GitHub 的 50 MB 提醒线与 100 MB 硬上限，不会卡住 push/PR）：
+
+| 路径 | 体积 | 说明 |
+|---|---|---|
+| `segm/ntd11_nsfw_segm.pt` | 19.6 MB | YOLO11s-seg，7 类；`imgsz` 640 / 960 / 1280 三档构建都已在本目录下 |
+| `bbox/foot_yolov8n.pt` | 6.0 MB | 演示用单类检测模型（脚） |
+| `build/*.fp32.onnx` | 11~39 MB | 原精度：WebGPU 上最快（1152×1920 实测 42~51 ms） |
+| `build/*.int8.onnx` | 3~11 MB | 动态量化：WASM 后端省流量（10.2 MB / 0.66~0.9 s 每帧） |
+| `build/*.json` | 1 KB | 元数据：类别表 / task / imgsz / opset / 源 sha256 |
+
+构建参数：`ultralytics export(format="onnx", imgsz=<640|960|1280>, opset=17, dynamic=False)`，
+int8 为 `quantize_dynamic(QUInt8)`（只动权重；静态 QDQ 会把检测头量化掉、检出归零，故不用）。
+想自己重建（例如换成别的权重）：
+
+```bat
+python tools/detect-export.py --src models/detect/segm/<权重>.pt --kind segm --imgsz 1280
+```
+
+`.gitignore` 里对应的忽略条目是**故意注释掉**的：想回到"权重不入库"的干净状态，
+把那四行放开即可（面板会在缺模型时提示怎么补）。
+
+**许可提醒**：权重多为 **AGPL-3.0**（Ultralytics 系）或训练者自定义许可。
+随库附带只是为了方便自托管测试；要再分发或以其它方式使用，请先向原作者确认许可。
+运行时的 ONNX Runtime（`src/vendor/ort/`）是 **MIT**（见其 `ort-LICENSE`）。
 
 ## 依赖
 
