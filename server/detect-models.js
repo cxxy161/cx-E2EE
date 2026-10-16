@@ -43,7 +43,8 @@ const LOG_MAX = 60;
 const state = {
     python: { ok: false, cmd: null, version: null, missing: [], hint: null, versions: {} },
     models: new Map(),          // id -> 模型条目
-    pending: [],                // 待转译 id 队列
+    pending: [],                // 待转译（.pt → ONNX，需要 python）
+    pendingAdopt: [],           // 待采用（本来就是 .onnx：只做文件拷贝，**不需要 python**）
     running: null,              // 正在转译的 id
     stats: { done: 0, failed: 0 },
     logs: [],
@@ -169,6 +170,39 @@ function listSources() {
     return out;
 }
 
+/**
+ * build/ 里"只有构建产物"的条目：id 带 `@<imgsz>` 后缀（`ntd11_nsfw_segm@960`）。
+ *
+ * 为什么要这条：ONNX 的输入形状是**静态**的，一个文件只能服务一个尺度。所以"换尺度"
+ * = 多一份构建，而多份构建不能都叫同一个 id（文件名会撞车）。命名规则是
+ * `tools/detect-export.py --imgsz 960` → id 自动带 `@960`。这些构建没有对应的源权重
+ * （源是 `<base>.pt`），但产物本身就是可用的 ONNX，所以直接登记为 ready：
+ * 不需要 python、不需要转译、也不会进队列。
+ */
+function listBuildOnly() {
+    const out = [];
+    let names = [];
+    try { names = fs.readdirSync(BUILD_DIR); } catch (e) { return out; }   // 目录不可读：这一路整体跳过
+    for (const name of names) {
+        if (path.extname(name).toLowerCase() !== '.json' || !name.includes('@')) continue;
+        const meta = readJson(path.join(BUILD_DIR, name));
+        if (!meta || !meta.id || !meta.files) continue;
+        const files = {};
+        for (const k of Object.keys(meta.files)) {
+            const f = meta.files[k];
+            if (f && f.file && fs.existsSync(path.join(BUILD_DIR, f.file))) files[k] = f;
+        }
+        if (!Object.keys(files).length) continue;      // 元数据在但产物被删了：不登记
+        out.push({
+            id: meta.id, kind: meta.kind || 'segm',
+            task: meta.task || (meta.kind === 'bbox' ? 'detect' : 'segment'),
+            classes: meta.classes || {}, imgsz: meta.imgsz || IMGSZ, files,
+            source: meta.source || null, ms: meta.ms || null, built: true,
+        });
+    }
+    return out;
+}
+
 async function scanAndEnqueue({ force = FORCE } = {}) {
     state.scanning = true;
     ensureDirs();
@@ -178,8 +212,11 @@ async function scanAndEnqueue({ force = FORCE } = {}) {
         seen.add(s.id);
         const metaP = path.join(BUILD_DIR, s.id + '.json');
         const meta = readJson(metaP);
+        const isOnnx = s.ext === '.onnx';
         let fresh = false;
-        if (!force && meta && meta.source && meta.imgsz === IMGSZ && meta.opset === OPSET) {
+        // .onnx 是"直接采用"的：只要求元数据 + 产物文件在、且源文件哈希一致（不涉及导出参数）
+        if (!force && meta && meta.source && meta.files && meta.files.fp32
+            && (isOnnx || (meta.imgsz === IMGSZ && meta.opset === OPSET))) {
             try { fresh = (meta.source.sha256 === await sha256File(s.src)); } catch (e) { fresh = false; }
         }
         const prev = state.models.get(s.id) || {};
@@ -191,18 +228,71 @@ async function scanAndEnqueue({ force = FORCE } = {}) {
             status: fresh ? 'ready' : 'pending',
             error: fresh ? null : prev.error,
         });
+        delete entry.built;          // 有源权重的模型不是"仅构建产物"
         if (fresh) entry.ms = meta.ms;
         state.models.set(s.id, entry);
-        if (!fresh && !state.pending.includes(s.id) && state.running !== s.id) state.pending.push(s.id);
+        if (!fresh && state.running !== s.id) {
+            const q = isOnnx ? state.pendingAdopt : state.pending;
+            if (!q.includes(s.id)) q.push(s.id);
+        }
+    }
+    // 多尺度构建（id 带 @imgsz）：直接登记为 ready，源扫描里不会有它们
+    for (const b of listBuildOnly()) {
+        if (seen.has(b.id)) continue;              // 与源同名时以源为准（不该发生，防御性）
+        seen.add(b.id);
+        const prev = state.models.get(b.id) || {};
+        state.models.set(b.id, Object.assign({}, prev, b, { status: 'ready', error: null }));
     }
     // build 里存在但源已被删除的模型：保留可服务（页面仍能选），只是不再参与扫描
     for (const id of [...state.models.keys()]) {
         if (!seen.has(id) && !fs.existsSync(path.join(BUILD_DIR, id + '.json'))) state.models.delete(id);
     }
     state.scanning = false;
-    log(`扫描完成：源 ${sources.length} 个，待转译 ${state.pending.length} 个` +
-        (state.python.ok ? '' : '（python 依赖不可用，转译跳过）'));
+    log(`扫描完成：源 ${sources.length} 个，待采用(.onnx) ${state.pendingAdopt.length} 个，待转译(.pt) ${state.pending.length} 个` +
+        `，多尺度构建 ${[...state.models.values()].filter((m) => m.built).length} 个` +
+        (state.pending.length && !state.python.ok ? '（python 不可用：.pt 转译跳过，.onnx 不受影响）' : ''));
     return sources;
+}
+
+/**
+ * 采用现成 .onnx：**纯 node 操作**（拷贝 + 写元数据），不 spawn python、不跑任何模型代码。
+ *
+ * 为什么需要这条：浏览器只认 ONNX，而权重往往是 .pt —— 转译需要 python + torch。
+ * 若部署方不想在服务器上装这些（或服务器本就是"静态文件 + 几个只读路由"的形态），
+ * 只要在本机把 .pt 导成 .onnx（`python tools/detect-export.py ...`）再丢进
+ * models/detect/segm|bbox/，服务端就只做文件搬运 —— 这条路径与 CX_DETECT_AUTOCONVERT 无关，
+ * 也不受 python 是否可用影响。
+ */
+async function adoptOnnx(id) {
+    const m = state.models.get(id);
+    if (!m) return;
+    const srcFile = path.join(DETECT_ROOT, m.kind, m.source.file);
+    if (!fs.existsSync(srcFile)) { m.status = 'error'; m.error = '源文件不存在'; return; }
+    state.running = id;
+    m.status = 'adopting'; m.error = null;
+    try {
+        const dst = path.join(BUILD_DIR, id + '.fp32.onnx');
+        await fs.promises.copyFile(srcFile, dst);
+        const bytes = fs.statSync(dst).size;
+        const meta = {
+            id, kind: m.kind, task: m.kind === 'segm' ? 'segment' : 'detect', classes: {},
+            imgsz: IMGSZ, opset: null, adopted: true,
+            source: { file: m.source.file, bytes: m.source.bytes, sha256: await sha256File(srcFile) },
+            files: { fp32: { file: path.basename(dst), bytes } },
+            exported_at: new Date().toISOString(),
+            note: '现成 .onnx：由服务端直接拷贝采用（未跑任何模型代码，不需要 python），类别表未知',
+        };
+        fs.writeFileSync(path.join(BUILD_DIR, id + '.json'), JSON.stringify(meta, null, 1));
+        Object.assign(m, { status: 'ready', error: null, files: meta.files, classes: {}, task: meta.task });
+        state.stats.done++;
+        log(`采用现成 ONNX ${id}：${m.source.file} → ${path.basename(dst)}（${(bytes / 1048576).toFixed(1)} MB，未跑模型代码）`);
+    } catch (e) {
+        m.status = 'error'; m.error = String((e && e.message) || e);
+        state.stats.failed++;
+        log(`采用 ONNX 失败 ${id}：${m.error}`);
+    } finally {
+        state.running = null;
+    }
 }
 
 function convertOne(id) {
@@ -265,10 +355,13 @@ function convertOne(id) {
 
 /** 串行泵：一次只转一个 */
 async function pump() {
-    if (state.running || !state.python.ok) return;
-    while (state.pending.length) {
-        const id = state.pending.shift();
-        await convertOne(id);
+    if (state.running) return;
+    while (state.pendingAdopt.length || state.pending.length) {
+        // 先走"采用现成 .onnx"：纯文件拷贝，与 python / AUTOCONVERT 都无关
+        if (state.pendingAdopt.length) { await adoptOnnx(state.pendingAdopt.shift()); continue; }
+        // 再走"转译 .pt"：需要 python，且要看 AUTOCONVERT；不满足就停在队列里，不阻塞上面的采用
+        if (!state.python.ok || !AUTOCONVERT) return;
+        await convertOne(state.pending.shift());
     }
 }
 
@@ -285,11 +378,10 @@ async function start() {
         if (!ok) return;                       // 目录不可写：直接降级，不再做任何 FS 操作
         await scanAndEnqueue({ force: FORCE });
         if (!AUTOCONVERT) {
-            log('CX_DETECT_AUTOCONVERT=0：只扫描不转译（可 POST /api/detect/rescan 手动触发）');
+            log('CX_DETECT_AUTOCONVERT=0：.pt 不做转译（需要 python）；.onnx 仍会被直接采用');
             state.pending = [];
-            return;
         }
-        pump().catch((e) => log('转译队列异常（已忽略，不影响服务）：' + e.message));   // 后台跑，异常自己消化
+        pump().catch((e) => log('转译/采用队列异常（已忽略，不影响服务）：' + e.message));   // 后台跑，异常自己消化
     } catch (e) {
         log('初始化失败（已降级，不影响服务）：' + ((e && e.message) || e));
     }
@@ -298,7 +390,7 @@ async function start() {
 async function rescan({ force = false, convert = true } = {}) {
     if (!state.python.ok) checkPython();
     await scanAndEnqueue({ force });
-    if (convert && state.python.ok) pump();
+    if (convert) pump();     // 采用(.onnx) 不需要 python；转译(.pt) 的门槛在 pump 内部
     return payload();
 }
 
@@ -306,9 +398,12 @@ function payload() {
     const models = [...state.models.values()].map((m) => ({
         id: m.id, kind: m.kind, task: m.task, status: m.status, error: m.error || null,
         classes: m.classes || {}, imgsz: m.imgsz, files: m.files || {}, ms: m.ms || null,
-        source: m.source,
+        source: m.source || null,
+        // built=true：只有构建产物、没有源权重（多尺度构建 @960 那类）；
+        // 前端用它区分"要转译的源模型"与"已经能直接跑的产物"
+        built: !!m.built,
         urls: Object.keys(m.files || {}).reduce((acc, k) => {
-            acc[k] = '/detect-model/' + m.files[k].file; return acc;
+            acc[k] = '/detect-model/' + encodeURIComponent(m.files[k].file); return acc;
         }, {}),
     }));
     models.sort((a, b) => (a.kind === b.kind ? a.id.localeCompare(b.id) : a.kind.localeCompare(b.kind)));
@@ -324,7 +419,10 @@ function payload() {
         force: FORCE,
         paths: { root: 'models/detect', build: 'models/detect/build', segm: 'models/detect/segm', bbox: 'models/detect/bbox' },
         models,
-        queue: { pending: state.pending.slice(), running: state.running, done: state.stats.done, failed: state.stats.failed },
+        queue: {
+            adopt: state.pendingAdopt.slice(), pending: state.pending.slice(),
+            running: state.running, done: state.stats.done, failed: state.stats.failed,
+        },
         scanning: state.scanning,
         dir: {
             // root 也脱敏：仓库内给相对路径，仓库外只给 basename（避免公网部署暴露服务器目录结构）
@@ -338,7 +436,9 @@ function payload() {
             ? ('模型目录不可写：' + state.dirError + '（用 CX_DETECT_ROOT 指向可写目录，或给容器挂一个卷）')
             : (state.python.ok
                 ? (models.length ? null : '把模型（.pt / .onnx）放进 models/detect/segm/ 或 models/detect/bbox/，然后 POST /api/detect/rescan 或重启服务。')
-                : state.python.hint),
+                                : state.python.hint +
+                    '（也可以在本机跑 tools/detect-export.py 导出 .onnx 后直接放进 segm//bbox/：'
+                    + '服务端只做文件拷贝，不需要 python、不跑任何模型代码。）'),
     };
 }
 

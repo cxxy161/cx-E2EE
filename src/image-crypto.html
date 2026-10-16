@@ -116,6 +116,8 @@
     .abox-mi:hover{background:#f4f8ff}
     .abox-mi .abox-kind{font-size:.65rem;padding:1px 5px;border-radius:5px;background:#e8f0ff;color:#3b6fd4}
     .abox-mi .abox-size{margin-left:auto;color:#93a8c6;font-size:.68rem}
+    .abox-mi .abox-px{font-size:.63rem;padding:1px 4px;border-radius:5px;background:#eef7ee;color:#3a8d5d;border:1px solid #d7ebdd}
+    .abox-scale{flex:1;font-size:.72rem;color:#35507a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .abox-mi .abox-err{color:#d9534f;font-size:.68rem}
     .abox-row{display:flex;align-items:center;gap:6px;margin-top:6px}
     .abox-row .abox-lb{font-size:.74rem;color:#5d7ba3;min-width:58px}
@@ -177,6 +179,9 @@
                                 <div class="abox-col">
                                     <label>识别模型（可多选，输出合并）</label>
                                     <div class="abox-models" id="abox-models"></div>
+                                    <div class="abox-row"><span class="abox-lb">识别尺度</span>
+                                        <span class="abox-scale" id="abox-scale">—</span>
+                                    </div>
                                 </div>
                                 <div class="abox-col">
                                     <label>识别框扩张</label>
@@ -197,6 +202,13 @@
                                     </div>
                                     <div class="abox-row"><span class="abox-lb">置信度</span>
                                         <input type="range" id="abox-conf" min="10" max="60" step="5" value="30"><span class="vt" id="abox-conf-v">0.30</span>
+                                    </div>
+                                    <div class="abox-row"><span class="abox-lb">大图分块</span>
+                                        <select id="abox-tile" title="图比识别尺度还大时：把图切成'尺度大小'的方窗、相邻窗口重叠一半（半步扫描），再合并高重合的结果。切块完全在前端做。">
+                                            <option value="auto">自动（图大于尺度时切）</option>
+                                            <option value="on">总是切（半步扫描）</option>
+                                            <option value="off">关闭（整图 letterbox）</option>
+                                        </select>
                                     </div>
                                     <div class="abox-row"><span class="abox-lb">标注</span>
                                         <select id="abox-label">

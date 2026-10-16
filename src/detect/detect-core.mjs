@@ -14,6 +14,8 @@
  * 术语
  * ----
  *   640 坐标系   把原图 letterbox 到 640×640 后的坐标（模型输出就在这个坐标系里）
+ *   钳子约束     分块时把块内检出钳在窗口内（绝不外扩到没看过的像素）；
+ *                比窗口还大的要素不做特殊覆盖 —— 那是滑窗法的固有限制，网页端不处理
  *   原图坐标系   用户看到的、也是 MOB.regions / 元数据里用的坐标
  *   掩膜外接框   分割模型掩膜（阈值化后）的外接矩形，比检测框更贴合目标
  */
@@ -30,6 +32,8 @@ export const DEFAULT_OPTS = {
     capPolicy: 'score',  // 'score' | 'area'
     unit: 8,             // 与 pV3 的 PNG 路径一致；JPEG 路径会用到 16
     minSize: 8,          // 与手动框同标准（拖拽时 w>8 && h>8）
+    tileOverlap: 0.5,    // 大图分块的窗口重叠：0.5 = 半步扫描
+    tileMax: 128,        // 单张图最多切多少块（估算超过就拒绝，避免浏览器卡死）
 };
 
 /** 网页端只编码这 4 个字段（见 image-crypto.js 的 metaBytes：只读 x/y/w/h） */
@@ -62,6 +66,47 @@ export function from640(box, lb, W, H) {
 }
 
 export function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+/* ───────────────────── 1b. 大图分块（"半步扫描"） ───────────────────── */
+
+/**
+ * 把原图切成"模型输入大小"的方形窗口，**相邻窗口重叠一半**（半步扫描）。
+ *
+ * 为什么必须重叠一半，而不是刚好铺满：
+ *   · 刚好铺满时，落在接缝上的部位会被两个窗口各切掉一半，两边都看不全 ——
+ *     这正是最常见的漏检来源（这个模型基本靠"完整轮廓"给分）；
+ *   · 重叠 50% 时，任何"最长边不超过半个窗口"的部位，至少能在某一个窗口里**完整出现**，
+ *     所以接缝处不会丢。代价是同一处会被相邻窗口各检到一次 —— 交给
+ *     mergeBySource（IoU / 小框包含率判据）合并成一处，结果里会带 `tiles` 说明它跨了几块。
+ *
+ * 边界一律**贴图内**（末列/末行不足一格时向内贴），所以
+ *   · 每个窗口是 size×size（整图本身不足一格时就是整图），不产生填充边；
+ *   · 右下角那带的窗口重叠比中间更多，不会出现"没覆盖到"的缝。
+ *
+ * @returns {{size, step, overlap, cols, rows, count, tiles:[{x,y,w,h}]}}
+ */
+export function planTiles(W, H, { size = 640, overlap = DEFAULT_OPTS.tileOverlap } = {}) {
+    const s = Math.max(1, Math.round(size));
+    const w = Math.max(1, Math.round(W)), h = Math.max(1, Math.round(H));
+    const ov = Math.min(0.9, Math.max(0, overlap));
+    const step = Math.max(1, Math.round(s * (1 - ov)));
+    // 每个轴上窗口的滑动范围是 [0, len - s]；len ≤ s 时只有一个窗口（也就是整图）
+    const axis = (len) => {
+        if (len <= s) return [0];
+        const span = len - s;
+        const n = Math.ceil(span / step) + 1;
+        const pos = [];
+        for (let i = 0; i < n; i++) pos.push(Math.min(span, i * step));
+        return pos;
+    };
+    const xs = axis(w), ys = axis(h);
+    const tiles = [];
+    for (const y of ys) for (const x of xs) tiles.push({ x, y, w: Math.min(s, w), h: Math.min(s, h) });
+    return { size: s, step, overlap: ov, cols: xs.length, rows: ys.length, count: tiles.length, tiles };
+}
+
+/** 只想知道"要切几块"时用它（面板在跑之前先算一遍，块太多就提示换更大的尺度） */
+export function tileCount(W, H, opts) { return planTiles(W, H, opts).count; }
 
 /* ─────────────────────── 2. 模型输出 → 检测（640 坐标系）─────────────────────── */
 
@@ -216,18 +261,33 @@ export function mergeBySource(items, opts = {}) {
         if (!hit) {
             // kind（掩膜外接框 / 检测框）也要带走：页面上要标明这个框是怎么来的
             groups.push({ box: d.box.slice(), score: d.score, cls: d.cls, label: d.label, src: d.src,
-                          kind: d.kind, group: [d], merged: 0 });
+                          kind: d.kind, group: [d], merged: 0,
+                          clipped: !!d.clipped, anyClipped: !!d.clipped, repSwitched: 0 });
         } else {
             hit.merged++;
             hit.group.push(d);
-            if (mode === 'union') hit.box = unionBox(hit.box, d.box);
-            // 分数保持组内最高（sorted 保证第一个就是最高的）
+            hit.anyClipped = hit.anyClipped || !!d.clipped;
+            if (mode === 'union') {
+                hit.box = unionBox(hit.box, d.box);
+                if (!d.clipped) hit.clipped = false;      // 组里出现了完整的框 → 外接框已完整
+            } else if (hit.clipped && !d.clipped) {
+                // 钳子约束的第二半：代表换成"完整的那个"。
+                // 否则会出现"被窗口切掉一半、分数却更高"的框当代表，打码区域就偏小。
+                hit.box = d.box.slice(); hit.score = d.score; hit.cls = d.cls; hit.label = d.label;
+                hit.src = d.src; hit.kind = d.kind; hit.clipped = false; hit.repSwitched++;
+            }
         }
     }
     return groups.map((g) => ({
         box: g.box, score: g.score, cls: g.cls, label: g.label, src: g.src, kind: g.kind,
         merged: g.merged, mergedWith: g.group.slice(1).map((x) => `${x.label || ''}@${x.src || ''}`),
         sources: [...new Set(g.group.map((x) => x.src))],
+        // 大图分块时：这一处是被哪几块检到的（>1 说明它跨在接缝上，已被合并成一处）
+        tiles: [...new Set(g.group.map((x) => x.tile).filter((v) => v !== null && v !== undefined))],
+        // 钳子读数（两个口径分清楚）：
+        //   clipped     = **最终代表框**仍是被窗口钳过的那个 → 这个区域可能不完整（要素比窗口大）
+        //   clampedSeen = 这一处的组成员里出现过被钳的框（诊断用，哪怕最后被完整框替换了）
+        clipped: !!g.clipped, clampedSeen: !!g.anyClipped, repSwitched: g.repSwitched,
     }));
 }
 
@@ -294,9 +354,20 @@ export function capRegions(regions, cap = DEFAULT_OPTS.cap, policy = DEFAULT_OPT
 
 /**
  * 单个模型的原始输出 → 原图坐标的候选框（未合并、未扩张、未对齐）
- * @param {object} m 模型推理结果：{preds, dims, protos?, protoDims?, task, classes, id}
+ *
+ * letterbox 的取法（**多尺度混用时的关键**）：模型结果自带 `m.letterbox` 就用它 ——
+ * runModel() 知道这次实际送进去的尺寸（ONNX 静态输入形状），所以"哪个模型用哪个尺度"
+ * 由结果自己带回来，调用方不用猜；只有结果没带时才用这一轮统一给的 lb。
+ *
+ * 分块偏移（`m.crop` / `lb.crop`）：大图按 planTiles 切块时，模型看到的是一块局部图，
+ * 它输出的一切坐标都是**块内坐标**，所以换算回原图后要加上块的左上角。
+ * @param {object} m 模型推理结果：{preds, dims, protos?, protoDims?, task, classes, id, letterbox?, crop?, tile?}
  */
 export function modelToCandidates(m, lb, W, H, opts = {}) {
+    const l = m.letterbox || lb;
+    if (!l) throw new Error('detect-core: 缺少 letterbox（模型结果没带，调用方也没给）—— 无法把框换算回原图');
+    const cr = m.crop || l.crop || null;
+    const ox = cr ? cr.x : 0, oy = cr ? cr.y : 0;
     // 掩膜系数的个数由"有没有原型张量"决定，不靠通道数反推（纯检测模型就是 0）
     const numMask = m.numMask ?? (m.protos ? 32 : 0);
     const { detections } = decodeDetections(m.preds, m.dims, Object.assign({}, opts, { numMask }));
@@ -304,14 +375,30 @@ export function modelToCandidates(m, lb, W, H, opts = {}) {
     const out = [];
     kept.forEach((d, i) => {
         const label = (m.classes && m.classes[d.cls]) || ('class' + d.cls);
-        let box = from640(d.box, lb, W, H);
+        let box = from640(d.box, l, W, H);
         let kind = 'box';
         if (m.task === 'segment' && m.protos) {
-            const mb = maskToBox(d, m.protos, m.protoDims, lb, W, H, opts.maskThr ?? DEFAULT_OPTS.maskThr);
+            const mb = maskToBox(d, m.protos, m.protoDims, l, W, H, opts.maskThr ?? DEFAULT_OPTS.maskThr);
             if (mb) { box = mb.box; kind = 'mask'; }
         }
+        if (ox || oy) {          // 块内坐标 → 原图坐标
+            box = [clamp(box[0] + ox, 0, W), clamp(box[1] + oy, 0, H),
+                   clamp(box[2] + ox, 0, W), clamp(box[3] + oy, 0, H)];
+        }
+        // ── 钳子约束（只在分块时生效）─────────────────────────────────────────
+        // 窗口就是"钳子"：块内的检出若越出窗口边界，一律**钳回窗口内** ——
+        // 绝不外扩到"这块根本没看过"的像素上。被钳过就记 clipped，
+        // 合并时同组里若还有完整的那个，代表会换成完整的（见 mergeBySource）。
+        let clipped = false;
+        if (cr && opts.tileClamp !== false) {
+            const x1 = clamp(box[0], cr.x, cr.x + cr.w), y1 = clamp(box[1], cr.y, cr.y + cr.h);
+            const x2 = clamp(box[2], cr.x, cr.x + cr.w), y2 = clamp(box[3], cr.y, cr.y + cr.h);
+            clipped = (x1 !== box[0] || y1 !== box[1] || x2 !== box[2] || y2 !== box[3]);
+            box = [x1, y1, x2, y2];
+        }
         if (box[2] - box[0] < 1 || box[3] - box[1] < 1) return;
-        out.push({ box, score: d.score, cls: d.cls, label, src: m.id, kind, order: i });
+        out.push({ box, score: d.score, cls: d.cls, label, src: m.id, kind, order: i,
+                   tile: (m.tile ?? null), clipped });
     });
     return out;
 }
@@ -320,6 +407,9 @@ export function modelToCandidates(m, lb, W, H, opts = {}) {
  * 多模型输出 → 最终区域（合并 → 扩张 → 对齐 → 上限）
  * 返回 { regions, dropped, stats }，regions 里带 label/score/src/source 等**展示字段**，
  * 编码前请用 encodeProjection() 只取 x/y/w/h。
+ *
+ * @param {Array} models 各模型的推理结果；`lb` 只是"结果里没带 letterbox 时"的兜底，
+ *   正常情况下每个结果自带（见 modelToCandidates），所以**可以混用不同尺度**的模型。
  */
 export function buildRegions(models, lb, W, H, opts = {}) {
     const o = Object.assign({}, DEFAULT_OPTS, opts);
@@ -327,7 +417,8 @@ export function buildRegions(models, lb, W, H, opts = {}) {
     const perModel = [];
     for (const m of models) {
         const c = modelToCandidates(m, lb, W, H, o);
-        perModel.push({ id: m.id, count: c.length });
+        perModel.push({ id: m.id, count: c.length, imgsz: (m.letterbox && m.letterbox.size) || null,
+                        tile: (m.tile ?? null), crop: (m.crop || (m.letterbox && m.letterbox.crop)) || null });
         candidates.push(...c);
     }
     let grouped = mergeBySource(candidates, o);
@@ -342,7 +433,8 @@ export function buildRegions(models, lb, W, H, opts = {}) {
         if (!r) continue;
         regions.push(Object.assign(r, {
             label: g.label, score: +g.score.toFixed(3), src: g.src, kind: g.kind,
-            merged: g.merged, mergedWith: g.mergedWith, sources: g.sources,
+            merged: g.merged, mergedWith: g.mergedWith, sources: g.sources, tiles: g.tiles || [],
+            clipped: !!g.clipped, clampedSeen: !!g.clampedSeen, repSwitched: g.repSwitched || 0,
         }));
     }
     const { kept, dropped } = capRegions(regions, o.cap, o.capPolicy);
@@ -351,6 +443,14 @@ export function buildRegions(models, lb, W, H, opts = {}) {
         stats: {
             candidates: candidates.length, grouped: grouped.length,
             kept: kept.length, dropped: dropped.length, cap: o.cap,
+            // 分块扫描的读数：跑了几块 + 有几处是"跨接缝、被合并成一处"的
+            tiled: models.some((m) => m.tile !== null && m.tile !== undefined),
+            tilesRun: models.filter((m) => m.tile !== null && m.tile !== undefined).length,
+            crossTile: kept.filter((r) => (r.tiles || []).length > 1).length,
+            // 钳子读数：最终框仍被钳的（可能不完整）/ 组里见过被钳的 / 因此改判代表的
+            clamped: kept.filter((r) => r.clipped).length,
+            clampedSeen: kept.filter((r) => r.clampedSeen).length,
+            repSwitched: kept.filter((r) => (r.repSwitched || 0) > 0).length,
             perModel, options: o,
         },
     };

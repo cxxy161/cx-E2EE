@@ -14,6 +14,11 @@
  *   T9  上限 12：两种取舍策略 + 丢弃项可追溯
  *   T10 标签/来源/分数**不进编码字段**（编码只认 x/y/w/h，签名因此不受影响）
  *   T11 端到端：两个模型（seg + bbox）→ buildRegions → 区域满足网页端全部硬约束
+ *   T12 多尺度：模型结果自带的 letterbox 优先（混选 640/960 不错换算）；缺 lb 必须抛错
+ *   T13 大图分块：窗口计划（全覆盖 / 半步位移 / 贴图内 / 块数）
+ *   T14 分块坐标：块内 → 原图（crop 偏移）
+ *   T15 跨块合并：接缝上的同一处只留一个框，且记录来自哪几块
+ *   T16 钳子约束：块内检出钳回窗口；同组里完整的框当代表（避免半截高分框）
  *
  * 运行： node test/detect/detect-core.test.mjs
  *        FIXTURE=<路径>   换一份 fixture（默认 test/detect/fixtures/bbox-foot-640.json）
@@ -28,6 +33,7 @@ import {
     DEFAULT_OPTS, ENCODED_FIELDS, letterbox, from640, decodeDetections, nmsClassAware, iou,
     containment, maskToBox, mergeBySource, expandBox, expandRegions, alignRegion, normalizeRegion,
     capRegions, modelToCandidates, buildRegions, encodeProjection,
+    planTiles, tileCount,
 } from '../../src/detect/detect-core.mjs';
 
 /* ── 迷你测试框架（与 test/stego 保持一致） ── */
@@ -380,6 +386,232 @@ console.log('detect-core 纯逻辑测试 · 不需要浏览器/模型\n');
     ok(ex.regions[0].w >= base.regions[0].w && ex.regions[0].h >= base.regions[0].h,
         'T11 1.5× 扩张后区域变大', `${ex.regions[0].w}×${ex.regions[0].h} vs ${base.regions[0].w}×${base.regions[0].h}`);
     ok(ex.regions[0].x % 8 === 0 && ex.regions[0].w % 8 === 0, 'T11 扩张后仍然对齐到 8 的整数倍');
+}
+
+/* ═══ T12 多尺度（imgsz 跟随模型，而不是写死 640） ═══
+ *
+ * 背景（实测）：同一份权重、同一张 1664×2432 的图，imgsz=640 时该部位只有 0.076（漏检），
+ * imgsz=960 时 0.873（检到）。所以 ONNX 会按 640 / 960 各导一份（id 带 @960 后缀），
+ * 用户可能**同时勾选两个尺度**。这里守住两件事：
+ *   1) 每个模型结果自带的 letterbox 优先 —— 混选尺度时框不会换算错；
+ *   2) 结果没带、调用方也没给 → 必须抛错，不能静默按 640 换算（那才是真正的错框）。
+ */
+{
+    const W = 1152, H = 1920;
+    const anchors = 4, C = 4 + 2 + 32, K = 32;
+    const mk = (cx, cy, w, h, cls, score) => {
+        const p = new Float32Array(C * anchors);
+        p[0] = cx; p[anchors] = cy; p[2 * anchors] = w; p[3 * anchors] = h;
+        p[(4 + cls) * anchors] = score;
+        return p;
+    };
+    // 同一个"图像位置"（1152×1920 中心偏上）在两种尺度下的 640/960 坐标
+    const lb640 = letterbox(W, H, 640), lb960 = letterbox(W, H, 960);
+    const c640 = (x) => (x * lb640.r + lb640.dw), c960 = (x) => (x * lb960.r + lb960.dw);
+    const preds640 = mk(c640(400), c640(500), 40 * lb640.r, 40 * lb640.r, 1, 0.8);
+    const preds960 = mk(c960(400), c960(500), 40 * lb960.r, 40 * lb960.r, 1, 0.8);
+    const protoSmall = new Float32Array(K * 4 * 4).fill(-1);
+
+    // 混选：一个 640 的构建 + 一个 960 的构建，都带自己的 letterbox
+    const withLb = buildRegions([
+        { id: 'seg@640', task: 'segment', classes: { 1: 'pussy' }, dims: [1, C, anchors], preds: preds640,
+          protos: protoSmall, protoDims: [1, K, 4, 4], numMask: 32, letterbox: lb640 },
+        { id: 'seg@960', task: 'segment', classes: { 1: 'pussy' }, dims: [1, C, anchors], preds: preds960,
+          protos: protoSmall, protoDims: [1, K, 4, 4], numMask: 32, letterbox: lb960 },
+    ], null, W, H, { conf: 0.3, merge: 'none', cap: 12, unit: 8, minSize: 8 });
+    eq(withLb.regions.length, 2, 'T12 两个尺度的模型各出一处（没有传兜底 lb 也能跑）');
+    // 两处都落在同一个图像位置附近（容差 = 框宽的一半：掩膜外接框本来就有量化误差）
+    const d = Math.abs(withLb.regions[0].x - withLb.regions[1].x);
+    ok(d <= 40, 'T12 两种尺度的框都换算回同一个图像位置', `Δx=${d}`);
+    eq(withLb.stats.perModel[0].imgsz, 640, 'T12 perModel 记下第 1 个模型的尺度');
+    eq(withLb.stats.perModel[1].imgsz, 960, 'T12 perModel 记下第 2 个模型的尺度');
+
+    // 只有全局 lb 时（老调用路径）→ 仍按全局 lb 换算，且结果与"模型自带同一个 lb"一致
+    const globalOnly = buildRegions([
+        { id: 'seg@640', task: 'segment', classes: { 1: 'pussy' }, dims: [1, C, anchors], preds: preds640,
+          protos: protoSmall, protoDims: [1, K, 4, 4], numMask: 32 },
+    ], lb640, W, H, { conf: 0.3, merge: 'none', cap: 12, unit: 8, minSize: 8 });
+    eq(globalOnly.regions[0].x, withLb.regions[0].x, 'T12 兜底 lb 与自带 lb 等价（老调用不受影响）');
+
+    // 关键防线：一个 960 的模型结果被错传了 640 的全局 lb → 结果必然偏，所以宁可抛错
+    let threw = false;
+    try {
+        buildRegions([
+            { id: 'seg@960', task: 'detect', classes: { 1: 'pussy' }, dims: [1, C, anchors], preds: preds960, numMask: 32 },
+        ], null, W, H, { conf: 0.3 });
+    } catch (e) { threw = /letterbox/.test(e.message); }
+    ok(threw, 'T12 两个来源都没有 letterbox 时抛错（不静默按 640 换算）');
+}
+
+/* ═══ T13 大图分块（半步扫描）：窗口计划 ═══
+ *
+ * 目标不是"切得漂亮"，而是三条硬约束：
+ *   1) 全覆盖 —— 每个像素至少落在一个窗口里（不然那块就是盲区）；
+ *   2) 半步   —— 相邻窗口位移 = size/2（重叠 50%），保证"最长边 ≤ size/2 的部位"
+ *               至少有一个窗口能让它完整出现（接缝不丢的关键）；
+ *   3) 不越界 —— 末列/末行向内贴，窗口全在图内，且除"整图不足一格"外都是 size×size。
+ */
+{
+    const p = planTiles(1664, 2432, { size: 1280, overlap: 0.5 });
+    eq(p.step, 640, 'T13 step = size/2（半步）');
+    eq(p.cols, 2, 'T13 1664 宽 → 2 列');
+    eq(p.rows, 3, 'T13 2432 高 → 3 行');
+    eq(p.count, 6, 'T13 共 6 块');
+    ok(p.tiles.every((t) => t.w === 1280 && t.h === 1280), 'T13 每块都是 1280×1280');
+    ok(p.tiles.every((t) => t.x >= 0 && t.y >= 0 && t.x + t.w <= 1664 && t.y + t.h <= 2432),
+        'T13 每块都在图内（向内贴边）');
+    // 全覆盖：把每个像素盖一次，不能有 0
+    const cov = new Uint8Array(1664 * 2432);
+    for (const t of p.tiles) for (let y = t.y; y < t.y + t.h; y++) for (let x = t.x; x < t.x + t.w; x++) cov[y * 1664 + x] = 1;
+    eq(cov.indexOf(0), -1, 'T13 全图无盲区（每个像素都被至少一块覆盖）');
+    // 半步的实质：图内任意一点，至少有一块把它连同"半个窗口的邻域"一起装进去
+    // —— 等价判据：任意 (x,y) 都存在一块满足 t.x ≤ x 且 x+size/2 ≤ t.x+t.w（x 方向同理）
+    // 只检查"图内还能放下半个窗口"的位置：贴到图像右缘时本来就没有右侧像素可放，
+    // 那是图像边界（不是接缝）问题
+    let seamOk = true;
+    for (let x = 0; x <= 1664 - 640 && seamOk; x++) {
+        if (!p.tiles.some((t) => t.x <= x && x + 640 <= t.x + t.w)) seamOk = false;
+    }
+    ok(seamOk, 'T13 x 方向：任意位置向右半步都有窗口装得下（接缝不丢的充要条件）');
+
+    // 两个方向都不超过窗口 → 只有 1 块（也就是整图，等价于以前的老路径）
+    const small = planTiles(1152, 1200, { size: 1280, overlap: 0.5 });
+    eq(small.count, 1, 'T13 图两个方向都 ≤ 窗口 → 只有 1 块（整图）');
+    eq(small.tiles[0].w, 1152, 'T13 该块宽度 = 图宽');
+    eq(small.tiles[0].h, 1200, 'T13 该块高度 = 图高');
+    // 只有一个方向超过窗口：只在那一个方向切（1152×1920 @1280 → 竖向 2 块）
+    const tall = planTiles(1152, 1920, { size: 1280, overlap: 0.5 });
+    eq(tall.count, 2, 'T13 1152×1920 @1280 → 竖向 2 块');
+    ok(tall.tiles.every((t) => t.w === 1152 && t.h === 1280), 'T13 两块都是 1152×1280');
+    eq(tall.tiles[1].y, 640, 'T13 第二块 y=640（向内贴到图底）');
+
+    const huge = planTiles(4024, 6048, { size: 1280, overlap: 0.5 });
+    eq(huge.count, 54, 'T13 4024×6048 @1280 → 54 块（6×9）');
+    const huge640 = planTiles(4024, 6048, { size: 640, overlap: 0.5 });
+    eq(huge640.count, 216, 'T13 同图 @640 → 216 块（尺度越小块越多）');
+    eq(tileCount(4024, 6048, { size: 1280 }), 54, 'T13 tileCount 与 planTiles 一致');
+    eq(planTiles(800, 600, { size: 640, overlap: 0.5 }).count, 2, 'T13 800×600 @640：宽向 2 块、高向 1 块');
+}
+
+/* ═══ T14 分块坐标：块内 → 原图 ═══ */
+{
+    const W = 1664, H = 2432;
+    const plan = planTiles(W, H, { size: 1280, overlap: 0.5 });
+    const anchors = plan.tiles.length;
+    // 造一个"块内中心处"的检出（纯检测模型，省掉掩膜），检查它落到原图的哪个位置
+    const C = 4 + 2, mkDet = () => {
+        const p = new Float32Array(C * anchors);
+        const cx = 640, cy = 640, w = 100, h = 100;      // 块内 640 坐标系（1280 输入的几何中心）
+        p[0] = cx; p[anchors] = cy; p[2 * anchors] = w; p[3 * anchors] = h;
+        p[(4 + 1) * anchors] = 0.9;                       // 类别 1
+        return p;
+    };
+    const lbt = (t) => Object.assign(letterbox(t.w, t.h, 1280), { crop: { x: t.x, y: t.y, w: t.w, h: t.h } });
+    // 取"中间那块"（x 有偏移、y 有偏移），验证偏移真的加上了
+    const t = plan.tiles.find((q) => q.x > 0 && q.y > 0);
+    const r = buildRegions([{ id: 'm', task: 'detect', classes: { 1: 'pussy' }, dims: [1, C, anchors],
+                              preds: mkDet(), numMask: 0, letterbox: lbt(t), crop: t, tile: 0 }],
+        null, W, H, { conf: 0.3, merge: 'none', cap: 12, unit: 8, minSize: 8 });
+    eq(r.regions.length, 1, 'T14 块内一处检出 → 原图一处');
+    // 期望：块内 640-坐标的 640 中心（1280 输入的几何中心）→ 块内 (t.w/2, t.h/2) → 原图 + 偏移
+    near(r.regions[0].x, Math.floor((t.x + t.w / 2 - 50) / 8) * 8, 8, 'T14 加上块偏移后的 x 落在原图对应位置');
+    near(r.regions[0].y, Math.floor((t.y + t.h / 2 - 50) / 8) * 8, 8, 'T14 加上块偏移后的 y 落在原图对应位置');
+    eq(r.stats.perModel[0].tile, 0, 'T14 perModel 记下块号');
+    ok(r.stats.tiled, 'T14 stats.tiled = true');
+    // 不给 crop 的结果（整图路径）偏移必须是 0：坐标只由 letterbox 决定
+    const r0 = buildRegions([{ id: 'm', task: 'detect', classes: { 1: 'pussy' }, dims: [1, C, anchors],
+                               preds: mkDet(), numMask: 0, letterbox: letterbox(W, H, 1280), tile: null }],
+        null, W, H, { conf: 0.3, merge: 'none', cap: 12, unit: 8, minSize: 8 });
+    ok(r0.regions[0].x < r.regions[0].x, 'T14 无偏移的整图路径坐标更靠左上（偏移确实生效了）');
+    ok(!r0.stats.tiled, 'T14 整图路径 stats.tiled = false');
+}
+
+/* ═══ T15 跨块合并：接缝上的同一处只能变成一个框 ═══ */
+{
+    const W = 1664, H = 2432;
+    const plan = planTiles(W, H, { size: 1280, overlap: 0.5 });
+    const anchors = 2, C = 4 + 2;
+    // 同一个"原图里的部位"（跨在两块接缝上）在两个相邻块里各被检出一次：
+    //   A 块里它偏右下，B 块里它偏左上 —— 块内坐标不同，但换算回原图是同一处
+    const px = 660, py = 700, pw = 120, ph = 120;          // 原图坐标
+    // 第一行的前两块（1664 宽、窗口 1280 → x = 0 与 x = 384，重叠 896 —— 接缝正落在两者之间）
+    const row0 = plan.tiles.filter((q) => q.y === 0);
+    const tA = row0[0], tB = row0[1];
+    eq(tA.x, 0, 'T15 第一块 x=0'); eq(tB.x, 384, 'T15 第二块 x=384（末列向内贴）');
+    const mkAt = (t) => {
+        const lb = letterbox(t.w, t.h, 1280), c = lb.r;
+        const cx = (px - t.x + pw / 2) * c + lb.dw, cy = (py - t.y + ph / 2) * c + lb.dh;
+        const p = new Float32Array(C * anchors);
+        p[0] = cx; p[anchors] = cy; p[2 * anchors] = pw * c; p[3 * anchors] = ph * c;
+        p[(4 + 0) * anchors] = 0.8;
+        return { id: 'm', task: 'detect', classes: { 0: 'nipples' }, dims: [1, C, anchors], preds: p,
+                 numMask: 0, letterbox: Object.assign(lb, { crop: { x: t.x, y: t.y, w: t.w, h: t.h } }),
+                 crop: t, tile: plan.tiles.indexOf(t) };
+    };
+    const out = buildRegions([mkAt(tA), mkAt(tB)], null, W, H,
+        { conf: 0.3, merge: 'near', cap: 12, unit: 8, minSize: 8 });
+    eq(out.regions.length, 1, 'T15 相邻两块检到的同一处 → 合并成 1 个框');
+    eq(out.stats.crossTile, 1, 'T15 stats.crossTile 记下"跨块合并 1 处"');
+    eq((out.regions[0].tiles || []).length, 2, 'T15 该框记录了它来自 2 个块');
+    eq(out.stats.tilesRun, 2, 'T15 tilesRun = 2');
+    // 合并后的框仍落在原图那个位置（不是被偏移推到别处）
+    near(out.regions[0].x, Math.floor(px / 8) * 8, 8, 'T15 合并后的 x 仍在原图原位');
+    near(out.regions[0].y, Math.floor(py / 8) * 8, 8, 'T15 合并后的 y 仍在原图原位');
+    // 反向验证：关掉合并（merge='none'）时就是两个框 —— 说明合并这一步真的在起作用
+    const raw = buildRegions([mkAt(tA), mkAt(tB)], null, W, H, { conf: 0.3, merge: 'none', cap: 12, unit: 8, minSize: 8 });
+    eq(raw.regions.length, 2, 'T15 merge=none 时保留 2 个框（对照）');
+}
+
+/* ═══ T16 钳子约束：块内检出钳回窗口；同组里完整的框当代表 ═══
+ *
+ * 用户口径：「只要模型能在一定程度上无损识别全要素即可；比窗口大的要素就不覆盖了」。
+ * 于是分块的两条硬规矩：
+ *   a) 块内的检出**不得越出窗口**（那是"这块根本没看过"的像素）；
+ *   b) 同一处若既被某块切过、又在另一块里完整出现，代表必须换成**完整的那个** ——
+ *      否则会出现"被切掉一半却分数更高"的框当代表，打码区域就偏小。
+ */
+{
+    const W = 1664, H = 2432;
+    const plan = planTiles(W, H, { size: 1280, overlap: 0.5 });
+    const tA = plan.tiles[0];                       // x=0,y=0,w=1280,h=1280（右边界 1280）
+    const tB = plan.tiles.find((q) => q.x === 384 && q.y === 0);
+    const anchors = 2, C = 4 + 2;
+    const mkIn = (t, x, y, w, h, score) => {        // 把一个"原图坐标的框"放进某一块的 640 坐标系
+        const lb = letterbox(t.w, t.h, 1280);
+        const cx = (x - t.x + w / 2) * lb.r + lb.dw, cy = (y - t.y + h / 2) * lb.r + lb.dh;
+        const p = new Float32Array(C * anchors);
+        p[0] = cx; p[anchors] = cy; p[2 * anchors] = w * lb.r; p[3 * anchors] = h * lb.r;
+        p[(4 + 0) * anchors] = score;
+        return p;
+    };
+    const res = (t, tile, preds) => ({
+        id: 'm', task: 'detect', classes: { 0: 'nipples' }, dims: [1, C, anchors], preds, numMask: 0,
+        letterbox: Object.assign(letterbox(t.w, t.h, 1280), { crop: { x: t.x, y: t.y, w: t.w, h: t.h } }),
+        crop: t, tile,
+    });
+
+    // a) 只在一个块里：目标横跨窗口右边界（原图 1100..1400，窗口右边界 1280）→ 必须被钳到 1280
+    const one = buildRegions([res(tA, 0, mkIn(tA, 1100, 1100, 300, 300, 0.95))], null, W, H,
+        { conf: 0.3, merge: 'near', cap: 12, unit: 8, minSize: 8 });
+    eq(one.regions[0].x + one.regions[0].w, 1280, 'T16 钳子：框不越出窗口右边界（正好停在 1280）');
+    eq(one.stats.clamped, 1, 'T16 stats.clamped 记下"被钳过 1 处"');
+    ok(one.regions[0].clipped, 'T16 该区域带 clipped 标记');
+
+    // b) 同一处：A 块里被切（分数高 0.95）、B 块里完整（分数低 0.60）→ 代表换成 B 的框
+    //    目标 (1100,900,300,300)：x 方向跨过 A 的右边界 1280，y 方向完整落在两块里
+    const both = buildRegions([res(tA, 0, mkIn(tA, 1100, 900, 300, 300, 0.95)),
+                               res(tB, 1, mkIn(tB, 1100, 900, 300, 300, 0.60))], null, W, H,
+        { conf: 0.3, merge: 'near', cap: 12, unit: 8, minSize: 8 });
+    eq(both.regions.length, 1, 'T16 两块的同一处 → 合并成 1 个框');
+    eq(both.stats.repSwitched, 1, 'T16 代表从"被钳的高分框"换成了"完整的框"');
+    ok(both.regions[0].w >= 296, 'T16 合并后的框是完整的那个（≈300 宽，而不是被切到 180）', `w=${both.regions[0].w}`);
+    ok(!both.regions[0].clipped, 'T16 该处不再算"被钳过"（组里有完整框）');
+    ok((both.regions[0].tiles || []).length === 2, 'T16 记录了这一处来自 2 块');
+
+    // 对照：关掉钳子（tileClamp=false）时框会越出窗口 —— 证明钳子确实在起作用
+    const noClamp = buildRegions([res(tA, 0, mkIn(tA, 1100, 1100, 300, 300, 0.95))], null, W, H,
+        { conf: 0.3, merge: 'near', cap: 12, unit: 8, minSize: 8, tileClamp: false });
+    ok(noClamp.regions[0].x + noClamp.regions[0].w > 1280, 'T16 tileClamp=false 时确实会越出窗口（对照）');
 }
 
 /* ═══ 结论 ═══ */

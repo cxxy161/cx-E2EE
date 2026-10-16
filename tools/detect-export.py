@@ -15,6 +15,10 @@
     <id>.int8.onnx    动态量化 int8（WASM 上最省流量：10.2 MB，实测 0.66 s/帧）
     <id>.json         元数据：类别表 / task / imgsz / 源文件 sha256 / 字节数
 
+    非默认尺度（imgsz≠640）时 id 带 `@<imgsz>` 后缀（`<base>@960`），所以同一份权重
+    可以并存多个尺度 —— ONNX 的输入形状是静态的，一个文件只能服务一个尺度。
+    实测（1664×2432 原图，同一模型）：640 下该部位 0.076（漏），960 下 0.873（检到）。
+
 为什么不自动做静态 QDQ 量化：实测它会把检测头一起量化，检出直接归零；
 动态量化只动权重矩阵，几何与 fp32 的框 IoU 仍有 0.97~0.98（见文档）。
 
@@ -98,6 +102,23 @@ def human_check():
     return 0 if st["ok"] else 1
 
 
+# 默认导出尺度。**前端不再写死这个数字**：它以"模型元数据 imgsz + ONNX 静态输入形状"
+# 为准（见 src/detect/detect-ort.mjs 的 staticSize）。这里只是一个命名锚点。
+DEFAULT_IMGSZ = 640
+
+
+def build_id(src, imgsz):
+    """
+    构建 id（也是 build/ 里的文件名主干）：
+      · 默认尺度 640 → 裸名（`ntd11_nsfw_segm`）：已部署的路径/文件名一个字都不变。
+      · 其它尺度   → 加 `@<imgsz>` 后缀（`ntd11_nsfw_segm@960`）。
+    这样同一份权重能在 build/ 里**并存多个尺度**的构建（ONNX 静态输入形状写死，
+    一个文件只能服务一个尺度），前端按 id 选择要跑哪个 —— 这就是面板上的"识别尺度"。
+    """
+    base = os.path.splitext(os.path.basename(src))[0]
+    return base if imgsz == DEFAULT_IMGSZ else "%s@%d" % (base, imgsz)
+
+
 def scan(root, imgsz, opset):
     """扫描 <root>/segm 与 <root>/bbox，列出每个模型的计划（是否需要转）。"""
     build = os.path.join(root, "build")
@@ -112,7 +133,7 @@ def scan(root, imgsz, opset):
             src = os.path.join(d, name)
             if not os.path.isfile(src):
                 continue
-            mid = os.path.splitext(name)[0]
+            mid = build_id(name, imgsz)
             meta_p = os.path.join(build, mid + ".json")
             fresh = False
             if os.path.isfile(meta_p):
@@ -130,7 +151,7 @@ def scan(root, imgsz, opset):
 def convert(src, out_dir, kind, imgsz, opset, want_fp32=True, want_int8=True, force=False):
     t0 = time.time()
     os.makedirs(out_dir, exist_ok=True)
-    mid = os.path.splitext(os.path.basename(src))[0]
+    mid = build_id(src, imgsz)
     meta_p = os.path.join(out_dir, mid + ".json")
     src_sha = sha256_of(src)
 
@@ -211,12 +232,13 @@ def adopt_onnx(src, out_dir, kind):
                     break
                 fo.write(b)
     meta = {"id": mid, "kind": kind, "task": "segment" if kind == "segm" else "detect",
-            "classes": {}, "imgsz": 640, "opset": None,
+            "classes": {}, "imgsz": DEFAULT_IMGSZ, "imgsz_source": "unknown", "opset": None,
             "source": {"file": os.path.basename(src), "bytes": os.path.getsize(src),
                        "sha256": sha256_of(src), "mtime": int(os.path.getmtime(src))},
             "files": {"fp32": {"file": os.path.basename(dst), "bytes": os.path.getsize(dst)}},
             "exported_at": time.strftime("%Y-%m-%d %H:%M:%S"), "adopted": True,
-            "notes": "由现成 .onnx 直接采用（未经过本脚本导出，类别表未知）"}
+            "notes": "由现成 .onnx 直接采用（未经过本脚本导出，类别表未知；imgsz 也读不出来，"
+                     "写的是默认值 —— 前端以 ONNX 的静态输入形状为准，不看这个字段）"}
     with open(os.path.join(out_dir, mid + ".json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=1)
     print("采用现成 ONNX: %s" % dst)

@@ -18,7 +18,7 @@
 
 import {
     letterbox, buildRegions, expandRegions, normalizeRegion, capRegions, encodeProjection,
-    DEFAULT_OPTS,
+    planTiles, tileCount, DEFAULT_OPTS,
 } from './detect-core.mjs';
 // detect-ort.mjs（连同 ORT 运行时）**故意不在这里静态 import**：
 // 它只在这块功能真的被用到时才需要，静态 import 会让每个访客的首屏都多拉一份模块。
@@ -62,7 +62,7 @@ const params = Object.assign(
     // showClass 默认 false：实测同一处会被多个类各框一次（pussy/anus 会互相抢位置），
     // 类别名**不能**当功能依据，所以默认只显示「敏感部位」；想看原始类别名可以在面板上打开。
     { mode: 'scale', factor: 1.25, pad: 16, target: 'all', merge: 'near', conf: 0.30,
-      capPolicy: 'score', showClass: false },
+      capPolicy: 'score', showClass: false, tile: 'auto' },
     readLS(LS.params, {}),
 );
 
@@ -179,10 +179,13 @@ function renderModels(backend) {
         const st = m.status === 'ready' ? '' :
             `<span class="abox-err">${m.status === 'error' ? '转译失败' : '转换中'}</span>`;
         const disabled = m.status !== 'ready' ? 'disabled' : '';
+        // 尺度徽标：一个 ONNX 只能服务一个输入边长，所以"选哪个尺度"= 勾哪个模型
+        const px = `<span class="abox-px" title="该构建的输入边长（导出时写死的静态形状）">` +
+            `${m.imgsz || 640}px</span>`;
         return `<label class="abox-mi" title="${m.status === 'error' ? (m.error || '').slice(0, 300) : ''}">
             <input type="checkbox" data-mid="${m.id}" ${state.chosen.has(m.id) ? 'checked' : ''} ${disabled}>
             <span class="abox-kind">${m.kind === 'segm' ? '分割' : '检测'}</span>
-            <span>${m.id}</span>${st}
+            <span>${m.id}</span>${px}${st}
             <span class="abox-size">${cls ? cls + ' 类 · ' : ''}${mb}</span>
         </label>`;
     }).join('') + (pending.length || failed.length
@@ -193,10 +196,42 @@ function renderModels(backend) {
         cb.onchange = () => {
             if (cb.checked) state.chosen.add(cb.dataset.mid); else state.chosen.delete(cb.dataset.mid);
             writeLS(LS.models, [...state.chosen]);
+            renderScaleRow();                 // 尺度跟着选择变
         };
     });
+    renderScaleRow();
     const rb = $('abox-rescan');
     if (rb) rb.onclick = rescan;
+}
+
+/**
+ * 「识别尺度」行的文案：**不是**一个能改模型的开关（ONNX 静态形状改不了），
+ * 而是"这次会按什么尺度跑"的显式说明 + 怎么加一个更高尺度的构建。
+ * 想换尺度就去 models/detect/build/ 里放一份 <id>@<imgsz> 的构建（一条命令，
+ * 见 docs/detect-auto-box.md），然后勾它。
+ */
+function renderScaleRow() {
+    const el = $('abox-scale');
+    if (!el) return;
+    const p = state.payload;
+    if (!p) { el.textContent = '—'; return; }
+    const sel = p.models.filter((m) => m.status === 'ready' && state.chosen.has(m.id));
+    const sizes = [...new Set(sel.map((m) => m.imgsz || 640))].sort((a, b) => a - b);
+    if (!sel.length) {
+        const avail = [...new Set(p.models.filter((m) => m.status === 'ready').map((m) => m.imgsz || 640))].sort((a, b) => a - b);
+        el.textContent = avail.length ? `未选模型（可选 ${avail.join(' / ')}px）` : '未选模型';
+        el.title = '勾选左侧模型后，这里显示本次推理所用的输入边长';
+        return;
+    }
+    const W0 = (deps().MOB && deps().MOB.natW) || 0, H0 = (deps().MOB && deps().MOB.natH) || 0;
+    const plan = W0 ? (planSummary(W0, H0) || []) : [];
+    const tinfo = plan.map((q) => q.tiled ? `${q.size}px→${q.count}块${q.tooMany ? '(超上限)' : ''}` : `${q.size}px整图`);
+    el.textContent = sizes.map((s) => s + 'px').join(' + ') + (sizes.length > 1 ? '（各自尺度）' : '') +
+        ' · ' + (sel.length > 1 ? sel.length + ' 个模型' : sel[0].id) +
+        (tinfo.length ? ' · ' + tinfo.join(' / ') : '');
+    el.title = 'ONNX 的输入形状是导出时写死的：一个构建只服务一个尺度。' +
+        '尺度越高，大图里的小部位越不容易丢（实测 1664×2432 的图：640 下该部位 0.08、960 下 0.87）。' +
+        '要加更高尺度：python tools/detect-export.py --src <权重.pt> --imgsz 960（会在 build/ 里生成 <id>@960），再点「重新扫描」。';
 }
 
 async function rescan() {
@@ -275,10 +310,13 @@ function renderSourceList(run) {
         const info = LABELS.get(reg);
         if (!info) return;
         const from = (info.sources && info.sources.length > 1 ? info.sources.join('+') : info.src) || '';
+        const cross = (info.tiles && info.tiles.length > 1) ? ` · 跨块 ×${info.tiles.length}` : '';
+        const clam = info.clipped ? ' · 可能不完整（大于窗口）'
+            : (info.repSwitched ? ' · 已取完整框' : (info.clampedSeen ? ' · 曾钳回窗口' : ''));
         const raw = (info.label || '') + (info.score != null ? ' ' + info.score : '');
         rows.push(`<div class="abox-si" title="模型原始类别：${raw || '（无）'}"><b>#${i + 1}</b>` +
             `<span>${info.kind === 'mask' ? '掩膜外接框' : '检测框'} · ${displayLabel(info)}` +
-            `${params.showClass && info.score != null ? ' ' + info.score : ''} · ${from}</span>` +
+            `${params.showClass && info.score != null ? ' ' + info.score : ''} · ${from}${cross}${clam}</span>` +
             `<span style="margin-left:auto">${reg.w}×${reg.h} @ (${reg.x},${reg.y})</span></div>`);
     });
     el.innerHTML = rows.length ? `<div class="v3-tip">已添加区域（只读标注，具体部位名仅供参考）</div>` + rows.join('') : '';
@@ -287,11 +325,20 @@ function renderSourceList(run) {
 function renderRunSummary() {
     const r = state.lastRun;
     if (!r) return;
+    const sc = (r.scales && r.scales.length) ? [...new Set(r.scales)].join('/') + 'px' : '—';
+    const st2 = r.out.stats || {};
+    const tiled = st2.tiled
+        ? `分块 ${st2.tilesRun} 块（重叠 ${Math.round(DEFAULT_OPTS.tileOverlap * 100)}%` +
+          `${st2.crossTile ? `，跨块合并 ${st2.crossTile} 处` : '，无跨块'}` +
+          `${st2.clampedSeen ? `，钳回窗口 ${st2.clampedSeen} 处` : ''}` +
+          `${st2.repSwitched ? `（其中 ${st2.repSwitched} 处改用完整框）` : ''}` +
+          `${st2.clamped ? `，仍有 ${st2.clamped} 处大于窗口、只覆盖到部分` : ''})`
+        : '整图（未分块）';
     setMsg(`识别 ${r.ready} 个模型 → 候选 ${r.out.stats.candidates} → 合并 ${r.out.stats.grouped} 处` +
         ` → 写入 ${r.added} 个区域` +
         (r.overflow > 0 ? `，<b>${r.overflow} 个因为 12 个上限被丢弃</b>` : '') +
         `。本机推理 ${r.ms.toFixed(1)} s，图片未上传。` +
-        `<br>扩张：${params.mode === 'scale' ? params.factor.toFixed(2) + '×' : params.pad + 'px'}` +
+        `<br>尺度：${sc} · ${tiled} · 扩张：${params.mode === 'scale' ? params.factor.toFixed(2) + '×' : params.pad + 'px'}` +
         ` · 合并：${{ near: '邻近', union: '外接框', none: '不合并' }[params.merge]}` +
         ` · 标注：${params.showClass ? '显示类别名' : '只标敏感部位'}` +
         ` · 对齐：${currentUnit()}px（${currentUnit() === 16 ? 'JPEG/J2' : 'PNG'}）`);
@@ -312,20 +359,47 @@ async function run() {
     $('abox-run').disabled = true;
     const t0 = now();
     const W = MOB.natW, H = MOB.natH;
-    const lb = letterbox(W, H, 640);
+    // 兜底 letterbox（只用于"结果没带 letterbox"的模型）；正常路径下每个结果自带
+    // 自己那次推理用的 lb，所以混选 640/960 的模型也不会把框换算错。
+    const lb = letterbox(W, H, (ready[0] && ready[0].imgsz) || 640);
     try {
         const outputs = [];
         const diagnostics = [];
+        const plans = [];
+        // 每个模型各自决定"整图跑"还是"切块跑"：大图分块 = 半步扫描（重叠 50%）
         for (const m of ready) {
-            setStatus(`识别中（${outputs.length + 1}/${ready.length}）…`);
-            const r = await (await ort()).runModel(m, MOB.img, {
-                ep: state.ep, runtimeDir: undefined,
-                onProgress: (p) => setStatus(p.stage === 'fetch' ? `载入模型 ${m.id}…` : `建会话 ${m.id}…`),
-            });
-            outputs.push(r);
-            diagnostics.push({ id: m.id, variant: r.variant, backend: r.backend,
-                bytes: r.bytes, compileMs: r.compileMs, ms: r.ms });
+            const size = m.imgsz || 640;
+            const on = tileDecision(params.tile, W, H, size);
+            const plan = on ? planTiles(W, H, { size, overlap: DEFAULT_OPTS.tileOverlap })
+                            : { size, step: 0, overlap: 0, cols: 1, rows: 1, count: 1,
+                                tiles: [{ x: 0, y: 0, w: W, h: H }] };
+            if (plan.count > DEFAULT_OPTS.tileMax) {
+                toast(`${m.id}：这张图要切 ${plan.count} 块，超过上限 ${DEFAULT_OPTS.tileMax}，已跳过（换成更大的尺度即可）`);
+                plans.push({ id: m.id, size, tiled: on, count: plan.count, skipped: true });
+                continue;
+            }
+            plans.push({ id: m.id, size, tiled: on, count: plan.count, cols: plan.cols, rows: plan.rows,
+                         step: plan.step, overlap: plan.overlap });
+            for (let t = 0; t < plan.tiles.length; t++) {
+                const done = outputs.length;
+                setStatus(plan.count > 1
+                    ? `识别中（${m.id} · 第 ${t + 1}/${plan.count} 块）…`
+                    : `识别中（${outputs.length + 1}/${ready.length}）…`);
+                const r = await (await ort()).runModel(m, MOB.img, {
+                    ep: state.ep, runtimeDir: undefined,
+                    size,                        // 只是提示：真正以 ONNX 的静态输入形状为准
+                    crop: plan.count > 1 ? plan.tiles[t] : null,
+                    tile: plan.count > 1 ? t : null,
+                    onProgress: (p) => setStatus(p.stage === 'fetch' ? `载入模型 ${m.id}…` : `建会话 ${m.id}…`),
+                });
+                outputs.push(r);
+                diagnostics.push({ id: m.id, variant: r.variant, backend: r.backend,
+                    bytes: r.bytes, compileMs: r.compileMs, ms: r.ms, tile: r.tile,
+                    size: r.size, sizeSource: r.sizeSource, sizeHint: r.sizeHint, onnxDims: r.onnxDims });
+                void done;
+            }
         }
+        if (!outputs.length) { toast('没有可跑的模型（都被块数上限挡下了）'); return; }
         const out = buildRegions(outputs, lb, W, H, opts());
         const slots = DEFAULT_OPTS.cap - MOB.regions.length;
         if (slots <= 0) { toast('已有 12 个区域，先删掉一些再识别'); return; }
@@ -334,22 +408,33 @@ async function run() {
         for (const r of out.regions.slice(0, slots)) {
             if (addRegionWithInfo(r, {
                 label: r.label, score: r.score, src: r.src, kind: r.kind,
-                merged: r.merged, sources: r.sources,
+                merged: r.merged, sources: r.sources, tiles: r.tiles,
+                clipped: r.clipped, clampedSeen: r.clampedSeen, repSwitched: r.repSwitched,
             })) added++;
         }
         const overflow = out.regions.length - added;
         state.sig = sigOf(MOB.regions);
-        state.lastRun = { ready: ready.length, out, added, overflow, ms: (now() - t0) / 1000 };
+        state.lastRun = { ready: ready.length, out, added, overflow, ms: (now() - t0) / 1000,
+            scales: diagnostics.map((d) => d.size), plans };
         renderSourceList();
-        setStatus(`已添加 ${added} 个区域（${ep0()}）`, 'ok');
+        const tileTxt = out.stats.tiled
+            ? ` · 分块 ${out.stats.tilesRun}${out.stats.crossTile ? `（跨块合并 ${out.stats.crossTile} 处）` : ''}` +
+              `${out.stats.clampedSeen ? `（钳回 ${out.stats.clampedSeen} 处）` : ''}`
+            : '';
+        setStatus(`已添加 ${added} 个区域（${ep0()} · ${[...new Set(diagnostics.map((d) => d.size))].join('/')}px${tileTxt}）`, 'ok');
         renderRunSummary();
+        renderScaleRow();
         toast(`已添加 ${added} 个自动区域`);
         console.log('CXABOX ' + JSON.stringify({
             stage: 'detect', ep: state.ep, W, H, chosen: ready.map((m) => m.id),
+            scales: [...new Set(diagnostics.map((d) => d.size))],
+            plans, tiled: out.stats.tiled, tilesRun: out.stats.tilesRun, crossTile: out.stats.crossTile,
+            clamped: out.stats.clamped, clampedSeen: out.stats.clampedSeen, repSwitched: out.stats.repSwitched,
             candidates: out.stats.candidates, grouped: out.stats.grouped, added, overflow,
             dropped: out.dropped.length,
             regions: out.regions.map((r) => Object.assign(encodeProjection(r),
-                { label: r.label, score: r.score, src: r.src, kind: r.kind, sources: r.sources })),
+                { label: r.label, score: r.score, src: r.src, kind: r.kind, sources: r.sources,
+                  tiles: r.tiles, clipped: r.clipped, clampedSeen: r.clampedSeen, repSwitched: r.repSwitched })),
             perModel: out.stats.perModel, timings: diagnostics,
             totalMs: +(now() - t0).toFixed(0),
         }));
@@ -365,6 +450,34 @@ async function run() {
 }
 
 const ep0 = () => (state.ep === 'webgpu' ? 'WebGPU' : 'WASM');
+
+/**
+ * 这张图要不要切块跑？
+ *   off  = 永远不切（整图 letterbox，与以前一致）
+ *   on   = 总是切（哪怕图很小，也有 1 块 = 整图）
+ *   auto = 图比模型输入尺度还大时才切 —— 这时模型本来就得把图缩小才吃得下，
+ *          缩小就意味着小部位掉分（实测 1664×2432 的图：整图 640 下该部位 0.076，
+ *          整图 960 下 0.873）。切块后每块都是**原分辨率**送进模型，等于"局部按原尺度识别"。
+ */
+function tileDecision(mode, W, H, size) {
+    if (mode === 'off') return false;
+    if (mode === 'on') return true;
+    return W > size || H > size;
+}
+
+/** 给面板看的"这张图会怎么跑"：每个已选模型一行（块数与尺度） */
+function planSummary(W, H) {
+    const p = state.payload;
+    if (!p) return null;
+    const sel = p.models.filter((m) => m.status === 'ready' && state.chosen.has(m.id));
+    if (!sel.length) return null;
+    return sel.map((m) => {
+        const size = m.imgsz || 640;
+        const on = tileDecision(params.tile, W, H, size);
+        const n = on ? tileCount(W, H, { size, overlap: DEFAULT_OPTS.tileOverlap }) : 1;
+        return { id: m.id, size, tiled: on, count: n, tooMany: n > DEFAULT_OPTS.tileMax };
+    });
+}
 
 /* ───────────────────────── 扩张：应用到现有框 / 还原 ───────────────────────── */
 
@@ -466,6 +579,13 @@ function init() {
     };
     $('abox-target').onchange = (e) => { params.target = e.target.value; writeLS(LS.params, params); };
     $('abox-merge').onchange = (e) => { params.merge = e.target.value; writeLS(LS.params, params); };
+    $('abox-tile').value = params.tile || 'auto';
+    $('abox-tile').onchange = (e) => {
+        params.tile = e.target.value; writeLS(LS.params, params);
+        renderScaleRow();
+        toast({ auto: '分块：图比输入尺度大时自动切（重叠 50%）', on: '分块：总是切块扫描',
+                off: '分块：关闭（整图 letterbox）' }[params.tile]);
+    };
     $('abox-label').value = params.showClass ? 'cls' : 'generic';
     $('abox-label').onchange = (e) => {
         params.showClass = e.target.value === 'cls';
