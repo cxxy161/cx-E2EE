@@ -416,7 +416,9 @@ export function buildRegions(models, lb, W, H, opts = {}) {
     const candidates = [];
     const perModel = [];
     for (const m of models) {
-        const c = modelToCandidates(m, lb, W, H, o);
+        // m.candidates 存在 = 这一项**已经解码过**（分块路径每块跑完就解码，避免把所有
+        // 块的原始张量攒到最后：@1280 单块的 protos 就是 12.5 MiB，54 块约 1 GB 堆）
+        const c = m.candidates || modelToCandidates(m, lb, W, H, o);
         perModel.push({ id: m.id, count: c.length, imgsz: (m.letterbox && m.letterbox.size) || null,
                         tile: (m.tile ?? null), crop: (m.crop || (m.letterbox && m.letterbox.crop)) || null });
         candidates.push(...c);

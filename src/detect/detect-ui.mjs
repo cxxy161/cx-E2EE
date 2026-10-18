@@ -17,7 +17,7 @@
  */
 
 import {
-    letterbox, buildRegions, expandRegions, normalizeRegion, capRegions, encodeProjection,
+    letterbox, buildRegions, modelToCandidates, expandRegions, normalizeRegion, capRegions, encodeProjection,
     planTiles, tileCount, DEFAULT_OPTS,
 } from './detect-core.mjs';
 // detect-ort.mjs（连同 ORT 运行时）**故意不在这里静态 import**：
@@ -452,7 +452,13 @@ async function run() {
                     tile: plan.count > 1 ? t : null,
                     onProgress: (p) => setStatus(p.stage === 'fetch' ? `载入模型 ${m.id}…` : `建会话 ${m.id}…`),
                 });
-                outputs.push(r);
+                // **当场解码、只留候选**：原始张量（preds/protos）随即失去引用、可被回收。
+                // 若把 r 直接攒进 outputs：@1280 单块的 protos 就是 [1,32,320,320] = 12.5 MiB，
+                // 4024×6048 跑 54 块约 1 GB 堆，上限 128 块更到 2 GB+ —— 标签页会 OOM。
+                outputs.push({
+                    id: r.id, tile: r.tile, crop: r.crop, letterbox: r.letterbox,
+                    candidates: modelToCandidates(r, lb, W, H, opts()),
+                });
                 diagnostics.push({ id: m.id, variant: r.variant, backend: r.backend,
                     bytes: r.bytes, compileMs: r.compileMs, ms: r.ms, tile: r.tile,
                     size: r.size, sizeSource: r.sizeSource, sizeHint: r.sizeHint, onnxDims: r.onnxDims });
