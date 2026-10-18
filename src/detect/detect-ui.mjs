@@ -218,7 +218,7 @@ function renderModels(backend) {
         };
         label.appendChild(cb);
         label.appendChild(mk('span', 'abox-kind', m.kind === 'segm' ? '分割' : '检测'));
-        label.appendChild(mk('span', null, m.id));
+        label.appendChild(mk('span', 'abox-name', m.id));
         // 尺度徽标：一个 ONNX 只能服务一个输入边长，所以"选哪个尺度"= 勾哪个模型
         const px = mk('span', 'abox-px', (m.imgsz || 640) + 'px');
         px.title = '该构建的输入边长（导出时写死的静态形状）';

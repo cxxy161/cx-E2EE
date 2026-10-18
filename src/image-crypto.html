@@ -97,28 +97,37 @@
 .scan-diag:active { background:rgba(90,168,255,.2); }
     
     /* ===== 🧠 自动打框面板（沿用 v3-* 的视觉，无外部依赖） ===== */
-    .abox{margin:2px 0 12px;border:1px solid var(--b);border-radius:12px;background:#fff;overflow:hidden}
+    /* 根类名必须用 cx-abox，**不能**叫 .abox：项目全局的 style.css / pq-style.css 里
+       .abox{display:flex} 是"输入行"组件（配 .ainp 用）。这里若同名为 .abox、自己又不写
+       display，就会被全局规则变成 flex 行 —— 面板头部与正文左右并排（实测 computed display:flex）。
+       改名 + 显式 display:block，双保险。 */
+    .cx-abox{margin:2px 0 12px;border:1px solid var(--b);border-radius:12px;background:#fff;overflow:hidden;display:block}
     .abox-hd{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;user-select:none;background:#f6f9ff}
     .abox-hd:hover{background:#eef5ff}
     .abox-tt{font-weight:700;color:#1f6feb;font-size:.86rem}
     .abox-sub{font-weight:400;color:#7d9ac0;font-size:.7rem;margin-left:6px}
     .abox-st{margin-left:auto;font-size:.7rem;color:#7d9ac0}
     .abox-caret{color:#7d9ac0;font-size:.8rem;transition:.2s}
-    .abox.open .abox-caret{transform:rotate(90deg)}
-    .abox.off .abox-hd{background:#fafafa}
-    .abox.off .abox-tt{color:#9aa9bf}
+    .cx-abox.open .abox-caret{transform:rotate(90deg)}
+    .cx-abox.off .abox-hd{background:#fafafa}
+    .cx-abox.off .abox-tt{color:#9aa9bf}
     .abox-bd{padding:10px 12px 12px;border-top:1px solid var(--b)}
     .abox-cols{display:flex;gap:14px;flex-wrap:wrap}
     .abox-col{flex:1 1 210px;min-width:190px}
     .abox-col>label{font-size:.76rem;color:#5d7ba3;font-weight:600}
     .abox-models{max-height:150px;overflow:auto;margin:4px 0 0}
-    .abox-mi{display:flex;align-items:center;gap:6px;padding:5px 7px;border:1px solid #dce7f8;border-radius:8px;margin-bottom:5px;font-size:.75rem;cursor:pointer}
+    /* 两行网格：第一行 [勾选][类型][模型名][尺度]，第二行 [失败原因][体积]。
+       原来是单行 flex，窄列下"分割"徽标被挤成竖排、模型名被截成 ntd11_nsfw_s…。
+       显式 grid-area 定位，DOM 顺序不再影响排版。 */
+    .abox-mi{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:center;column-gap:6px;row-gap:1px;padding:5px 7px;border:1px solid #dce7f8;border-radius:8px;margin-bottom:5px;font-size:.75rem;cursor:pointer}
     .abox-mi:hover{background:#f4f8ff}
-    .abox-mi .abox-kind{font-size:.65rem;padding:1px 5px;border-radius:5px;background:#e8f0ff;color:#3b6fd4}
-    .abox-mi .abox-size{margin-left:auto;color:#93a8c6;font-size:.68rem}
-    .abox-mi .abox-px{font-size:.63rem;padding:1px 4px;border-radius:5px;background:#eef7ee;color:#3a8d5d;border:1px solid #d7ebdd}
+    .abox-mi>input{grid-area:1/1/2/2;margin:0}
+    .abox-mi .abox-kind{grid-area:1/2/2/3;white-space:nowrap;font-size:.65rem;padding:1px 5px;border-radius:5px;background:#e8f0ff;color:#3b6fd4}
+    .abox-mi .abox-name{grid-area:1/3/2/4;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .abox-mi .abox-px{grid-area:1/4/2/5;white-space:nowrap;font-size:.63rem;padding:1px 4px;border-radius:5px;background:#eef7ee;color:#3a8d5d;border:1px solid #d7ebdd}
+    .abox-mi .abox-size{grid-area:2/3/3/5;justify-self:end;white-space:nowrap;color:#93a8c6;font-size:.68rem}
+    .abox-mi .abox-err{grid-area:2/1/3/3;justify-self:start;color:#d9534f;font-size:.68rem}
     .abox-scale{flex:1;font-size:.72rem;color:#35507a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .abox-mi .abox-err{color:#d9534f;font-size:.68rem}
     .abox-row{display:flex;align-items:center;gap:6px;margin-top:6px}
     .abox-row .abox-lb{font-size:.74rem;color:#5d7ba3;min-width:58px}
     .abox-row select{flex:1;padding:4px 6px;font-size:.74rem;border:1px solid var(--b);border-radius:8px;background:#fff;color:#35507a}
@@ -168,7 +177,7 @@
             <div id="pa-v3" style="display:none">
                 <div class="v3-wrap">
                     <!-- ===== 🧠 自动打框（本机识别，图片不上传；失败自动降级，不影响加密/解密） ===== -->
-                    <div class="abox off" id="abox">
+                    <div class="cx-abox off" id="abox">
                         <div class="abox-hd" id="abox-hd">
                             <span class="abox-tt">🧠 自动打框<span class="abox-sub">本机识别 · 图片不上传</span></span>
                             <span class="abox-st" id="abox-st">未启用</span>
