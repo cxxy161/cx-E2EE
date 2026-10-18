@@ -85,11 +85,13 @@ _POLICY_DOC = (
     "  · label_filter 把框全过滤掉了；\n"
     "  · 掩膜是空的（全 0）；\n"
     "  · 框太小/全落在图像外，按 unit 对齐后凑不出一个块。\n"
-    "  passthrough = **默认**：原图直出（IMAGE 原样透传、MASK 全 0）+ 控制台告警。\n"
-    "                某一张图/某一帧没有标记框时不会中断整批，工作流不卡住。\n"
-    "  error       = 直接报错（想尽早暴露接线/参数写错时选它）。\n"
+    "  error       = **默认（安全）**：直接报错。宁可工作流停下，也不把没打码的图当成功结果交付。\n"
+    "                想尽早暴露接线/参数写错时也选它。\n"
+    "  passthrough = 原图直出（IMAGE 原样透传、MASK 全 0）+ 控制台告警，工作流不中断。\n"
+    "                ⚠ 漏检时输出的是**未打码的原图**，下游 SaveImage 照样用成功打码的文件名写出去；\n"
+    "                打码工具下这是 fail-open，只有明确接受该风险（如批量里允许个别帧没框）才选。\n"
     "还原节点同理：没框时把输入原样透传（此时输出的就是「没被动过的那张图」）。\n"
-    "「只给图 + 密码」的元数据路径也归它管：图里没有元数据 → 直出（告警）；\n"
+    "「只给图 + 密码」的元数据路径也归它管：图里没有元数据 → 按本策略（默认报错）；\n"
     "密码不对仍然报错（那是数据完整性问题，不静默）。"
 )
 _MODES_DOC = "aabb 里四个数字怎么解释：xywh=(x,y,宽,高) / xyxy=(x1,y1,x2,y2)"
@@ -131,8 +133,9 @@ class _NoMetaData(Exception):
 def _is_passthrough(policy) -> bool:
     """no_region_policy 的判定：只有显式写 error 才报错，其余（含 None/空串）= 直出。
 
-    默认给 passthrough，是为了「没检到标记框」不再打断整批工作流；
-    想尽早暴露接线/参数错误就显式选 error。
+    默认值是 error（安全）：节点控件默认 "error"，execute() 的内层默认也是 "error"，
+    只有调用方显式传 passthrough（或兼容别名 pass/through、None/空串）时才直出 ——
+    直出意味着漏检时把**未打码的原图**当结果输出，除非明确接受否则别用。
     """
     p = "" if policy is None else str(policy).strip().lower()
     if p in ("error", "strict", "raise"):
@@ -146,8 +149,8 @@ def _is_passthrough(policy) -> bool:
 def _empty_out(image, B, H, W, policy, msg, label):
     """0 个区域时的统一出口（打码/还原/元数据写 三条路径共用）。
 
-    passthrough（默认）：原图直出（IMAGE 原样、MASK 全 0）+ 控制台告警；
-    error：抛出 —— 想尽早发现接线/参数写错时用。
+    error（默认）：抛出 —— 绝不把没打码的原图当成功结果交付；
+    passthrough：原图直出（IMAGE 原样、MASK 全 0）+ 控制台告警（漏检即输出未打码原图）。
     """
     if _is_passthrough(policy):
         print("[CX] %s: %s → passthrough 原图直出（IMAGE 原样、MASK 全 0；"
@@ -233,7 +236,7 @@ def _run(image, segs, bbox, mask, aabb, box_mode, shape, pad, threshold, label_f
         try:
             frames, effs = _run_meta_read(arr, key, password, MB, label)
         except _NoMetaData as e:
-            # 图里没有元数据 = 没什么可还原的：默认直出，不打断整批（想报错就选 error）
+            # 图里没有元数据 = 没什么可还原的：按 no_region_policy 走（默认 error 报错；想直出就显式选 passthrough）
             return _empty_out(image, B, H, W, no_region_policy,
                               "只给图+密码的还原路径：%s" % e, label)
         return _fin_meta(frames, effs, image, squeeze)
@@ -409,7 +412,7 @@ def _common_optional_inputs(with_boxes=True, with_meta=False):
         io.Combo.Input("box_mode", options=list(cx_core.BOX_MODES), default="xywh",
                        advanced=True, tooltip=_MODES_DOC),
         # ↓ 以下两项是后加的：**必须留在末尾**，否则已保存工作流里的控件值会整体位移
-        io.Combo.Input("no_region_policy", options=["passthrough", "error"], default="passthrough",
+        io.Combo.Input("no_region_policy", options=["error", "passthrough"], default="error",
                        optional=True, advanced=True, tooltip=_POLICY_DOC),
     ]
     if with_meta:
@@ -445,7 +448,7 @@ class CXRegionScramble(io.ComfyNode):
     @classmethod
     def execute(cls, image, segs=None, bbox=None, mask=None, aabb="", key=0,
                 region_shape="bbox", pad=0, max_regions=32, mask_threshold=0.5,
-                label_filter="", sort_regions=True, no_region_policy="passthrough",
+                label_filter="", sort_regions=True, no_region_policy="error",
                 embed_meta=False, unit=8, soft=False,
                 password="", box_mode="xywh") -> io.NodeOutput:
         img, m = _run(image, segs, bbox, mask, aabb, box_mode, region_shape, pad,
@@ -481,7 +484,7 @@ class CXRegionUnscramble(io.ComfyNode):
     @classmethod
     def execute(cls, image, segs=None, bbox=None, mask=None, aabb="", key=0,
                 region_shape="bbox", pad=0, max_regions=32, mask_threshold=0.5,
-                label_filter="", sort_regions=True, no_region_policy="passthrough",
+                label_filter="", sort_regions=True, no_region_policy="error",
                 embed_meta=False, unit=8, soft=False,
                 password="", box_mode="xywh") -> io.NodeOutput:
         img, m = _run(image, segs, bbox, mask, aabb, box_mode, region_shape, pad,

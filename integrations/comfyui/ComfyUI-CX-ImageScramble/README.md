@@ -16,11 +16,12 @@
 
 ## 1.1.1 改了什么（相对 1.1.0）
 
-- **没标记框不再打断工作流**：`no_region_policy` 的默认值从 `error` 改成 `passthrough` ——
-  检测器在某张图/某一帧没检到框、`label_filter` 把框全过滤掉、掩膜为空、框太小或全在图像外，
-  以及「只给图 + 密码」还原时图里没有元数据，这些都**原图直出**（IMAGE 原样透传、MASK 全 0）+ 控制台告警，
-  批处理里不会再因为一张没框的图整批中断。老行为（尽早报错）把 `no_region_policy` 设成 `error` 即可；
-  **密码不对依旧报错**（那是数据完整性问题，不静默）。
+- **`no_region_policy` 提供可选的 `passthrough`，但默认是 `error`（报错）**：检测器在某张图/某一帧没检到框、
+  `label_filter` 把框全过滤掉、掩膜为空、框太小或全在图像外，以及「只给图 + 密码」还原时图里没有元数据，
+  这些情况默认一律**报错**（绝不静默交付没打码的原图）。想批处理不被一张没框的图打断，就**显式**把
+  `no_region_policy` 设成 `passthrough` —— 那时这些情况才**原图直出**（IMAGE 原样透传、MASK 全 0）+ 控制台告警。
+  ⚠ `passthrough` 是 fail-open：漏检时输出的就是**未打码的原图**，下游 `SaveImage` 照样用成功打码的文件名把它写出去，
+  除非明确接受否则别用。**密码不对依旧报错**（那是数据完整性问题，不静默）。
 - **标记框的缩放 / 合并交给外部节点**（本节点不新增「框缩放」参数），并补上实测：
   新增示例工作流 [`workflows/cx-e2ee-scramble-boxscale.json`](workflows/cx-e2ee-scramble-boxscale.json)、
   [`workflows/cx-e2ee-scramble-boxmerge.json`](workflows/cx-e2ee-scramble-boxmerge.json) 与实测脚本
@@ -49,14 +50,14 @@
 | `mask_threshold` | FLOAT | 块级门阈值：块内掩膜占比 ≥ 该值的块才参与打码（0.5 = 多数表决） |
 | `label_filter` | STRING | 只取这些 label（逗号/空格分隔，不区分大小写）。留空=全部 |
 | `sort_regions` | BOOLEAN | 按 `(label,y,x,w,h)` 稳定排序后再分配 seed，使结果与检测器返回顺序无关（建议开） |
-| `no_region_policy` | COMBO | 解析出 0 个区域时怎么办（没检到标记框 / `label_filter` 全过滤掉 / 掩膜为空 / 框太小或全在图像外）：`passthrough`＝**默认**，原图直出（IMAGE 原样、MASK 全 0）+ 控制台告警，某张图或某帧没框时不中断整批；`error`＝直接报错（想尽早暴露接线/参数写错时选它） |
+| `no_region_policy` | COMBO | 解析出 0 个区域时怎么办（没检到标记框 / `label_filter` 全过滤掉 / 掩膜为空 / 框太小或全在图像外）：`error`＝**默认**，直接报错（漏检时绝不静默输出未打码原图）；`passthrough`＝需**显式选择**，原图直出（IMAGE 原样、MASK 全 0）+ 控制台告警，某张图或某帧没框时不中断整批 —— 但这是 fail-open，漏检即输出未打码原图，确认能接受再选 |
 | `embed_meta` | BOOLEAN | **打码时**把区域表写进外扩 8px 边框（LSB），输出＝网页端那种「自带怎么还原」的图；**还原时不用勾**（没接打框数据就自动去读） |
 | `unit` / `soft` | COMBO / BOOL | 置换单元边长（8=PNG 路径 / 16=JPEG 拍屏路径）；JPEG 友好亮度域 |
 | `password` | STRING | **唯一密码**（网页端也是只用这一个）。填了它，`int (key)` 被忽略 |
 | `box_mode` | COMBO | 四个数字怎么解释：`xywh`(默认) / `xyxy`。作用于 `aabb` 文本与 `bbox` 口 |
 
 **优先级**：`segs` > `bbox` > `mask` > `aabb`（同时连多个时只用优先级最高的那个，控制台会提示忽略了谁）。
-四个都没给 → 走 `no_region_policy`（默认原图直出，不报错）。
+四个都没给 → 走 `no_region_policy`（默认 `error` 报错；显式设 `passthrough` 才原图直出）。
 
 ### 打框数据的几个实测口子（踩过的坑）
 
@@ -96,7 +97,7 @@ LoadImage（同一张）──────────────────�
 | 拼接两批框 | `ImpactSEGSConcat` | `SEGS1 + SEGS2 → ImpactSEGSConcat`（UI 里由 Impact 的 JS 动态加口；脚本/API 直接写 `segs2`） |
 | 重叠去重 | `ImpactSEGSNMSFilter`（按掩膜 IoU） | `SEGS → ImpactSEGSNMSFilter(iou_threshold) → CX` |
 | 只要最大的那个框 | `ImpactSEGSOrderedFilter` / `ImpactSEGSRangeFilter` | `target=area(=w*h)` 排序/范围过滤 |
-| 数一下检到几个框 | `ImpactCount_Elts_in_SEGS` → `PreviewAny` | 出文本，UI 上直接看（`0` = 没框 → 本节点默认原图直出） |
+| 数一下检到几个框 | `ImpactCount_Elts_in_SEGS` → `PreviewAny` | 出文本，UI 上直接看（`0` = 没框 → 本节点默认 `error` 报错；想直出就把 `no_region_policy` 显式设成 `passthrough`） |
 | 掩膜膨胀/收缩（像素级，不是比例） | `ImpactDilateMaskInSEGS`（±512） | 只改 `cropped_mask`，**bbox 不动** → `region_shape=bbox` 时无效果，`region_shape=mask` 才影响打码形状 |
 
 `ImpactScaleBy_BBOX_SEG_ELT` 是 **SEG_ELT 级**节点（一次一个框），所以必须配
@@ -133,7 +134,7 @@ BboxDetectorSEGS ─SEGS─► ImpactDecomposeSEGS ─┬─(SEG_ELT 列表)─�
 3. **合并后是「一个框 + 一张并集掩膜」**：`region_shape=bbox` 连两个斑块之间那片也一起打（实测 101376 px），
    只想打分割形状就配 `region_shape=mask`（实测 14208 px）。
    另外 `ImpactSEGSMerge` 在**空 SEGS** 上会造出一个畸形框（`crop_region=(maxsize,…0,0)`），本节点会整个丢掉
-   → 走 `no_region_policy`（默认原图直出），不会报错。
+   → 走 `no_region_policy`（默认 `error` 报错；显式设 `passthrough` 才直出）。
 
 ### `aabb` 文本格式（手写兜底 / 与网页端互通时用）
 
@@ -238,8 +239,9 @@ LoadImage ─IMAGE─► CX_RegionScramble(aabb="101,57,200,150") ─IMAGE─►
   预览里白色的地方就是实际会被打码的块。打框数据接错了这里立刻能看出来。
 - 还原节点的所有参数要与打码节点**逐项一致**（key/region_shape/pad/max_regions/label_filter/
   sort_regions/unit/soft/password/box_mode），建议直接把打码节点的参数复制过去，或两边都用同一份工作流里复制出来的节点。
-- 检测器某帧没检到东西时，默认就会**原图直出**（`no_region_policy=passthrough`，IMAGE 原样、MASK 全 0，
-  控制台给告警）：批处理里某一帧没有标记框不会中断整批。想让它报错就显式把 `no_region_policy` 设成 `error`。
+- 检测器某帧没检到东西时，默认**报错**（`no_region_policy=error`）——绝不静默输出没打码的原图。
+  想批处理里某一帧没有标记框也不中断整批，就**显式**把 `no_region_policy` 设成 `passthrough`：
+  那时才是**原图直出**（IMAGE 原样、MASK 全 0 + 控制台告警），而漏检输出未打码原图的风险自负。
 - 走 API/脚本调用时注意：ComfyUI 的 prompt 校验**不会**给 required 输入补默认值，所有 required 都要显式给
   （见 `workflows/*.api.json`）。
 
@@ -364,8 +366,8 @@ set CX_COMFY_ROOT=%COMFY_ROOT%
 ::    venv\Scripts\python.exe main.py --port 8195 --cpu
 %COMFY_ROOT%\venv\Scripts\python.exe %PKG%\tests\test_e2e_server.py --server http://127.0.0.1:8195
 
-:: 5) 标记框后处理（外部 Impact 节点：按轴心缩放 / 合并 / 拼接 / 去重 / 空框直出）× 本节点
-::    需要服务端装了 ComfyUI-Impact-Pack；缩放的数学、合并的口径、空框直出都在这里实测
+:: 5) 标记框后处理（外部 Impact 节点：按轴心缩放 / 合并 / 拼接 / 去重 / 空框 passthrough 直出）× 本节点
+::    需要服务端装了 ComfyUI-Impact-Pack；缩放的数学、合并的口径、空框（passthrough 直出 / error 报错）都在这里实测
 %COMFY_ROOT%\venv\Scripts\python.exe %PKG%\tests\test_segs_tools.py --server http://127.0.0.1:8195
 ```
 
@@ -386,7 +388,7 @@ set CX_COMFY_ROOT=%COMFY_ROOT%
 | 真服务端 `LoadImage→打码→还原→SaveImage`（aabb / ImageToMask+MASK / ImageToMask+MaskToSEGS 真 SEGS） | 输出与 NumPy 参考 `max\|Δ\|=0`，框外像素零改动，节点 MASK 输出与参考**逐像素相同** |
 | 真服务端 元数据链路：打码(embed_meta)→存 PNG→只给图+key→还原 | 尺寸/质量/框外像素与显式 aabb 一致；错 key 报「签名不符」 |
 | 元数据层 vs 网页端 JS | `metaBytes`/`borderOrd`/`wMetaPng` 写出像素**逐字节相同**，双向交叉可读 |
-| 真服务端 标记框后处理（`test_segs_tools.py`）：`ImpactScaleBy_BBOX_SEG_ELT` 1.5×/0.6×、`ImpactSEGSMerge`、`ImpactSEGSConcat`、`ImpactSEGSNMSFilter` × 打码/还原 | 后处理后的区域与 `cx_core` 参考**逐像素相同**；缩放中心不变、尺寸按比例；合并后外接框=并集、掩膜口径=并集掩膜；NMS 去重后与基线逐像素等价；**空框默认原图直出** |
+| 真服务端 标记框后处理（`test_segs_tools.py`）：`ImpactScaleBy_BBOX_SEG_ELT` 1.5×/0.6×、`ImpactSEGSMerge`、`ImpactSEGSConcat`、`ImpactSEGSNMSFilter` × 打码/还原 | 后处理后的区域与 `cx_core` 参考**逐像素相同**；缩放中心不变、尺寸按比例；合并后外接框=并集、掩膜口径=并集掩膜；NMS 去重后与基线逐像素等价；**空框默认 `error` 报错、显式 `passthrough` 时原图直出** |
 
 对照图脚本：`tests\make_demo.py --preset boxes`（或 `--preset aabb`）。
 

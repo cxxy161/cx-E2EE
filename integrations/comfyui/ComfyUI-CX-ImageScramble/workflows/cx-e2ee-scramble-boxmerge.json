@@ -320,7 +320,7 @@
     "",
     "xywh",
     "",
-    "passthrough",
+    "error",
     false
    ],
    "title": "6. 打码（合并后的框：一个并集外接框）"
@@ -502,7 +502,7 @@
     "",
     "xywh",
     "",
-    "passthrough"
+    "error"
    ],
    "title": "10. 还原（同一份合并后 SEGS）"
   },
@@ -609,7 +609,7 @@
     "",
     "xywh",
     "",
-    "passthrough",
+    "error",
     false
    ],
    "title": "12. 对照：合并后的框 + 掩膜口味（region_shape=mask，按分割形状打）"
@@ -754,7 +754,7 @@
     "",
     "xywh",
     "",
-    "passthrough",
+    "error",
     false
    ],
    "title": "15. 对照：**不合并**的原始框"

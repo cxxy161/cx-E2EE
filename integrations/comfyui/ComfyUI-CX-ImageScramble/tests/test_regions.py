@@ -237,7 +237,7 @@ def main():
           "PSNR=%.1fdB" % psnr(back_k, base, (55, 175, 150, 110)))
     empty = np.zeros((H, W), np.float32)
     s4, r4, g4, _l, _n = cx_core.resolve_regions(mask_frame=empty, shape="mask", H=H, W=W)
-    check("空掩膜 → 0 区域（节点层按 no_region_policy：默认原图直出）", r4 == [] and g4 is None)
+    check("空掩膜 → 0 区域（节点层按 no_region_policy：默认 error 报错；显式 passthrough 才原图直出）", r4 == [] and g4 is None)
 
     print("== 9. 优先级：segs > bbox > mask > aabb ==")
     s5, r5, _g, _l, _n = cx_core.resolve_regions(segs=segs, mask_frame=mm, aabb="0,0,8,8", H=H, W=W)
@@ -249,7 +249,7 @@ def main():
     s8, r8, _g, _l, _n = cx_core.resolve_regions(aabb="10,10,20,20", H=H, W=W)
     check("只给 aabb → 取 aabb", s8 == "aabb" and r8 == [(10, 10, 20, 20)])
     s9, r9, _g, _l, _n = cx_core.resolve_regions(H=H, W=W)
-    check("什么都不给 → none（节点层默认原图直出）", s9 == "none" and r9 == [])
+    check("什么都不给 → none（节点层默认 error 报错，显式 passthrough 才直出）", s9 == "none" and r9 == [])
 
     print("== 10. 错参数不可还原（以「正确参数」的往返质量为基准比较） ==")
     _s, rr_ref, gg_ref, _l, _n = cx_core.resolve_regions(segs=segs, shape="bbox", H=H, W=W)

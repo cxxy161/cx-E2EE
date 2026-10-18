@@ -333,7 +333,7 @@
     "Node name for S&R": "PreviewAny"
    },
    "widgets_values": [],
-   "title": "7. 框数（0 = 没检到框 → CX 原图直出，流程不卡）"
+   "title": "7. 框数（0 = 没检到框 → CX 默认 error 报错，流程会停；要直出就显式设 passthrough）"
   },
   {
    "id": 9,
@@ -406,7 +406,7 @@
     "",
     "xywh",
     "",
-    "passthrough",
+    "error",
     false
    ],
    "title": "8. 打码（用缩放后的框；pad 留 0，缩放交给上面的节点）"
@@ -588,7 +588,7 @@
     "",
     "xywh",
     "",
-    "passthrough"
+    "error"
    ],
    "title": "12. 还原（同一份缩放后的 SEGS）"
   },

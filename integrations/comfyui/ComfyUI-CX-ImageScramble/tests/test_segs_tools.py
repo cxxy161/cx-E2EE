@@ -343,9 +343,15 @@ def main():
         check("%-32s 已注册" % n, n in oi)
     cx_opt = oi["CX_RegionScramble"]["input"].get("optional", {})
     check("CX 的 segs 口类型 = SEGS", cx_opt.get("segs", [None])[0] == "SEGS")
-    check("no_region_policy 默认 = passthrough（没错到框就直出）",
-          (cx_opt.get("no_region_policy") or [{}, {}])[1].get("default") == "passthrough",
-          str(cx_opt.get("no_region_policy")))
+    # no_region_policy：默认必须是 error（漏检就报错，绝不静默交付未打码原图）；
+    # passthrough 仍然可选（批处理不想被一张没框的图打断时，显式选它）。
+    nrp = cx_opt.get("no_region_policy") or ["", {}]
+    nrp_type, nrp_meta = nrp[0], (nrp[1] if isinstance(nrp[1], dict) else {})
+    nrp_opts = nrp_meta.get("options") or (nrp_type if isinstance(nrp_type, list) else [])
+    check("no_region_policy 默认 = error（漏检即报错，不静默直出）",
+          nrp_meta.get("default") == "error", str(nrp))
+    check("no_region_policy 仍提供 passthrough 选项（可选、但默认安全）",
+          "passthrough" in nrp_opts, str(nrp))
     if FAIL:
         print("\n缺少必需节点，后面跑不动：%s" % FAIL)
         return 1
@@ -434,14 +440,17 @@ def main():
     check("去重后区域 == 基线区域", bool((reg_n == ref_mask).all()))
     check("NMS 去重后打码结果 == 基线（逐像素等价）", np.array_equal(scr_n, scr0))
 
-    print("\n== 6. 空框（没检到标记框）：默认原图直出，工作流不卡 ==")
+    print("\n== 6. 空框（没检到标记框）：显式 passthrough 才原图直出，工作流不卡 ==")
     g = {
         "1": {"class_type": "LoadImage", "inputs": {"image": img_name}},
         "5": {"class_type": "EmptySegs", "inputs": {}},
         "20": {"class_type": "CX_RegionScramble",
+               # 这里故意用 passthrough 验证 fail-open 行为：漏检时原图直出（IMAGE 原样、MASK 全 0）。
+               # 默认是 error（会报错），所以必须显式写出来；下面 g_err 再验 error 那一侧。
                "inputs": {"aabb": "", "key": KEY, "box_mode": "xywh", "unit": UNIT, "soft": False,
                           "password": "", "region_shape": "bbox", "pad": 0, "max_regions": 32,
                           "mask_threshold": 0.5, "label_filter": "", "sort_regions": True,
+                          "no_region_policy": "passthrough",
                           "image": ["1", 0], "segs": ["5", 0]}},
         "22": {"class_type": "SaveImage", "inputs": {"images": ["20", 0],
                                                     "filename_prefix": "cx_tools_empty_out"}},
@@ -453,7 +462,7 @@ def main():
     sv = saved_images(ent)
     out_e = load(pick(sv, "cx_tools_empty_out", args.comfy))
     m_e = load(pick(sv, "cx_tools_empty_m", args.comfy))
-    check("EmptySegs → CX：默认原图直出（逐像素相同）", np.array_equal(out_e, src))
+    check("EmptySegs → CX：显式 passthrough 原图直出（逐像素相同）", np.array_equal(out_e, src))
     check("EmptySegs → CX：MASK 输出全 0", int(m_e.max()) == 0)
     g_err = json.loads(json.dumps(g))
     g_err["20"]["inputs"]["no_region_policy"] = "error"
@@ -471,13 +480,14 @@ def main():
         ent2 = run_prompt(args.server, g2)
         sv2 = saved_images(ent2)
         out_em = load(pick(sv2, "cx_tools_empty_out", args.comfy))
-        check("EmptySegs → SEGSMerge → CX：CX 不报错，且原图直出（畸形框被丢弃）",
+        check("EmptySegs → SEGSMerge → CX（显式 passthrough）：CX 不报错，且原图直出（畸形框被丢弃）",
               np.array_equal(out_em, src))
     except RuntimeError as e:
         check("EmptySegs → SEGSMerge → CX：CX 不报错（实测 SEGSMerge 自身先报错：%s）"
               % str(e)[:60].replace("\n", " "), True)
         print("         [INFO] 空 SEGS 过 ImpactSEGSMerge 会先在它自己那边出错 ——"
-              "工作流里要么把 SEGS 判空后绕过它（ImpactIsNotEmptySEGS），要么直接让 CX 吃空 SEGS（本节点直出）")
+              "工作流里要么把 SEGS 判空后绕过它（ImpactIsNotEmptySEGS），"
+              "要么直接让 CX 吃空 SEGS（本节点显式 passthrough 时直出）")
 
     print("\n== 7. 结论：外部节点分工（实测数字） ==")
     print("  按轴心缩放：ImpactDecomposeSEGS → ImpactScaleBy_BBOX_SEG_ELT(scale_by) → ImpactAssembleSEGS")
@@ -488,7 +498,8 @@ def main():
     print("  标记框合并：ImpactSEGSMerge → 1 个框：外接框口径 %d px / 掩膜门口径 %d px（3 框时 %d px）"
           % (int(reg_m.sum()), int(reg_mm.sum()), int(ref_mask.sum())))
     print("  拼接/去重：ImpactSEGSConcat（6 框）→ ImpactSEGSNMSFilter(IoU .5) → 3 框")
-    print("  没检到框：SEGS/BBOX/MASK 为空 → CX 默认 no_region_policy=passthrough 原图直出（不卡流程）")
+    print("  没检到框：SEGS/BBOX/MASK 为空 → CX 默认 no_region_policy=error 报错；"
+          "显式设 passthrough 才原图直出（不卡流程）")
 
     print()
     if FAIL:

@@ -400,7 +400,7 @@ def build_boxscale(oi, img, model, key, scale=1.5):
     asm = g.add("ImpactAssembleSEGS", (1440, 200), {}, (280, 90), "5. 装回 SEGS")
     cnt = g.add("ImpactCount_Elts_in_SEGS", (1440, 340), {}, (280, 60), "6. 框数")
     prv_cnt = g.add("PreviewAny", (1760, 340), {}, (330, 220),
-                    "7. 框数（0 = 没检到框 → CX 原图直出，流程不卡）")
+                    "7. 框数（0 = 没检到框 → CX 默认 error 报错，流程会停；要直出就显式设 passthrough）")
     scr = g.add("CX_RegionScramble", (40, 440),
                 {"aabb": "", "key": key, "region_shape": "bbox"}, (430, 420),
                 "8. 打码（用缩放后的框；pad 留 0，缩放交给上面的节点）")

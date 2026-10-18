@@ -52,7 +52,7 @@
     0
    ],
    "aabb": "",
-   "no_region_policy": "passthrough",
+   "no_region_policy": "error",
    "embed_meta": true
   }
  },
@@ -103,7 +103,7 @@
    "password": "cx-demo",
    "box_mode": "xywh",
    "aabb": "",
-   "no_region_policy": "passthrough"
+   "no_region_policy": "error"
   }
  },
  "9": {
@@ -139,7 +139,7 @@
     0
    ],
    "aabb": "",
-   "no_region_policy": "passthrough",
+   "no_region_policy": "error",
    "embed_meta": false
   }
  },
@@ -176,7 +176,7 @@
     0
    ],
    "aabb": "",
-   "no_region_policy": "passthrough"
+   "no_region_policy": "error"
   }
  },
  "13": {

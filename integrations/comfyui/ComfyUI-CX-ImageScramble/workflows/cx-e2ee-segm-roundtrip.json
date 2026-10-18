@@ -209,7 +209,7 @@
     "cx-demo",
     "xywh",
     "",
-    "passthrough",
+    "error",
     true
    ],
    "title": "3A. segm 打码（元数据版：区域表写进边框）"
@@ -391,7 +391,7 @@
     "cx-demo",
     "xywh",
     "",
-    "passthrough"
+    "error"
    ],
    "title": "6A. 解码：只给这张图 + 密码"
   },
@@ -501,7 +501,7 @@
     "cx-demo",
     "xywh",
     "",
-    "passthrough",
+    "error",
     false
    ],
    "title": "3B. 对照：按分割形状打码（region_shape=mask）"
@@ -611,7 +611,7 @@
     "cx-demo",
     "xywh",
     "",
-    "passthrough"
+    "error"
    ],
    "title": "6B. 形状版解码：必须接同一份 SEGS"
   },

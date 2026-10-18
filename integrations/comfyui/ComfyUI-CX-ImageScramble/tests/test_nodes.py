@@ -271,9 +271,10 @@ def main():
         check("元数据模式 + 错密码 → 报错（网页端式「密码错误」）", False, "没报错")
     except Exception as e:  # noqa: BLE001
         check("元数据模式 + 错密码 → 签名不符报错", "密码" in str(e) and "签名" in str(e), str(e)[:56])
-    # 原图没有元数据 = 没什么可还原的：默认直出（不打断工作流），显式 error 才报错
-    nm_out, nm_mask = as_pair(dec.execute(image=img, key=20240117))
-    check("无元数据的图 + 无打框数据 → 默认原图直出（不打断工作流）",
+    # 原图没有元数据 = 没什么可还原的：默认 error 报错；显式 passthrough 才直出（不打断工作流）
+    nm_out, nm_mask = as_pair(dec.execute(image=img, key=20240117,
+                                          no_region_policy="passthrough"))
+    check("无元数据的图 + 无打框数据 + 显式 passthrough → 原图直出（不打断工作流）",
           torch.equal(nm_out, img) and float(nm_mask.max()) == 0.0)
     try:
         dec.execute(image=img, key=20240117, no_region_policy="error")
@@ -287,7 +288,7 @@ def main():
     except Exception as e:  # noqa: BLE001
         check("embed_meta + region_shape=mask → 报错", "region_shape" in str(e), str(e)[:56])
 
-    print("== 8. 无标记框 → 原图直出（默认）/ 非法输入 ==")
+    print("== 8. 无标记框：默认 error 报错 / 显式 passthrough 直出 / 非法输入 ==")
     # aabb 语法、几何写错属于「输入错误」，任何策略下都报错（不静默）
     for kw, why in [({"aabb": "1,2,3"}, "aabb 数字不够"),
                     ({"aabb": "99999,99999,5,5"}, "框在图像外"),
@@ -298,20 +299,23 @@ def main():
         except Exception as e:  # noqa: BLE001
             check("%s 报错：%s" % (why, str(e)[:52].replace("\n", " ")), True)
 
-    # 「没有标记框」不是错误：默认 no_region_policy=passthrough → 原图直出，不打断整批
+    # 「没有标记框」是漏检：显式 no_region_policy=passthrough → 原图直出，不打断整批；
+    # 默认 error 会直接报错（fail-safe，绝不静默交付未打码原图）—— 两种行为下面都验。
     no_box_cases = [("什么都没连", {}),
                     ("SEGS 是空的 ((H,W),[])", {"segs": ((H, W), [])}),
                     ("label_filter 把框全过滤掉", {"segs": segs, "label_filter": "nobody"}),
                     ("掩膜全 0", {"mask": torch.zeros((1, H, W)), "region_shape": "mask"})]
     for why, kw in no_box_cases:
-        out_z, mask_z = as_pair(enc.execute(image=img, key=1, **kw))
-        check("无标记框（%s）→ 默认原图直出 + 掩膜全 0" % why,
+        out_z, mask_z = as_pair(enc.execute(image=img, key=1,
+                                           no_region_policy="passthrough", **kw))
+        check("无标记框（%s）→ 显式 passthrough 原图直出 + 掩膜全 0" % why,
               torch.equal(out_z, img) and float(mask_z.max()) == 0.0)
     try:
         enc.execute(image=img, key=1)
-        check("无标记框 + 没连任何数据 → 默认不报错", True)
+        check("无标记框 + 没连任何数据 → 默认（error）应当报错", False, "没报错")
     except Exception as e:  # noqa: BLE001
-        check("无标记框 + 没连任何数据 → 默认不报错", False, str(e)[:60])
+        check("无标记框 + 没连任何数据 → 默认 error 报错（不静默直出）",
+              "解析出 0 个区域" in str(e), str(e)[:60])
     for why, kw in no_box_cases:
         try:
             enc.execute(image=img, key=1, no_region_policy="error", **kw)
@@ -319,11 +323,12 @@ def main():
         except Exception as e:  # noqa: BLE001
             check("无标记框（%s）+ error → 报错：%s" % (why, str(e)[:40].replace("\n", " ")), True)
     out_p, mask_p = as_pair(enc.execute(image=img, key=1, no_region_policy="passthrough"))
-    check("显式 passthrough 与默认行为一致（原图直出、掩膜全 0）",
+    check("显式 passthrough → 原图直出、掩膜全 0（要靠它兜底就得自己写出来）",
           torch.equal(out_p, img) and float(mask_p.max()) == 0.0)
-    # 还原节点同理（没框时把输入原样透传）
-    d_out, d_mask = as_pair(dec.execute(image=img, key=1))
-    check("还原节点：无框 → 输入原样透传", torch.equal(d_out, img) and float(d_mask.max()) == 0.0)
+    # 还原节点同理（显式 passthrough 时没框就把输入原样透传）
+    d_out, d_mask = as_pair(dec.execute(image=img, key=1, no_region_policy="passthrough"))
+    check("还原节点：无框 + 显式 passthrough → 输入原样透传",
+          torch.equal(d_out, img) and float(d_mask.max()) == 0.0)
     try:
         enc.execute(image=img, aabb="0,0,8,8", key=1, unit=7)
         check("unit=7 应当报错", False, "没报错")
@@ -340,10 +345,12 @@ def main():
                        ("8,8,16,16; 40,40,16,16|32,32,8,8", "xywh"), ("", "xywh"),
                        ("[[10 10 20 20] [30 30 10 10]]", "xywh"), ("10 10 20 20 30 30 10 10", "xywh")]:
         try:
-            enc.execute(image=img, aabb=aabb, key=1, box_mode=mode, region_shape="bbox")
+            enc.execute(image=img, aabb=aabb, key=1, box_mode=mode, region_shape="bbox",
+                        no_region_policy="passthrough")
             ok, err = True, ""
         except Exception as e:  # noqa: BLE001
-            # ("", xywh) 空 aabb 且无其他来源 → 默认 passthrough 直出，不报错
+            # 空 aabb（"", xywh）没有区域来源 → 显式 passthrough 直出，不报错；
+            # 其余写法都是有效框，报错才算失败
             ok, err = (aabb == ""), "%s: %s" % (type(e).__name__, str(e)[:60])
         check("aabb=%-34r mode=%-4s" % (aabb, mode), ok, err)
     gray = torch.from_numpy(np.stack([base[..., :1], base[..., :1]], 0).astype(np.float32))
