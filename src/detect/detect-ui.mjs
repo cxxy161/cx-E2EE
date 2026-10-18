@@ -102,7 +102,37 @@ function setStatus(text, kind) {
     el.style.color = kind === 'bad' ? '#d9534f' : (kind === 'ok' ? '#3a9d5d' : '#7d9ac0');
 }
 
-function setMsg(html) { const el = $('abox-msg'); if (el) el.innerHTML = html; }
+/**
+ * 一律用 textContent / DOM 节点拼装，**禁止 innerHTML**。
+ * 这里曾是 `el.innerHTML = html`，而 html 里嵌着服务端返回的文件名、模型 id、类别名
+ * （来自第三方 .pt 的 model.names）与模型报错文本 —— 那是可以在这页执行脚本的注入点，
+ * 而这一页正好持有用户的明文与密码。
+ */
+function setMsg(...parts) {
+    const box = $('abox-msg');
+    if (!box) return;
+    box.textContent = '';
+    for (const p of parts) {
+        if (p == null) continue;
+        box.append(typeof p === 'string' ? document.createTextNode(p) : p);
+    }
+}
+
+/** 建节点：文本走 textContent、属性走 setAttribute 语义（都不解析 HTML）。
+ *  取名 mk 而不是 el，避免和本文件里多处局部的 `const el = $(...)` 撞名。 */
+function mk(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = String(text);
+    return n;
+}
+
+/** 「重新扫描」按钮（原来是靠 innerHTML 拼出来再 getElementById 找回来） */
+function rescanBtn() {
+    const b = mk('button', 'abox-link', '重新扫描');
+    b.addEventListener('click', (e) => { e.preventDefault(); rescan(); });
+    return b;
+}
 
 function open(force) {
     const box = $('abox');
@@ -117,9 +147,9 @@ async function loadModels() {
     const D = deps();
     if (D.StaticHost && D.StaticHost.is) {
         setStatus('静态托管下不可用', 'bad');
-        setMsg('本页部署在纯静态站点（无后端）：没有服务端转译与模型路由。' +
-            '要用自动打框请用自托管方式打开本站（<code>npm start</code>）。');
-        $('abox-models').innerHTML = '';
+        setMsg('本页部署在纯静态站点（无后端）：没有服务端转译与模型路由。要用自动打框请用自托管方式打开本站（',
+            mk('code', null, 'npm start'), '）。');
+        $('abox-models').textContent = '';
         $('abox-run').disabled = true;
         return;
     }
@@ -129,7 +159,7 @@ async function loadModels() {
         state.payload = await res.json();
     } catch (e) {
         setStatus('后端不可用', 'bad');
-        setMsg('取不到 <code>/api/detect/models</code>（' + e.message +
+        setMsg('取不到 ', mk('code', null, '/api/detect/models'), '（' + e.message +
             '）。自托管服务端才有这个接口；静态托管请忽略本面板。');
         $('abox-run').disabled = true;
         return;
@@ -162,46 +192,53 @@ function renderModels(backend) {
     }
 
     if (!p.models.length) {
-        box.innerHTML = '';
-        setMsg((p.hint || '还没有模型。') +
-            '<br>把权重放进 <code>models/detect/segm/</code>（分割）或 <code>models/detect/bbox/</code>（检测）后，' +
-            '<button class="abox-link" id="abox-rescan">重新扫描</button>。');
-        const btn = $('abox-rescan');
-        if (btn) btn.onclick = rescan;
+        box.textContent = '';
+        setMsg((p.hint || '还没有模型。'), mk('br'),
+            '把权重放进 ', mk('code', null, 'models/detect/segm/'), '（分割）或 ',
+            mk('code', null, 'models/detect/bbox/'), '（检测）后，', rescanBtn(), '。');
         return;
     }
 
-    box.innerHTML = p.models.map((m) => {
+    for (const m of p.models) {
         const v = state.ep === 'webgpu' ? ['fp32', 'int8'] : ['int8', 'fp32'];
         const pick = v.find((k) => m.files[k]);
         const mb = pick ? (m.files[pick].bytes / 1048576).toFixed(1) + 'MB' : '—';
         const cls = Object.keys(m.classes || {}).length;
-        const st = m.status === 'ready' ? '' :
-            `<span class="abox-err">${m.status === 'error' ? '转译失败' : '转换中'}</span>`;
-        const disabled = m.status !== 'ready' ? 'disabled' : '';
-        // 尺度徽标：一个 ONNX 只能服务一个输入边长，所以"选哪个尺度"= 勾哪个模型
-        const px = `<span class="abox-px" title="该构建的输入边长（导出时写死的静态形状）">` +
-            `${m.imgsz || 640}px</span>`;
-        return `<label class="abox-mi" title="${m.status === 'error' ? (m.error || '').slice(0, 300) : ''}">
-            <input type="checkbox" data-mid="${m.id}" ${state.chosen.has(m.id) ? 'checked' : ''} ${disabled}>
-            <span class="abox-kind">${m.kind === 'segm' ? '分割' : '检测'}</span>
-            <span>${m.id}</span>${px}${st}
-            <span class="abox-size">${cls ? cls + ' 类 · ' : ''}${mb}</span>
-        </label>`;
-    }).join('') + (pending.length || failed.length
-        ? `<div class="v3-tip" style="margin-top:6px">${failed.length ? `${failed.length} 个转译失败（悬停看原因）· ` : ''}
-           <button class="abox-link" id="abox-rescan">重新扫描</button></div>` : '');
 
-    box.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+        const label = mk('label', 'abox-mi');
+        const cb = mk('input');
+        cb.type = 'checkbox';
+        cb.dataset.mid = m.id;
+        cb.checked = state.chosen.has(m.id);
+        if (m.status !== 'ready') cb.disabled = true;
         cb.onchange = () => {
-            if (cb.checked) state.chosen.add(cb.dataset.mid); else state.chosen.delete(cb.dataset.mid);
+            if (cb.checked) state.chosen.add(m.id); else state.chosen.delete(m.id);
             writeLS(LS.models, [...state.chosen]);
             renderScaleRow();                 // 尺度跟着选择变
         };
-    });
+        label.appendChild(cb);
+        label.appendChild(mk('span', 'abox-kind', m.kind === 'segm' ? '分割' : '检测'));
+        label.appendChild(mk('span', null, m.id));
+        // 尺度徽标：一个 ONNX 只能服务一个输入边长，所以"选哪个尺度"= 勾哪个模型
+        const px = mk('span', 'abox-px', (m.imgsz || 640) + 'px');
+        px.title = '该构建的输入边长（导出时写死的静态形状）';
+        label.appendChild(px);
+        if (m.status !== 'ready') {
+            label.appendChild(mk('span', 'abox-err', m.status === 'error' ? '转译失败' : '转换中'));
+        }
+        label.appendChild(mk('span', 'abox-size', (cls ? cls + ' 类 · ' : '') + mb));
+        if (m.status === 'error') label.title = String(m.error || '').slice(0, 300);
+        box.appendChild(label);
+    }
+
+    if (pending.length || failed.length) {
+        const tip = mk('div', 'v3-tip');
+        tip.style.marginTop = '6px';
+        if (failed.length) tip.appendChild(mk('span', null, failed.length + ' 个转译失败（悬停看原因）· '));
+        tip.appendChild(rescanBtn());
+        box.appendChild(tip);
+    }
     renderScaleRow();
-    const rb = $('abox-rescan');
-    if (rb) rb.onclick = rescan;
 }
 
 /**
@@ -301,25 +338,35 @@ function addRegionWithInfo(reg, info) {
     return false;   // 撞上 12 个上限（MOB.addRegion 自己会 toast）
 }
 
-function renderSourceList(run) {
-    const el = $('abox-src');
-    if (!el) return;
+function renderSourceList() {
+    const box = $('abox-src');
+    if (!box) return;
+    box.textContent = '';
     const MOB = deps().MOB;
     const rows = [];
     (MOB ? MOB.regions : []).forEach((reg, i) => {
         const info = LABELS.get(reg);
         if (!info) return;
         const from = (info.sources && info.sources.length > 1 ? info.sources.join('+') : info.src) || '';
-        const cross = (info.tiles && info.tiles.length > 1) ? ` · 跨块 ×${info.tiles.length}` : '';
+        const cross = (info.tiles && info.tiles.length > 1) ? ' · 跨块 ×' + info.tiles.length : '';
         const clam = info.clipped ? ' · 可能不完整（大于窗口）'
             : (info.repSwitched ? ' · 已取完整框' : (info.clampedSeen ? ' · 曾钳回窗口' : ''));
         const raw = (info.label || '') + (info.score != null ? ' ' + info.score : '');
-        rows.push(`<div class="abox-si" title="模型原始类别：${raw || '（无）'}"><b>#${i + 1}</b>` +
-            `<span>${info.kind === 'mask' ? '掩膜外接框' : '检测框'} · ${displayLabel(info)}` +
-            `${params.showClass && info.score != null ? ' ' + info.score : ''} · ${from}${cross}${clam}</span>` +
-            `<span style="margin-left:auto">${reg.w}×${reg.h} @ (${reg.x},${reg.y})</span></div>`);
+
+        const row = mk('div', 'abox-si');
+        row.title = '模型原始类别：' + (raw || '（无）');   // 走属性，不解析标签
+        row.appendChild(mk('b', null, '#' + (i + 1)));
+        row.appendChild(mk('span', null,
+            (info.kind === 'mask' ? '掩膜外接框' : '检测框') + ' · ' + displayLabel(info) +
+            (params.showClass && info.score != null ? ' ' + info.score : '') + ' · ' + from + cross + clam));
+        const geo = mk('span', null, reg.w + '×' + reg.h + ' @ (' + reg.x + ',' + reg.y + ')');
+        geo.style.marginLeft = 'auto';
+        row.appendChild(geo);
+        rows.push(row);
     });
-    el.innerHTML = rows.length ? `<div class="v3-tip">已添加区域（只读标注，具体部位名仅供参考）</div>` + rows.join('') : '';
+    if (!rows.length) return;
+    box.appendChild(mk('div', 'v3-tip', '已添加区域（只读标注，具体部位名仅供参考）'));
+    for (const r of rows) box.appendChild(r);
 }
 
 function renderRunSummary() {
@@ -334,14 +381,16 @@ function renderRunSummary() {
           `${st2.repSwitched ? `（其中 ${st2.repSwitched} 处改用完整框）` : ''}` +
           `${st2.clamped ? `，仍有 ${st2.clamped} 处大于窗口、只覆盖到部分` : ''})`
         : '整图（未分块）';
-    setMsg(`识别 ${r.ready} 个模型 → 候选 ${r.out.stats.candidates} → 合并 ${r.out.stats.grouped} 处` +
-        ` → 写入 ${r.added} 个区域` +
-        (r.overflow > 0 ? `，<b>${r.overflow} 个因为 12 个上限被丢弃</b>` : '') +
-        `。本机推理 ${r.ms.toFixed(1)} s，图片未上传。` +
-        `<br>尺度：${sc} · ${tiled} · 扩张：${params.mode === 'scale' ? params.factor.toFixed(2) + '×' : params.pad + 'px'}` +
-        ` · 合并：${{ near: '邻近', union: '外接框', none: '不合并' }[params.merge]}` +
-        ` · 标注：${params.showClass ? '显示类别名' : '只标敏感部位'}` +
-        ` · 对齐：${currentUnit()}px（${currentUnit() === 16 ? 'JPEG/J2' : 'PNG'}）`);
+    const parts = ['识别 ' + r.ready + ' 个模型 → 候选 ' + r.out.stats.candidates +
+        ' → 合并 ' + r.out.stats.grouped + ' 处 → 写入 ' + r.added + ' 个区域'];
+    if (r.overflow > 0) parts.push('，', mk('b', null, r.overflow + ' 个因为 12 个上限被丢弃'));
+    parts.push('。本机推理 ' + r.ms.toFixed(1) + ' s，图片未上传。', mk('br'),
+        '尺度：' + sc + ' · ' + tiled + ' · 扩张：' +
+        (params.mode === 'scale' ? params.factor.toFixed(2) + '×' : params.pad + 'px') +
+        ' · 合并：' + ({ near: '邻近', union: '外接框', none: '不合并' })[params.merge] +
+        ' · 标注：' + (params.showClass ? '显示类别名' : '只标敏感部位') +
+        ' · 对齐：' + currentUnit() + 'px（' + (currentUnit() === 16 ? 'JPEG/J2' : 'PNG') + '）');
+    setMsg(...parts);
 }
 
 /* ───────────────────────── 主流程：自动识别 ───────────────────────── */
