@@ -25,7 +25,9 @@ export const DEFAULT_OPTS = {
     conf: 0.30,          // 置信度阈值
     iou: 0.45,           // 类内 NMS 的 IoU
     maskThr: 0.5,        // 掩膜阈值（sigmoid 之后）
-    merge: 'near',       // 'none' | 'near'（重叠即同一处） | 'union'（合并成一个外接框）
+    // 默认 union 而不是 near：near 只保留高分框、**丢弃**与之重叠的低分框，会有
+    // "敏感像素没被盖住"的风险（漏盖 = 泄露像素）。打码工具宁可多盖，不可漏盖。
+    merge: 'union',      // 'none' | 'near'（重叠即同一处，保留高分框） | 'union'（合并成一个外接框）
     mergeIou: 0.30,      // 视为"同一处"的 IoU
     mergeContain: 0.80,  // 或 小框被大框包含的比例超过这个值也算同一处
     cap: 12,             // 上限：网页端硬限制（MOB.addRegion / IA.parseMeta 都是 12）

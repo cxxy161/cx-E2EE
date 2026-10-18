@@ -58,12 +58,23 @@ const state = {
 
 /* ───────────────────────── 参数（持久化） ───────────────────────── */
 
+// 一次性迁移：merge 的默认值从 near 改成了 union。
+// near 只保留高分框、**丢弃**与之重叠的低分框 —— 会有"敏感像素没被盖住"的风险
+// （漏盖 = 泄露像素）。但老浏览器的 localStorage 里存着 near，且下面会把它读回来，
+// 不迁移的话这次改动对老用户等于没发生。
+const storedParams = readLS(LS.params, {});
+if (storedParams && typeof storedParams === 'object' && !storedParams._mergeUnionDefault) {
+    storedParams.merge = 'union';
+    storedParams._mergeUnionDefault = true;
+    writeLS(LS.params, storedParams);
+}
+
 const params = Object.assign(
     // showClass 默认 false：实测同一处会被多个类各框一次（pussy/anus 会互相抢位置），
     // 类别名**不能**当功能依据，所以默认只显示「敏感部位」；想看原始类别名可以在面板上打开。
-    { mode: 'scale', factor: 1.25, pad: 16, target: 'all', merge: 'near', conf: 0.30,
+    { mode: 'scale', factor: 1.25, pad: 16, target: 'all', merge: 'union', conf: 0.30,
       capPolicy: 'score', showClass: false, tile: 'auto' },
-    readLS(LS.params, {}),
+    storedParams,
 );
 
 /** 展示用标签：默认抹掉具体部位名，只在悬停时给原文（title） */
@@ -382,7 +393,7 @@ function renderSourceList() {
 
 function renderRunSummary() {
     const r = state.lastRun;
-    if (!r) return;
+    if (!r) { const m = $('abox-msg'); if (m) m.textContent = ''; return; }
     const sc = (r.scales && r.scales.length) ? [...new Set(r.scales)].join('/') + 'px' : '—';
     const st2 = r.out.stats || {};
     const tiled = st2.tiled
@@ -392,7 +403,9 @@ function renderRunSummary() {
           `${st2.repSwitched ? `（其中 ${st2.repSwitched} 处改用完整框）` : ''}` +
           `${st2.clamped ? `，仍有 ${st2.clamped} 处大于窗口、只覆盖到部分` : ''})`
         : '整图（未分块）';
-    const parts = ['识别 ' + r.ready + ' 个模型 → 候选 ' + r.out.stats.candidates +
+    const parts = ['识别 ' + (r.ran == null ? r.ready : r.ran) + ' 个模型' +
+        ((r.skipped || 0) > 0 ? '（另有 ' + r.skipped + ' 个因块数超上限被跳过）' : '') +
+        ' → 候选 ' + r.out.stats.candidates +
         ' → 合并 ' + r.out.stats.grouped + ' 处 → 写入 ' + r.added + ' 个区域'];
     if (r.overflow > 0) parts.push('，', mk('b', null, r.overflow + ' 个因为 12 个上限被丢弃'));
     parts.push('。本机推理 ' + r.ms.toFixed(1) + ' s，图片未上传。', mk('br'),
@@ -465,7 +478,12 @@ async function run() {
                 void done;
             }
         }
-        if (!outputs.length) { toast('没有可跑的模型（都被块数上限挡下了）'); return; }
+        if (!outputs.length) {
+            toast('没有可跑的模型（都被块数上限挡下了）');
+            state.lastRun = null;          // 别让结论行留着上一次的旧内容
+            renderRunSummary();
+            return;
+        }
         const out = buildRegions(outputs, lb, W, H, opts());
         const slots = DEFAULT_OPTS.cap - MOB.regions.length;
         if (slots <= 0) { toast('已有 12 个区域，先删掉一些再识别'); return; }
@@ -480,7 +498,11 @@ async function run() {
         }
         const overflow = out.regions.length - added;
         state.sig = sigOf(MOB.regions);
-        state.lastRun = { ready: ready.length, out, added, overflow, ms: (now() - t0) / 1000,
+        // 结论行只该说"真跑了几个"。超 tileMax 被跳过的模型原来也被算进 ready，
+        // 于是会出现"识别 3 个模型"但其实只跑了 2 个 —— 对漏打码场景这是误导。
+        const skippedModels = plans.filter((p) => p.skipped).length;
+        state.lastRun = { ready: ready.length, ran: ready.length - skippedModels, skipped: skippedModels,
+            out, added, overflow, ms: (now() - t0) / 1000,
             scales: diagnostics.map((d) => d.size), plans };
         renderSourceList();
         const tileTxt = out.stats.tiled

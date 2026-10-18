@@ -198,7 +198,7 @@
                                         <select id="abox-mode"><option value="scale">等比缩放</option><option value="pad">固定像素</option></select>
                                     </div>
                                     <div class="abox-row" id="abox-scale-row"><span class="abox-lb">倍数</span>
-                                        <input type="range" id="abox-factor" min="100" max="200" step="5" value="125"><span class="vt" id="abox-factor-v">1.25×</span>
+                                        <input type="range" id="abox-factor" min="100" max="500" step="5" value="125"><span class="vt" id="abox-factor-v">1.25×</span>
                                     </div>
                                     <div class="abox-row" id="abox-pad-row" style="display:none"><span class="abox-lb">外扩</span>
                                         <input type="range" id="abox-pad" min="0" max="128" step="4" value="16"><span class="vt" id="abox-pad-v">16px</span>
@@ -207,7 +207,7 @@
                                         <select id="abox-target"><option value="all">模型框 + 手动框</option><option value="model">仅模型框</option></select>
                                     </div>
                                     <div class="abox-row"><span class="abox-lb">合并</span>
-                                        <select id="abox-merge"><option value="near">邻近合并（推荐）</option><option value="union">合并为外接框</option><option value="none">不合并</option></select>
+                                        <select id="abox-merge"><option value="union">合并为外接框（推荐）</option><option value="near">邻近合并（保留高分框）</option><option value="none">不合并</option></select>
                                     </div>
                                     <div class="abox-row"><span class="abox-lb">置信度</span>
                                         <input type="range" id="abox-conf" min="10" max="60" step="5" value="30"><span class="vt" id="abox-conf-v">0.30</span>
