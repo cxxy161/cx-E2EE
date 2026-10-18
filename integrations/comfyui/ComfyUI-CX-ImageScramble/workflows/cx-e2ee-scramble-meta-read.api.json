@@ -1,0 +1,58 @@
+{
+ "1": {
+  "class_type": "LoadImage",
+  "inputs": {
+   "image": "cx_meta_demo.png"
+  }
+ },
+ "2": {
+  "class_type": "CX_RegionUnscramble",
+  "inputs": {
+   "image": [
+    "1",
+    0
+   ],
+   "key": 20240117,
+   "region_shape": "bbox",
+   "pad": 0,
+   "max_regions": 32,
+   "mask_threshold": 0.5,
+   "label_filter": "",
+   "sort_regions": true,
+   "unit": 8,
+   "soft": false,
+   "password": "",
+   "box_mode": "xywh",
+   "aabb": "",
+   "no_region_policy": "error"
+  }
+ },
+ "3": {
+  "class_type": "SaveImage",
+  "inputs": {
+   "images": [
+    "2",
+    0
+   ],
+   "filename_prefix": "CX_meta_restored"
+  }
+ },
+ "4": {
+  "class_type": "MaskToImage",
+  "inputs": {
+   "mask": [
+    "2",
+    1
+   ]
+  }
+ },
+ "5": {
+  "class_type": "PreviewImage",
+  "inputs": {
+   "images": [
+    "4",
+    0
+   ]
+  }
+ }
+}

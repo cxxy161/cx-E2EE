@@ -8,6 +8,8 @@
 ```
 cx-E2EE/
 ├── src/                    # 前端唯一真源（页面 + 样式 + 脚本 + PQ 算法模块）
+│   └── detect/             # 自动打框前端模块（面板 / ONNX Runtime / 纯逻辑）
+├── models/detect/          # 自动打框用的检测模型（segm//bbox/，权重不入库，启动期转译 ONNX）
 │   ├── index.html          # 控制台首页
 │   ├── text-crypto.html    # 文本信道 (Curve25519)
 │   ├── image-crypto.html   # 图片加密 (Canvas)
@@ -32,6 +34,8 @@ cx-E2EE/
 ├── single-file/            # 单文件压缩版（离线分发，双击即用，无服务器依赖）
 │   ├── CX秘制安全终端-V6.html  # 合并 8 信道的单页产物 (~134KB)
 │   └── COMPRESSION.md          # 合并/压缩过程文档
+├── integrations/           # 可选外围集成（不参与本项目运行与构建）
+│   └── comfyui/            # ComfyUI 自定义节点：图片区域打码 / 还原（Python 等价移植 + 对照测试）
 ├── data/                   # 运行时数据（gitignore：公钥库 JSON 等）
 ├── archive/                # 测试素材留档（gitignore）
 └── package.json / package-lock.json / .gitignore / .dockerignore
@@ -44,6 +48,23 @@ cx-E2EE/
 | **生产 Web 版** | `src/` + `server/server.js` + `deploy/` | 前端与后端整体部署在一台服务器：浏览器访问页面，account 页写/查 PKI API |
 | **本地版** | `src/` + `node server/serve.js` | 纯静态本地预览（9091），离线可用（PQ 模块经本地 http 加载） |
 | **单文件版** | `single-file/CX秘制安全终端-V6.html` | 全部页面+算法合并为一个 HTML，可离线分发/双击打开，不含 PKI 服务端 |
+
+## 生态集成
+
+[`integrations/comfyui/`](integrations/comfyui/) —— 把图片混淆（区域打码 + 边框元数据）的同一套算法
+做成 **ComfyUI 自定义节点**，用来批量处理、或先让检测模型框出目标再打码：
+同样的图 + 同样的区域 + 同样的密码，输出与浏览器端**逐字节相同**，PNG 打码图两端互认。
+属于可选外围集成（`src/` 与构建流程零改动），详见
+[`integrations/comfyui/README.md`](integrations/comfyui/README.md)。
+
+## 自动打框（可选）
+
+「图片混淆」页的 V3 区域打码面板里带一块**默认折叠**的「🧠 自动打框」：把本地检测模型
+（放在 `models/detect/segm|bbox/`，服务端启动时自动转译成 ONNX）在浏览器里跑一遍，
+自动填出打码区域，并可按比例/像素统一扩张（手绘的框也能一起扩张）。
+推理全程在本机，图片不上传；没有模型或没装 python 时整块功能降级，不影响加密与解密。
+
+实现说明、参数口径与实测数据见 [docs/detect-auto-box.md](docs/detect-auto-box.md)。
 
 ## 快速开始
 

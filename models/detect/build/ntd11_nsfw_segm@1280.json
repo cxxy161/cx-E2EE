@@ -1,0 +1,42 @@
+{
+ "id": "ntd11_nsfw_segm@1280",
+ "kind": "segm",
+ "task": "segment",
+ "classes": {
+  "0": "nipples",
+  "1": "pussy",
+  "2": "anus",
+  "3": "penis",
+  "4": "cross-section",
+  "5": "x-ray",
+  "6": "testicles"
+ },
+ "imgsz": 1280,
+ "opset": 17,
+ "source": {
+  "file": "ntd11_nsfw_segm.pt",
+  "bytes": 20585444,
+  "sha256": "d04eec2d5b657410c90bc06895634a4d9a67f8fc710852fdc67086f30e0cc900",
+  "mtime": 1792073371
+ },
+ "files": {
+  "fp32": {
+   "file": "ntd11_nsfw_segm@1280.fp32.onnx",
+   "bytes": 41026530
+  },
+  "int8": {
+   "file": "ntd11_nsfw_segm@1280.int8.onnx",
+   "bytes": 11238420
+  }
+ },
+ "exported_at": "2026-10-16 08:58:12",
+ "tool": {
+  "python": "3.12.10",
+  "exe": "D:\\ComfyUI-new\\venv\\Scripts\\python.exe",
+  "ultralytics": "8.4.71",
+  "onnx": "1.18.0",
+  "onnxruntime": "1.22.0"
+ },
+ "notes": "int8 为动态量化（只动权重）：几何与 fp32 一致，实测框 IoU 0.97~0.98；静态 QDQ 会把检测头量化掉，实测检出归零，故不采用。",
+ "reused": false
+}

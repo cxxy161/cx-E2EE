@@ -18,3 +18,22 @@ pcd-v3-6M-fixedpoint.zip
 # .github/workflows/pages.yml），不是真源。若本地手动跑过同样的复制，
 # 这里兜住，避免把同一份 6.7MB 二进制重复入库。
 src/stego-model/
+
+# 自动打框（检测模型）：**fork 分支随库附带**权重与构建产物 —— 这样 clone 下来
+# 装上依赖就能直接用（不需要本机 python、也不需要先下载 ORT 运行时）。
+# 单文件最大 39 MB（< GitHub 的 50 MB 提醒线、远低于 100 MB 硬上限），因此不会卡住 push/PR。
+# 默认仍然把它们当"可选资产"：想保持仓库干净时删掉这几段即可（面板会提示怎么补）。
+# 注意：下面四条**故意注释掉**了 —— 权重与产物随库附带，clone 下来就能直接跑。
+# 想保持仓库干净时把它们放开，即可回到"权重不入库"的旧行为（面板会提示怎么补：
+# 放 .pt 进 segm/bbox，或跑 tools/detect-export.py / tools/fetch-ort.mjs）。
+# models/detect/segm/*.pt
+# models/detect/bbox/*.pt
+# models/detect/build/
+# src/vendor/ort/
+
+# 同内容的再打包（会与 models/detect/ 下的文件重复，直接把仓库撑大一倍）
+models/detect.zip
+models/detect/models.zip
+
+# 新测试目录：上面的 test/* 会把 test/ 一级全部忽略，这里按 test/stego/ 的同样做法放行
+!test/detect/

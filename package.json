@@ -5,7 +5,11 @@
   "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
-    "serve:local": "node server/serve.js"
+    "serve:local": "node server/serve.js",
+    "detect:check": "python tools/detect-export.py --check",
+    "detect:export": "python tools/detect-export.py --scan models/detect --plan",
+    "detect:fetch-ort": "node tools/fetch-ort.mjs",
+    "detect:sweep": "python tools/detect-sweep.py"
   },
   "dependencies": {
     "express": "^4.18.2",

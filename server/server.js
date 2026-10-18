@@ -165,7 +165,17 @@ app.use('/stego-model', express.static(
 ));
 
 
+// 自动打框（检测模型）：可选能力，权重放 models/detect/{segm,bbox}/，
+// 启动期转译成 ONNX（增量、异步、不阻塞 HTTP），产物经 /detect-model/ 提供。
+// 缺 python / 缺 torch·ultralytics 时整条功能降级为 available:false，不影响其余能力。
+// 细节与「为什么」见 server/detect-models.js 顶部注释。
+const detectModels = require('./detect-models');
+detectModels.mountRoutes(app, express);
+
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`C-X Server running on 0.0.0.0:${PORT}`);
+    // 故意放在 listen 之后：转译是 CPU 密集的，不能让浏览器干等
+    detectModels.start();
 });
