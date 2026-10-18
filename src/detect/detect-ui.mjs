@@ -189,6 +189,17 @@ function renderModels(backend) {
         setMsg(`后端 ${epTxt}${bi.adapter ? '（' + bi.adapter + '）' : ''} · 已选 ${sel.length} 个模型` +
             (sel.length ? '' : '（勾选左侧模型后点「开始自动识别」）') + '。' +
             '识别在本机进行，图片不会上传。');
+        // 有就绪模型、但 python 不可用：只影响「.pt 能不能现场转译」，已就绪的构建照常能跑。
+        // 不说明的话，用户会以为整个功能坏了 —— 这正是随库附带资产后最容易踩的误解。
+        if (p.python && !p.python.ok) {
+            const note = document.createElement('div');
+            note.style.marginTop = '4px';
+            note.textContent = '注意：本机 python 缺 ' +
+                ((p.python.missing || []).join(', ') || '依赖') +
+                '，因此 .pt 不会现场转译；上面已就绪的 ONNX 构建不受影响，可以直接勾选。';
+            const msgBox = $('abox-msg');
+            if (msgBox) msgBox.appendChild(note);
+        }
     }
 
     if (!p.models.length) {

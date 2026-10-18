@@ -12,8 +12,9 @@
  * 4) 产物一律落在 models/detect/build/，由 /detect-model/ 静态路由提供，并且**带缓存**
  *    —— 这与 ./server.js 里给 src/ 加的 no-store 是两码事：那边禁缓存是为了防
  *    「新页面 + 旧脚本」混搭，这边是几十 MB 的不可变二进制，每次重下纯属浪费。
- * 5) 缺 python / 缺 torch·ultralytics 时**整条功能降级**（available:false + hint），
- *    绝不影响加密、解密、公钥库等既有能力。
+ * 5) 缺 python / 缺 torch·ultralytics 时：**.pt 的现场转译停摆**，但已经就绪的
+ *    ONNX 构建照常可用（available 看的是"有没有能跑的模型"，不是"python 在不在"）。
+ *    缺 python 也从不让加密、解密、公钥库等既有能力降级。
  */
 
 const { spawn, spawnSync } = require('child_process');
@@ -408,7 +409,11 @@ function payload() {
     }));
     models.sort((a, b) => (a.kind === b.kind ? a.id.localeCompare(b.id) : a.kind.localeCompare(b.kind)));
     return {
-        available: state.python.ok,
+        // 可用性 = "有能跑的模型"，**不等于** "python 可用"。
+        // 原来绑 state.python.ok：把权重与 ONNX 构建都随库附带之后，只要本机没装
+        // torch/ultralytics，面板就报「不可用」、点识别被直接拦下 —— 新形态等于白做。
+        // python 只决定「.pt 能不能现场转译」，不影响已经就绪的构建。
+        available: state.python.ok || models.some((m) => m.status === 'ready'),
         python: Object.assign({}, state.python, { cmd: maskPath(state.python.cmd) }),
         runtime: {
             dir: '/detect-runtime/',
