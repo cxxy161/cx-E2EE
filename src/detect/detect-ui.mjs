@@ -241,10 +241,14 @@ function renderModels(backend) {
         label.appendChild(cb);
         label.appendChild(mk('span', 'abox-kind', m.kind === 'segm' ? '分割' : '检测'));
         label.appendChild(mk('span', 'abox-name', m.id));
-        // 尺度徽标：一个 ONNX 只能服务一个输入边长，所以"选哪个尺度"= 勾哪个模型
-        const px = mk('span', 'abox-px', (m.imgsz || 640) + 'px');
-        px.title = '该构建的输入边长（导出时写死的静态形状）';
-        label.appendChild(px);
+        // 尺度徽标：一个 ONNX 只能服务一个输入边长，所以"选哪个尺度"= 勾哪个模型。
+        // 但多尺度构建的 id 本来就带 @<imgsz>（如 ntd11_nsfw_segm@1280），再挂一个徽标
+        // 只是重复占宽、把模型名挤成省略号 —— 这种情况下就不挂了。
+        if (!/@\d+$/.test(m.id)) {
+            const px = mk('span', 'abox-px', (m.imgsz || 640) + 'px');
+            px.title = '该构建的输入边长（导出时写死的静态形状）';
+            label.appendChild(px);
+        }
         if (m.status !== 'ready') {
             label.appendChild(mk('span', 'abox-err', m.status === 'error' ? '转译失败' : '转换中'));
         }
